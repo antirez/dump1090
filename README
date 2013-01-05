@@ -18,14 +18,7 @@ The main features are:
 Installation
 ---
 
-Edit the Makefile and set the following variables according to your system:
-
-LIBUSB_INC_PATH=/usr/local/Cellar/libusb/1.0.9/include/libusb-1.0
-LIBUSB_LIB_PATH=/usr/local/Cellar/libusb/1.0.9/lib
-LIBRTLSDR_INC_PATH=/usr/local/Cellar/rtlsdr/HEAD/include
-LIBRTLSDR_LIB_PATH=/usr/local/Cellar/rtlsdr/HEAD/lib
-
-Then save the modified Makefile and type "make".
+Type "make".
 
 Normal usage
 ---
