@@ -809,8 +809,9 @@ void displayModesMessage(struct modesMessage *mm) {
     int j;
 
     /* Show the raw message. */
+    printf("*");
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
-    printf("\n");
+    printf(";\n");
 
     if (Modes.raw) return; /* Enough for --raw mode */
 
