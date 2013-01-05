@@ -1,0 +1,207 @@
+Dump1090 README
+===
+
+Dump 1090 is a Mode S decoder specifically designed for RTLSDR devices.
+
+The main features are:
+
+* Robust decoding of weak messages.
+* Single bit errors correction using the 24 bit CRC.
+* Ability to decode DF11, DF17 messages.
+* Ability to decode DF formats like DF0, DF4, DF5, DF16, DF20 and DF21
+  where the checksum is xored with the ICAO address by brute forcing the
+  checksum field using recently seen ICAO addresses.
+* Decode raw IQ samples from file (using --ifile command line switch).
+* Interactive mode where aircrafts currently detected are shown
+  as a list refreshing as more data arrives.
+
+Installation
+---
+
+Edit the Makefile and set the following variables according to your system:
+
+LIBUSB_INC_PATH=/usr/local/Cellar/libusb/1.0.9/include/libusb-1.0
+LIBUSB_LIB_PATH=/usr/local/Cellar/libusb/1.0.9/lib
+LIBRTLSDR_INC_PATH=/usr/local/Cellar/rtlsdr/HEAD/include
+LIBRTLSDR_LIB_PATH=/usr/local/Cellar/rtlsdr/HEAD/lib
+
+Then save the modified Makefile and type "make".
+
+Normal usage
+---
+
+To capture traffic directly from your RTL device and show the captured traffic
+on standard output, just run the program without options at all:
+
+    ./dump1090
+
+To just output hexadecimal messages:
+
+    ./dump1090 --raw
+
+To run the program in interactive mode:
+
+    ./dump1090 --interactive
+
+In iteractive mode it is possible to have a less information dense but more
+"arcade style" output, where the screen is refreshed every second displaying
+all the recently seen aircrafts with some additional information such as
+altitude and flight number, extracted from the received Mode S packets.
+
+Using files as source of data
+---
+
+To decode data from file, use:
+
+    ./dump1090 --ifile /path/to/binfile
+
+The binary file should be created using rtl_sdr like this (or with any other
+program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
+
+    rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin
+
+In the example rtl_sdr a gain of 50 is used, simply you should use the highest
+gain availabe for your tuner. This is not needed when calling Dump1090 itself
+as it is able to select the highest gain supported automatically.
+
+It is possible to feed the program with data via standard input using
+the --ifile option with "-" as argument.
+
+Additional options
+---
+
+Dump1090 can be called with other command line options to set a different
+gain, frequency, and so forth. For a list of options use:
+
+    ./dump1090 --help
+
+Everything is not documented here should be obvious, and for most users calling
+it without arguments at all is the best thing to do.
+
+Reliability
+---
+
+By default Dump1090 tries to fix single bit errors using the checksum.
+Basically the program will try to flip every bit of the message and check if
+the checksum of the resulting message matches.
+
+This is indeed able to fix errors and works reliably in my experience,
+however if you are interested in very reliable data I suggest to use
+the --no-fix command line switch in order to disable error fixing.
+
+Performances and sensibility of detection
+---
+
+In my limited experience Dump1090 was able to decode a big number of messages
+even in conditions where I encountered problems using other programs, however
+no formal test was performed so I can't really claim that this program is
+better or worse compared to other similar programs.
+
+If you can capture traffic that Dump1090 is not able to decode properly, drop
+me an email with a download link. I may try to improve the detection during
+my free time (this is just an hobby project).
+
+Antenna
+---
+
+Mode S messages are transmitted in the 1090 Mhz frequency. If you have a decent
+antenna you'll be able to pick up signals from aircrafts pretty far from your
+position, especially if you are outdoor and in a position with a good sky view.
+
+You can easily build a very cheap antenna following the istructions at:
+
+    http://antirez.com/news/46
+
+With this trivial antenna I was able to pick up signals of aircrafts 200+ Km
+away from me.
+
+Debug mode
+---
+
+The Debug mode is a visual help to improve the detection algorithm or to
+understand why the program is not working for a given input.
+
+In this mode messages are displayed in an ASCII-art style graphical
+representation, where the individial magnitude bars sampled at 2Mhz are
+displayed.
+
+An index shows the sample number, where 0 is the sample where the first
+Mode S peak was found. Some additional background noise is also added
+before the first peak to provide some context.
+
+It is possible to display different categories of messages:
+
+    --debug 1       Displays all the messages correctly demoudulated.
+                    A correctly demodulated message is just one that
+                    makes sense as a Mode S message, the preamble makes
+                    sense, and there are no message errors, that is,
+                    no adiacet samples describing bits are the same
+                    magnitude.
+
+    --debug 2       Only messages with demodulation errors are displayed,
+                    That is, only messages where one or more adiacent
+                    samples that should describe bits are the same
+                    magnitude.
+
+    --debug 3       Correctly deooded messages with Bad CRC are displayed.
+
+    --debug 4       Correctly deooded messages with good CRC are displayed.
+
+    --debug 5       Preamble detection failed in some way (specified when
+                    dumping the samples) even if the current sample level
+                    is greater than MODES_DEBUG_NOPREAMBLE_LEVEL (set to
+                    25 by default).
+
+How this program works?
+---
+
+The code is very documented and written in order to be easy to understand.
+For the diligent programmer with a Mode S specification on his hands it
+should be trivial to understand how it works.
+
+The algorithms I used were obtained basically looking at many messages
+as displayed using a trow-away SDL program, and trying to model the algorithm
+based on how the messages look graphically.
+
+How to test the program?
+---
+
+If you have an RTLSDR device and you happen to be in an area where there
+are aircrafts flying over your head, just run the program and check for signals.
+
+However if you don't have an RTLSDR device, or if in your area the presence
+of aircrafts is very limited, you may want to try the sample file distributed
+with the Dump1090 distribution under the "testfiles" directory.
+
+Just run it like this:
+
+    ./dump1090 --ifile testfiles/modes1.bin
+
+What is --strip mode?
+---
+
+It is just a simple filter that will get raw IQ 8 bit samples in input
+and will output a file missing all the parts of the file where I and Q
+are lower than the specified <level> for more than 32 samples.
+
+Use it like this:
+
+    cat big.bin | ./mode1090 --snip 25 > small.bin
+
+I used it in order to create a small test file to include inside this
+program source code distribution.
+
+Contributing
+---
+
+Mode1090 was written during some free time during xmas 2012, it is an hobby
+project so I'll be able to address issues and improve it only during
+free time, however you are incouraged to send pull requests in order to
+improve the program. A good starting point can be the TODO list included in
+the source distribution.
+
+Credits
+---
+
+Dump1090 was written by Salvatore Sanfilippo <antirez@gmail.com> and is
+released under the BSD three clause license.
