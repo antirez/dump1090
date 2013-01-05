@@ -72,6 +72,7 @@
 #define MODES_DEBUG_NOPREAMBLE_LEVEL 25
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250      /* Milliseconds */
+#define MODES_INTERACTIVE_ROWS 15
 
 #define MODES_NOTUSED(V) ((void) V)
 
@@ -116,6 +117,7 @@ struct {
     int raw;                        /* Raw output format */
     int debug;                      /* Debugging mode */
     int interactive;                /* Interactive mode */
+    int interactive_rows;           /* Interactive mode: max number of rows */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -194,6 +196,7 @@ void modesInitConfig(void) {
     Modes.raw = 0;
     Modes.debug = 0;
     Modes.interactive = 0;
+    Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
 }
 
 void modesInit(void) {
@@ -1194,7 +1197,7 @@ void interactiveShowData(void) {
     printf("Hex    Flight   Altitude  Speed     Messages  Seen    %s\n",
             progress);
     printf("----------------------------------------------------\n");
-    while(a && count < 15) {
+    while(a && count < Modes.interactive_rows) {
         printf("%-6s %-8s %-9d %-9d %-9ld %d sec ago\n",
             a->hexaddr, a->flight, a->altitude, a->speed, a->messages,
             (int)(now - a->seen));
@@ -1233,6 +1236,7 @@ void showHelp(void) {
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
+"--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--raw                    Show only messages hex values.\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC.\n"
@@ -1269,6 +1273,8 @@ int main(int argc, char **argv) {
             Modes.raw = 1;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
+        } else if (!strcmp(argv[j],"--interactive-rows")) {
+            Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {
             Modes.debug = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--snip") && more) {
