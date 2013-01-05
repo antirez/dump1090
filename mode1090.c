@@ -1228,14 +1228,14 @@ void snipMode(int level) {
 void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
-"--gain <db>              Set gain (default: max gain. Use 0 for auto-gain).\n"
+"--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
 "--enable-agc <db>        Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--raw                    Show only messages hex values.\n"
-"--no-fix                 Disalbe single-bits error correction using CRC.\n"
-"--no-crc-check           Disalbe messages with broken CRC.\n"
+"--no-fix                 Disable single-bits error correction using CRC.\n"
+"--no-crc-check           Disable messages with broken CRC.\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--help                   Show this help.\n"
     );
