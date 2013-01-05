@@ -223,7 +223,7 @@ void modesInit(void) {
     Modes.maglut = malloc(129*129);
     for (i = 0; i <= 128; i++) {
         for (q = 0; q <= 128; q++) {
-            Modes.maglut[i*129+q] = round(sqrt(i*i+q*q)*1.4);
+            Modes.maglut[i*129+q] = round(sqrt(i*i+q*q)*1.408);
         }
     }
 }
