@@ -179,7 +179,7 @@ are lower than the specified <level> for more than 32 samples.
 
 Use it like this:
 
-    cat big.bin | ./mode1090 --snip 25 > small.bin
+    cat big.bin | ./dump1090 --snip 25 > small.bin
 
 I used it in order to create a small test file to include inside this
 program source code distribution.
@@ -187,7 +187,7 @@ program source code distribution.
 Contributing
 ---
 
-Mode1090 was written during some free time during xmas 2012, it is an hobby
+Dump1090 was written during some free time during xmas 2012, it is an hobby
 project so I'll be able to address issues and improve it only during
 free time, however you are incouraged to send pull requests in order to
 improve the program. A good starting point can be the TODO list included in
