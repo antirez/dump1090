@@ -120,6 +120,7 @@ struct {
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows */
     int stats;                      /* Print stats at exit in --ifile mode. */
+    int onlyaddr;                   /* Print only ICAO addresses. */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -203,6 +204,7 @@ void modesInitConfig(void) {
     Modes.fix_errors = 1;
     Modes.check_crc = 1;
     Modes.raw = 0;
+    Modes.onlyaddr = 0;
     Modes.debug = 0;
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
@@ -833,6 +835,12 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 void displayModesMessage(struct modesMessage *mm) {
     int j;
 
+    /* Handle only addresses mode first. */
+    if (Modes.onlyaddr) {
+        printf("%02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        return;
+    }
+
     /* Show the raw message. */
     printf("*");
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
@@ -1124,7 +1132,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     interactiveReceiveData(&mm);
                 } else {
                     displayModesMessage(&mm);
-                    if (!Modes.raw) printf("\n");
+                    if (!Modes.raw && !Modes.onlyaddr) printf("\n");
                 }
             }
 
@@ -1276,9 +1284,11 @@ void showHelp(void) {
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--raw                    Show only messages hex values.\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
-"--no-crc-check           Disable messages with broken CRC.\n"
+"--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
+"--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
+"--debug <level>          Debug mode, see README for more information.\n"
 "--help                   Show this help.\n"
     );
 }
@@ -1309,6 +1319,8 @@ int main(int argc, char **argv) {
             Modes.check_crc = 0;
         } else if (!strcmp(argv[j],"--raw")) {
             Modes.raw = 1;
+        } else if (!strcmp(argv[j],"--onlyaddr")) {
+            Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
