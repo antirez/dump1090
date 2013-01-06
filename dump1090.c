@@ -95,13 +95,13 @@ struct {
     pthread_mutex_t data_mutex;     /* Mutex to synchronize buffer access. */
     pthread_cond_t data_cond;       /* Conditional variable associated. */
     unsigned char *data;            /* Raw IQ samples buffer */
-    unsigned char *magnitude;       /* Magnitude vector */
+    uint16_t *magnitude;            /* Magnitude vector */
     uint32_t data_len;              /* Buffer length. */
     int fd;                         /* --ifile option file descriptor. */
     int data_ready;                 /* Data ready to be processed. */
     uint32_t icao_cache[MODES_ICAO_CACHE_LEN];/* Recently seen ICAO addresses */
     int icao_cache_idx;             /* icao_cache circular buf idx. */
-    unsigned char *maglut;          /* I/Q -> Magnitude lookup table. */
+    uint16_t *maglut;               /* I/Q -> Magnitude lookup table. */
     int exit;                       /* Exit from the main loop when true. */
 
     /* RTLSDR */
@@ -220,7 +220,7 @@ void modesInit(void) {
     Modes.aircrafts = NULL;
     Modes.interactive_last_update = 0;
     if ((Modes.data = malloc(Modes.data_len)) == NULL ||
-        (Modes.magnitude = malloc(Modes.data_len)) == NULL) {
+        (Modes.magnitude = malloc(Modes.data_len*2)) == NULL) {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
     }
@@ -232,10 +232,10 @@ void modesInit(void) {
      * We scale to 0-255 range multiplying by 1.4 in order to ensure that
      * every different I/Q pair will result in a different magnitude value,
      * not losing any resolution. */
-    Modes.maglut = malloc(129*129);
+    Modes.maglut = malloc(129*129*2);
     for (i = 0; i <= 128; i++) {
         for (q = 0; q <= 128; q++) {
-            Modes.maglut[i*129+q] = round(sqrt(i*i+q*q)*1.408);
+            Modes.maglut[i*129+q] = round(sqrt(i*i+q*q)*360);
         }
     }
 
@@ -398,14 +398,16 @@ void dumpMagnitudeBar(int index, int magnitude) {
  * If possible a few samples before the start of the messsage are included
  * for context. */
 
-void dumpMagnitudeVector(unsigned char *m, uint32_t offset) {
+void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     uint32_t padding = 5; /* Show 5 samples before the actual start. */
     uint32_t start = (offset < padding) ? 0 : offset-padding;
     uint32_t end = offset + (MODES_PREAMBLE_US*2)+(MODES_SHORT_MSG_BITS*2) - 1;
     uint32_t j;
 
-    for (j = start; j <= end; j++)
-        dumpMagnitudeBar(j-offset, m[j]);
+    for (j = start; j <= end; j++) {
+        /* Scale magnitude to 0-255 from 0-65535 before printing. */
+        dumpMagnitudeBar(j-offset, m[j]/256);
+    }
 }
 
 /* This is a wrapper for dumpMagnitudeVector() that also show the message
@@ -417,7 +419,7 @@ void dumpMagnitudeVector(unsigned char *m, uint32_t offset) {
  * offset is the offset where the message starts
  */
 void dumpRawMessage(char *descr, unsigned char *msg,
-                    unsigned char *m, uint32_t offset)
+                    uint16_t *m, uint32_t offset)
 {
     int j;
 
@@ -935,7 +937,8 @@ void displayModesMessage(struct modesMessage *mm) {
 /* Turn I/Q samples pointed by Modes.data into the magnitude vector
  * pointed by Modes.magnitude. */
 void computeMagnitudeVector(void) {
-    unsigned char *m = Modes.magnitude, *p = Modes.data;
+    uint16_t *m = Modes.magnitude;
+    unsigned char *p = Modes.data;
     uint32_t j;
 
     /* Compute the magnitudo vector. It's just SQRT(I^2 + Q^2), but
@@ -953,7 +956,7 @@ void computeMagnitudeVector(void) {
 /* Detect a Mode S messages inside the magnitude buffer pointed by 'm' and of
  * size 'mlen' bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it. */
-void detectModeS(unsigned char *m, uint32_t mlen) {
+void detectModeS(uint16_t *m, uint32_t mlen) {
     unsigned char bits[MODES_LONG_MSG_BITS];
     unsigned char msg[MODES_LONG_MSG_BITS/2];
     uint32_t j;
@@ -1082,10 +1085,10 @@ void detectModeS(unsigned char *m, uint32_t mlen) {
         }
         delta /= msglen*4;
 
-        /* A avg delta of three is small enough to let almost every kind of
-         * message to pass, but high enough to filter some random noise,
-         * especially when --no-crc-check is used. */
-        if (delta < 3) continue;
+        /* Filter for an average delta of three is small enough to let almost
+         * every kind of message to pass, but high enough to filter some
+         * random noise. */
+        if (delta < 10*255) continue;
 
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
