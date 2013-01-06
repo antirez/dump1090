@@ -102,6 +102,7 @@ struct {
     uint32_t icao_cache[MODES_ICAO_CACHE_LEN];/* Recently seen ICAO addresses */
     int icao_cache_idx;             /* icao_cache circular buf idx. */
     unsigned char *maglut;          /* I/Q -> Magnitude lookup table. */
+    int exit;                       /* Exit from the main loop when true. */
 
     /* RTLSDR */
     int dev_index;
@@ -118,10 +119,18 @@ struct {
     int debug;                      /* Debugging mode */
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows */
+    int stats;                      /* Print stats at exit in --ifile mode. */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
     long long interactive_last_update;  /* Last screen update in milliseconds */
+
+    /* Statistics */
+    long long stat_valid_preamble;
+    long long stat_demodulated;
+    long long stat_goodcrc;
+    long long stat_badcrc;
+    long long stat_fixed;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -229,6 +238,14 @@ void modesInit(void) {
             Modes.maglut[i*129+q] = round(sqrt(i*i+q*q)*1.408);
         }
     }
+
+    /* Statistics */
+    Modes.stat_valid_preamble = 0;
+    Modes.stat_demodulated = 0;
+    Modes.stat_goodcrc = 0;
+    Modes.stat_badcrc = 0;
+    Modes.stat_fixed = 0;
+    Modes.exit = 0;
 }
 
 /* =============================== RTLSDR handling ========================== */
@@ -314,7 +331,10 @@ void readDataFromFile(void) {
         p = Modes.data;
         while(toread) {
             nread = read(Modes.fd, p, toread);
-            if (nread <= 0) exit(0);
+            if (nread <= 0) {
+                Modes.exit = 1; /* Signal the other thread to exit. */
+                break;
+            }
             p += nread;
             toread -= nread;
         }
@@ -1015,6 +1035,7 @@ void detectModeS(unsigned char *m, uint32_t mlen) {
                     msg, m, j);
             continue;
         }
+        Modes.stat_valid_preamble++;
 
         /* Decode all the next 112 bits, regardless of the actual message
          * size. We'll check the actual message type later. */
@@ -1072,8 +1093,20 @@ void detectModeS(unsigned char *m, uint32_t mlen) {
         if (errors == 0) {
             struct modesMessage mm;
 
+            /* Decode the received message and update statistics */
             decodeModesMessage(&mm,msg);
+            Modes.stat_demodulated++;
+            if (mm.errorbit == -1) {
+                if (mm.crcok)
+                    Modes.stat_goodcrc++;
+                else
+                    Modes.stat_badcrc++;
+            } else {
+                Modes.stat_badcrc++;
+                Modes.stat_fixed++;
+            }
 
+            /* Output debug mode info if needed. */
             if (Modes.debug == MODES_DEBUG_DEMOD)
                 dumpRawMessage("Demodulated with 0 errors", msg, m, j);
             else if (Modes.debug == MODES_DEBUG_BADCRC && !mm.crcok)
@@ -1082,7 +1115,8 @@ void detectModeS(unsigned char *m, uint32_t mlen) {
                      mm.errorbit == -1)
                 dumpRawMessage("Decoded with good CRC", msg, m, j);
 
-            if (Modes.check_crc == 0 || mm.crcok) {
+            /* Pass data to the next layer */
+            if (!Modes.stats && (Modes.check_crc == 0 || mm.crcok)) {
                 if (Modes.interactive) {
                     interactiveReceiveData(&mm);
                 } else {
@@ -1091,8 +1125,8 @@ void detectModeS(unsigned char *m, uint32_t mlen) {
                 }
             }
 
-            /* Skip this message. Inside it we can find only fake premables. */
-            j += (MODES_PREAMBLE_US+(msglen*8))*2;
+            /* Skip this message if we are sure it's fine. */
+            if (mm.crcok) j += (MODES_PREAMBLE_US+(msglen*8))*2;
         } else {
             if (Modes.debug == MODES_DEBUG_DEMODERR) {
                 printf("The following message has %d demod errors\n", errors);
@@ -1240,6 +1274,7 @@ void showHelp(void) {
 "--raw                    Show only messages hex values.\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC.\n"
+"--stats                  With --ifile print stats at exit. No other output.\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--help                   Show this help.\n"
     );
@@ -1277,6 +1312,8 @@ int main(int argc, char **argv) {
             Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {
             Modes.debug = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--stats")) {
+            Modes.stats = 1;
         } else if (!strcmp(argv[j],"--snip") && more) {
             snipMode(atoi(argv[++j]));
             exit(0);
@@ -1313,6 +1350,7 @@ int main(int argc, char **argv) {
             pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
             continue;
         }
+        if (Modes.exit) break;
         computeMagnitudeVector();
 
         /* If we are reading data from the RTLSDR device, process data
@@ -1340,6 +1378,15 @@ int main(int argc, char **argv) {
             interactiveShowData();
             Modes.interactive_last_update = mstime();
         }
+    }
+
+    /* If --ifile and --stats were given, print statistics. */
+    if (Modes.stats && Modes.filename) {
+        printf("%lld valid preambles\n", Modes.stat_valid_preamble);
+        printf("%lld demodulated with zero errors\n", Modes.stat_demodulated);
+        printf("%lld with good crc\n", Modes.stat_goodcrc);
+        printf("%lld with bad crc\n", Modes.stat_badcrc);
+        printf("%lld single bit errors corrected\n", Modes.stat_fixed);
     }
 
     rtlsdr_close(Modes.dev);
