@@ -387,19 +387,19 @@ void *readerThreadEntryPoint(void *arg) {
  * "." is 1
  */
 void dumpMagnitudeBar(int index, int magnitude) {
-    char *set = ".-o";
+    char *set = " .-o";
     char buf[256];
-    int div = magnitude / 4;
-    int rem = magnitude % 4;
+    int div = magnitude / 256 / 4;
+    int rem = magnitude / 256 % 4;
 
     memset(buf,'O',div);
     buf[div] = set[rem];
     buf[div+1] = '\0';
 
     if (index >= 0)
-        printf("[%.3d] |%-69s %d\n", index, buf, magnitude);
+        printf("[%.3d] |%-66s %d\n", index, buf, magnitude);
     else
-        printf("[%.2d] |%-69s %d\n", index, buf, magnitude);
+        printf("[%.2d] |%-66s %d\n", index, buf, magnitude);
 }
 
 /* Display an ASCII-art alike graphical representation of the undecoded
@@ -418,8 +418,7 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     uint32_t j;
 
     for (j = start; j <= end; j++) {
-        /* Scale magnitude to 0-255 from 0-65535 before printing. */
-        dumpMagnitudeBar(j-offset, m[j]/256);
+        dumpMagnitudeBar(j-offset, m[j]);
     }
 }
 
