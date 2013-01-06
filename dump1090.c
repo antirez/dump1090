@@ -317,6 +317,7 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     if (len > Modes.data_len) len = Modes.data_len;
     memcpy(Modes.data, buf, len);
     Modes.data_ready = 1;
+    /* Signal to the other thread that new data is ready */
     pthread_cond_signal(&Modes.data_cond);
     pthread_mutex_unlock(&Modes.data_mutex);
 }
@@ -324,11 +325,16 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
 /* This is used when --ifile is specified in order to read data from file
  * instead of using an RTLSDR device. */
 void readDataFromFile(void) {
+    pthread_mutex_lock(&Modes.data_mutex);
     while(1) {
         ssize_t nread, toread;
         unsigned char *p;
 
-        pthread_mutex_lock(&Modes.data_mutex);
+        if (Modes.data_ready) {
+            pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
+            continue;
+        }
+
         toread = Modes.data_len;
         p = Modes.data;
         while(toread) {
@@ -340,9 +346,14 @@ void readDataFromFile(void) {
             p += nread;
             toread -= nread;
         }
+        if (toread) {
+            /* Not enough data on file to fill the buffer? Pad with
+             * no signal. */
+            memset(p,127,toread);
+        }
         Modes.data_ready = 1;
+        /* Signal to the other thread that new data is ready */
         pthread_cond_signal(&Modes.data_cond);
-        pthread_mutex_unlock(&Modes.data_mutex);
     }
 }
 
@@ -1365,25 +1376,19 @@ int main(int argc, char **argv) {
             pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
             continue;
         }
-        if (Modes.exit) break;
         computeMagnitudeVector();
 
-        /* If we are reading data from the RTLSDR device, process data
-         * after releasing the lock, so that the capturing thread can
-         * read data while we perform computationally expensive stuff
-         * at the same time. (This should only be useful with very
-         * slow processors).
-         *
-         * Instead if we are reading from file, process data before
-         * releasing the lock, in order to avoid missing parts of the file
-         * to process.
-         */
-        if (Modes.filename) detectModeS(Modes.magnitude, Modes.data_len/2);
+        /* Signal to the other thread that we processed the available data
+         * and we want more (useful for --ifile). */
         Modes.data_ready = 0;
-        pthread_mutex_unlock(&Modes.data_mutex);
-        if (!Modes.filename) detectModeS(Modes.magnitude, Modes.data_len/2);
+        pthread_cond_signal(&Modes.data_cond);
 
-        pthread_mutex_lock(&Modes.data_mutex);
+        /* Process data after releasing the lock, so that the capturing
+         * thread can read data while we perform computationally expensive
+         * stuff * at the same time. (This should only be useful with very
+         * slow processors). */
+        pthread_mutex_unlock(&Modes.data_mutex);
+        detectModeS(Modes.magnitude, Modes.data_len/2);
 
         /* Refresh screen when in interactive mode. */
         if (Modes.interactive &&
@@ -1393,6 +1398,8 @@ int main(int argc, char **argv) {
             interactiveShowData();
             Modes.interactive_last_update = mstime();
         }
+        pthread_mutex_lock(&Modes.data_mutex);
+        if (Modes.exit) break;
     }
 
     /* If --ifile and --stats were given, print statistics. */
