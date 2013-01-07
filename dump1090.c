@@ -1283,9 +1283,9 @@ void interactiveShowData(void) {
     progress[3] = '\0';
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
-    printf("Hex    Flight   Altitude  Speed     Messages  Seen    %s\n",
+    printf("Hex    Flight   Altitude  Speed     Messages  Seen  %s\n",
             progress);
-    printf("----------------------------------------------------\n");
+    printf("-------------------------------------------------------\n");
     while(a && count < Modes.interactive_rows) {
         printf("%-6s %-8s %-9d %-9d %-9ld %d sec ago\n",
             a->hexaddr, a->flight, a->altitude, a->speed, a->messages,
