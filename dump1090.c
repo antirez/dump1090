@@ -57,7 +57,8 @@
 #define MODES_LONG_MSG_BYTES (112/8)
 #define MODES_SHORT_MSG_BYTES (56/8)
 
-#define MODES_ICAO_CACHE_LEN 32
+#define MODES_ICAO_CACHE_LEN 1024 /* Power of two required. */
+#define MODES_ICAO_CACHE_TTL 60   /* Time to live of cached addresses. */
 #define MODES_UNIT_FEET 0
 #define MODES_UNIT_METERS 1
 
@@ -99,8 +100,7 @@ struct {
     uint32_t data_len;              /* Buffer length. */
     int fd;                         /* --ifile option file descriptor. */
     int data_ready;                 /* Data ready to be processed. */
-    uint32_t icao_cache[MODES_ICAO_CACHE_LEN];/* Recently seen ICAO addresses */
-    int icao_cache_idx;             /* icao_cache circular buf idx. */
+    uint32_t *icao_cache;           /* Recently seen ICAO addresses cache. */
     uint16_t *maglut;               /* I/Q -> Magnitude lookup table. */
     int exit;                       /* Exit from the main loop when true. */
 
@@ -217,8 +217,10 @@ void modesInit(void) {
     pthread_cond_init(&Modes.data_cond,NULL);
     Modes.data_len = MODES_DATA_LEN;
     Modes.data_ready = 0;
+    /* Allocate the ICAO address cache. We use two uint32_t for every
+     * entry because it's a addr / timestamp pair for every entry. */
+    Modes.icao_cache = malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
     memset(Modes.icao_cache,0,sizeof(Modes.icao_cache));
-    Modes.icao_cache_idx = 0;
     Modes.aircrafts = NULL;
     Modes.interactive_last_update = 0;
     if ((Modes.data = malloc(Modes.data_len)) == NULL ||
@@ -541,19 +543,43 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
     return -1;
 }
 
-/* Add the specified entry to the list of recently seen ICAO addresses.
- * We use the array as a circular buffer. */
-void addRecentlySeenICAOAddr(uint32_t addr) {
-    Modes.icao_cache[Modes.icao_cache_idx] = addr;
-    Modes.icao_cache_idx = (Modes.icao_cache_idx+1) % MODES_ICAO_CACHE_LEN;
+/* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
+ * elements, that is assumed to be a power of two. */
+uint32_t ICAOCacheHashAddress(uint32_t a) {
+    /* The following three rounds wil make sure that every bit affects
+     * every output bit with ~ 50% of probability. */
+    a = ((a >> 16) ^ a) * 0x45d9f3b;
+    a = ((a >> 16) ^ a) * 0x45d9f3b;
+    a = ((a >> 16) ^ a);
+    return a & (MODES_ICAO_CACHE_LEN-1);
 }
 
-/* If the message type appears to be about a DF that has the checksum xored
- * with the ICAO address, try to brute force it using a list of recently
- * seen ICAO addresses.
+/* Add the specified entry to the cache of recently seen ICAO addresses.
+ * Note that we also add a timestamp so that we can make sure that the
+ * entry is only valid for MODES_ICAO_CACHE_TTL seconds. */
+void addRecentlySeenICAOAddr(uint32_t addr) {
+    uint32_t h = ICAOCacheHashAddress(addr);
+    Modes.icao_cache[h*2] = addr;
+    Modes.icao_cache[h*2+1] = (uint32_t) time(NULL);
+}
+
+/* Returns 1 if the specified ICAO address was seen in a DF format with
+ * proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
+ * seconds ago. Otherwise returns 0. */
+int ICAOAddressWasRecentlySeen(uint32_t addr) {
+    uint32_t h = ICAOCacheHashAddress(addr);
+    uint32_t a = Modes.icao_cache[h*2];
+    uint32_t t = Modes.icao_cache[h*2+1];
+
+    return a && a == addr && time(NULL)-t <= MODES_ICAO_CACHE_TTL;
+}
+
+/* If the message type has the checksum xored with the ICAO address, try to
+ * brute force it using a list of recently seen ICAO addresses.
  *
- * Do this in a brute-force fashion xoring the addresses we know with the
- * message checksum, and latest testing if the message verifies.
+ * Do this in a brute-force fashion by xoring the predicted CRC with
+ * the address XOR checksum field in the message. This will recover the
+ * address: if we found it in our cache, we can assume the message is ok.
  *
  * On success the input buffer is modified to remove the xored checksum
  * from the packet, so that the last three bytes will contain the
@@ -562,7 +588,6 @@ void addRecentlySeenICAOAddr(uint32_t addr) {
  * If the function successfully recovers a message with a correct checksum
  * it returns 1. Otherwise 0 is returned. */
 int bruteForceAP(unsigned char *msg, int msgbits) {
-    int j;
     unsigned char aux[MODES_LONG_MSG_BITS/8];
     int msgtype = msg[0]>>3;
 
@@ -574,29 +599,30 @@ int bruteForceAP(unsigned char *msg, int msgbits) {
         msgtype == 21 ||        /* Comm-A, identity request */
         msgtype == 24)          /* Comm-C ELM */
     {
-        for (j = 0; j < MODES_ICAO_CACHE_LEN; j++) {
-            uint32_t addr = Modes.icao_cache[j];
-            uint32_t crc1, crc2;
-            int lastbyte = (msgbits/8)-1;
+        uint32_t addr;
+        uint32_t crc;
+        int lastbyte = (msgbits/8)-1;
 
-            if (addr == 0) continue; /* Empty field. */
-            memcpy(aux,msg,msgbits/8);
-            /* Xor with the address, so that if we picked the right address
-             * what remains is just the checksum. */
-            aux[lastbyte] ^= addr & 0xff;
-            aux[lastbyte-1] ^= (addr >> 8) & 0xff;
-            aux[lastbyte-2] ^= (addr >> 16) & 0xff;
-            crc1 = aux[lastbyte-2] << 16 |
-                   aux[lastbyte-1] << 8 |
-                   aux[lastbyte];
-            crc2 = modesChecksum(aux,msgbits);
-            if (crc1 == crc2) {
-                /* Restore the address as last three bytes. */
-                msg[lastbyte] = addr & 0xff;
-                msg[lastbyte-1] = (addr >> 8) & 0xff;
-                msg[lastbyte-2] = (addr >> 16) & 0xff;
-                return 1;
-            }
+        /* Work on a copy. */
+        memcpy(aux,msg,msgbits/8);
+
+        /* Compute the CRC of the message and XOR it with the AP field
+         * so that we recover the address, because:
+         *
+         * (ADDR xor CRC) xor CRC = ADDR. */
+        crc = modesChecksum(aux,msgbits);
+        aux[lastbyte] ^= crc & 0xff;
+        aux[lastbyte-1] ^= (crc >> 8) & 0xff;
+        aux[lastbyte-2] ^= (crc >> 16) & 0xff;
+        
+        /* If the obtained address exists in our cache we consider
+         * the message valid. */
+        addr = aux[lastbyte] | (aux[lastbyte-1] << 8) | (aux[lastbyte-2] << 16);
+        if (ICAOAddressWasRecentlySeen(addr)) {
+            msg[lastbyte] = aux[lastbyte];
+            msg[lastbyte-1] = aux[lastbyte-1];
+            msg[lastbyte-2] = aux[lastbyte-2];
+            return 1;
         }
     }
     return 0;
