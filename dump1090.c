@@ -337,6 +337,14 @@ void readDataFromFile(void) {
             continue;
         }
 
+        if (Modes.interactive) {
+            /* When --ifile and --interactive are used together, slow down
+             * playing at the natural rate of the RTLSDR received. */
+            pthread_mutex_unlock(&Modes.data_mutex);
+            usleep(5000);
+            pthread_mutex_lock(&Modes.data_mutex);
+        }
+
         toread = Modes.data_len;
         p = Modes.data;
         while(toread) {
@@ -1234,7 +1242,7 @@ void interactiveReceiveData(struct modesMessage *mm) {
          * since the aircraft that is currently on head sent a message,
          * othewise with multiple aircrafts at the same time we have an
          * useless shuffle of positions on the screen. */
-        if (Modes.aircrafts != a && (time(NULL) - a->seen) >= 1) {
+        if (0 && Modes.aircrafts != a && (time(NULL) - a->seen) >= 1) {
             aux = Modes.aircrafts;
             while(aux->next != a) aux = aux->next;
             /* Now we are a node before the aircraft to remove. */
