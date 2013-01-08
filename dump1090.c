@@ -1202,6 +1202,7 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     snprintf(a->hexaddr,sizeof(a->hexaddr),"%06x",(int)addr);
     a->flight[0] = '\0';
     a->altitude = 0;
+    a->speed = 0;
     a->seen = time(NULL);
     a->messages = 0;
     a->next = NULL;
