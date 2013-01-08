@@ -1263,7 +1263,6 @@ void interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         a->altitude = mm->altitude;
-        if (Modes.metric) a->altitude /= 3.2828;
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
@@ -1272,7 +1271,6 @@ void interactiveReceiveData(struct modesMessage *mm) {
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
                 a->speed = mm->velocity;
-                if (Modes.metric) a->speed = a->speed * 1.852;
             }
         }
     }
@@ -1293,9 +1291,18 @@ void interactiveShowData(void) {
     printf("Hex    Flight   Altitude  Speed     Messages  Seen  %s\n",
             progress);
     printf("-------------------------------------------------------\n");
+
     while(a && count < Modes.interactive_rows) {
+        int altitude = a->altitude, speed = a->speed;
+
+        /* Convert units to metric if --metric was specified. */
+        if (Modes.metric) {
+            altitude /= 3.2828;
+            speed *= 1.852;
+        }
+
         printf("%-6s %-8s %-9d %-9d %-9ld %d sec ago\n",
-            a->hexaddr, a->flight, a->altitude, a->speed, a->messages,
+            a->hexaddr, a->flight, altitude, speed, a->messages,
             (int)(now - a->seen));
         a = a->next;
         count++;
