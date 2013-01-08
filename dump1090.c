@@ -123,6 +123,7 @@ struct {
     int interactive_ttl;            /* Interactive mode: TTL before deletion */
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
+    int metric;                     /* Use metric units. */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -1262,6 +1263,7 @@ void interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         a->altitude = mm->altitude;
+        if (Modes.metric) a->altitude /= 3.2828;
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
@@ -1270,6 +1272,7 @@ void interactiveReceiveData(struct modesMessage *mm) {
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
                 a->speed = mm->velocity;
+                if (Modes.metric) a->speed = a->speed * 1.852;
             }
         }
     }
@@ -1361,6 +1364,7 @@ void showHelp(void) {
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
+"--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <level>          Debug mode, see README for more information.\n"
 "--help                   Show this help.\n"
@@ -1395,6 +1399,8 @@ int main(int argc, char **argv) {
             Modes.raw = 1;
         } else if (!strcmp(argv[j],"--onlyaddr")) {
             Modes.onlyaddr = 1;
+        } else if (!strcmp(argv[j],"--metric")) {
+            Modes.metric = 1;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
