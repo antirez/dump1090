@@ -73,7 +73,8 @@
 #define MODES_DEBUG_NOPREAMBLE_LEVEL 25
 
 #define MODES_INTERACTIVE_REFRESH_TIME 250      /* Milliseconds */
-#define MODES_INTERACTIVE_ROWS 15
+#define MODES_INTERACTIVE_ROWS 15               /* Rows on screen */
+#define MODES_INTERACTIVE_TTL 60                /* TTL before being removed */
 
 #define MODES_NOTUSED(V) ((void) V)
 
@@ -119,6 +120,7 @@ struct {
     int debug;                      /* Debugging mode */
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows */
+    int interactive_ttl;            /* Interactive mode: TTL before deletion */
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
 
@@ -208,6 +210,7 @@ void modesInitConfig(void) {
     Modes.debug = 0;
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
+    Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
 }
 
 void modesInit(void) {
@@ -1296,6 +1299,31 @@ void interactiveShowData(void) {
     }
 }
 
+/* When in interactive mode If we don't receive new nessages within
+ * MODES_INTERACTIVE_TTL seconds we remove the aircraft from the list. */
+void interactiveRemoveStaleAircrafts(void) {
+    struct aircraft *a = Modes.aircrafts;
+    struct aircraft *prev = NULL;
+    time_t now = time(NULL);
+
+    while(a) {
+        if ((now - a->seen) > Modes.interactive_ttl) {
+            struct aircraft *next = a->next;
+            /* Remove the element from the linked list, with care
+             * if we are removing the first element. */
+            free(a);
+            if (!prev)
+                Modes.aircrafts = next;
+            else
+                prev->next = next;
+            a = next;
+        } else {
+            prev = a;
+            a = a->next;
+        }
+    }
+}
+
 /* ============================== Snip mode ================================= */
 
 /* Get raw IQ samples and filter everything is < than the specified level
@@ -1327,6 +1355,7 @@ void showHelp(void) {
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
+"--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
 "--raw                    Show only messages hex values.\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
@@ -1370,6 +1399,8 @@ int main(int argc, char **argv) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
             Modes.interactive_rows = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--interactive-ttl")) {
+            Modes.interactive_ttl = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {
             Modes.debug = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--stats")) {
@@ -1429,6 +1460,7 @@ int main(int argc, char **argv) {
             (mstime() - Modes.interactive_last_update) >
             MODES_INTERACTIVE_REFRESH_TIME)
         {
+            interactiveRemoveStaleAircrafts();
             interactiveShowData();
             Modes.interactive_last_update = mstime();
         }
