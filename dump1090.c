@@ -37,9 +37,11 @@
 #include <unistd.h>
 #include <math.h>
 #include <sys/time.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include "rtl-sdr.h"
+#include "anet.h"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -76,7 +78,16 @@
 #define MODES_INTERACTIVE_ROWS 15               /* Rows on screen */
 #define MODES_INTERACTIVE_TTL 60                /* TTL before being removed */
 
+#define MODES_NET_MAX_FD 1024
+#define MODES_NET_OUTPUT_RAW_PORT 30002
+
 #define MODES_NOTUSED(V) ((void) V)
+
+/* Structure used to describe a networking client. */
+struct client {
+    int fd;         /* File descriptor. */
+    int service;    /* TCP port the client is connected to. */
+};
 
 /* Structure used to describe an aircraft in iteractive mode. */
 struct aircraft {
@@ -121,15 +132,23 @@ struct {
     rtlsdr_dev_t *dev;
     int freq;
 
+    /* Networking */
+    char aneterr[ANET_ERR_LEN];
+    struct client *clients[MODES_NET_MAX_FD]; /* Our clients. */
+    int maxfd;                      /* Greatest fd currently active. */
+    int ros;                        /* Raw output listening socket. */
+
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
-    int raw;                        /* Raw output format */
-    int debug;                      /* Debugging mode */
+    int raw;                        /* Raw output format. */
+    int debug;                      /* Debugging mode. */
+    int net;                        /* Enable networking. */
+    int net_output_raw_port;        /* Raw output TCP port. */
     int interactive;                /* Interactive mode */
-    int interactive_rows;           /* Interactive mode: max number of rows */
-    int interactive_ttl;            /* Interactive mode: TTL before deletion */
+    int interactive_rows;           /* Interactive mode: max number of rows. */
+    int interactive_ttl;            /* Interactive mode: TTL before deletion. */
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
@@ -192,6 +211,7 @@ struct modesMessage {
 
 void interactiveShowData(void);
 void interactiveReceiveData(struct modesMessage *mm);
+void modesSendRawOutput(struct modesMessage *mm);
 
 /* ============================= Utility functions ========================== */
 
@@ -216,6 +236,8 @@ void modesInitConfig(void) {
     Modes.fix_errors = 1;
     Modes.check_crc = 1;
     Modes.raw = 0;
+    Modes.net = 0;
+    Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
     Modes.onlyaddr = 0;
     Modes.debug = 0;
     Modes.interactive = 0;
@@ -1212,6 +1234,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     displayModesMessage(&mm);
                     if (!Modes.raw && !Modes.onlyaddr) printf("\n");
                 }
+                /* Send data to connected clients. */
+                if (Modes.net) {
+                    modesSendRawOutput(&mm);  /* Feed raw output clients. */
+                }
             }
 
             /* Skip this message if we are sure it's fine. */
@@ -1533,19 +1559,120 @@ void snipMode(int level) {
     }
 }
 
+/* ============================= Networking =================================
+ * Note: here we risregard any kind of good coding practice in favor of
+ * extreme simplicity, that is:
+ *
+ * 1) We only rely on the kernel buffers for our I/O without any kind of
+ *    user space buffering.
+ * 2) We don't register any kind of event handler, from time to time a
+ *    function gets called and we accept new connections. All the rest is
+ *    handled via non-blocking I/O and manually pullign clients to see if
+ *    they have something new to share with us when reading is needed.
+ */
+
+/* Networking "stack" initialization. */
+void modesInitNet(void) {
+    memset(Modes.clients,0,sizeof(Modes.clients));
+    Modes.maxfd = -1;
+    Modes.ros = anetTcpServer(Modes.aneterr, Modes.net_output_raw_port, NULL);
+    anetNonBlock(Modes.aneterr, Modes.ros);
+    if (Modes.ros == -1) {
+        fprintf(stderr, "Error opening TCP port %d: %s\n",
+            Modes.net_output_raw_port, Modes.aneterr);
+        exit(1);
+    }
+    signal(SIGPIPE, SIG_IGN);
+}
+
+/* This function gets called from time to time when the decoding thread is
+ * awakened by new data arriving. This usually happens a few times every
+ * second. */
+void modesAcceptClients(void) {
+    int fd, port;
+    struct client *c;
+
+    while(1) {
+        fd = anetTcpAccept(Modes.aneterr, Modes.ros, NULL, &port);
+        if (fd == -1) return;
+        if (fd >= MODES_NET_MAX_FD) {
+            close(fd);
+            return; /* Max number of clients reached. */
+        }
+
+        c = malloc(sizeof(*c));
+        c->service = Modes.ros;
+        c->fd = fd;
+        Modes.clients[fd] = c;
+
+        if (Modes.maxfd < fd) Modes.maxfd = fd;
+    }
+}
+
+/* On error free the client, collect the structure, adjust maxfd if needed. */
+void modesFreeClient(int fd) {
+    close(fd);
+    free(Modes.clients[fd]);
+    Modes.clients[fd] = NULL;
+
+    /* If this was our maxfd, rescan the full clients array to check what's
+     * the new max. */
+    if (Modes.maxfd == fd) {
+        int j;
+
+        Modes.maxfd = -1;
+        for (j = 0; j < MODES_NET_MAX_FD; j++) {
+            if (Modes.clients[j]) Modes.maxfd = j;
+        }
+    }
+}
+
+/* Send the specified message to all clients listening for a given service. */
+void modesSendAllClients(int service, void *msg, int len) {
+    int j;
+    struct client *c;
+
+    for (j = 0; j <= Modes.maxfd; j++) {
+        c = Modes.clients[j];
+        if (c && c->service == service) {
+            int nwritten = write(j, msg, len);
+            if (nwritten != len) {
+                modesFreeClient(j);
+            }
+        }
+    }
+}
+
+/* Write raw output to TCP clients. */
+void modesSendRawOutput(struct modesMessage *mm) {
+    char msg[128], *p = msg;
+    int j;
+
+    *p++ = '*';
+    for (j = 0; j < mm->msgbits/8; j++) {
+        sprintf(p, "%02X", mm->msg[j]);
+        p += 2;
+    }
+    *p++ = ';';
+    *p++ = '\n';
+    modesSendAllClients(Modes.ros, msg, p-msg);
+}
+
 /* ================================ Main ==================================== */
 
 void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
-"--enable-agc <db>        Enable the Automatic Gain Control (default: off).\n"
+"--enable-agc>            Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
 "--raw                    Show only messages hex values.\n"
+"--net                    Enable networking.\n"
+"--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
@@ -1583,6 +1710,10 @@ int main(int argc, char **argv) {
             Modes.check_crc = 0;
         } else if (!strcmp(argv[j],"--raw")) {
             Modes.raw = 1;
+        } else if (!strcmp(argv[j],"--net")) {
+            Modes.net = 1;
+        } else if (!strcmp(argv[j],"--net-ro-port") && more) {
+            Modes.net_output_raw_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--onlyaddr")) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
@@ -1612,6 +1743,7 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Initialization */
     modesInit();
     if (Modes.filename == NULL) {
         modesInitRTLSDR();
@@ -1623,6 +1755,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+    if (Modes.net) modesInitNet();
 
     /* Create the thread that will read the data from the device. */
     pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
@@ -1646,6 +1779,7 @@ int main(int argc, char **argv) {
          * slow processors). */
         pthread_mutex_unlock(&Modes.data_mutex);
         detectModeS(Modes.magnitude, Modes.data_len/2);
+        if (Modes.net) modesAcceptClients();
 
         /* Refresh screen when in interactive mode. */
         if (Modes.interactive &&

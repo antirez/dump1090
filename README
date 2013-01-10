@@ -5,7 +5,8 @@ Dump 1090 is a Mode S decoder specifically designed for RTLSDR devices.
 
 The main features are:
 
-* Robust decoding of weak messages.
+* Robust decoding of weak messages, with mode1090 many users observed
+  improved range compared to other popular decoders.
 * Single bit errors correction using the 24 bit CRC.
 * Ability to decode DF11, DF17 messages.
 * Ability to decode DF formats like DF0, DF4, DF5, DF16, DF20 and DF21
@@ -14,6 +15,8 @@ The main features are:
 * Decode raw IQ samples from file (using --ifile command line switch).
 * Interactive mode where aircrafts currently detected are shown
   as a list refreshing as more data arrives.
+* CPR coordinates decoding and track calculation from velocity.
+* TCP server streaming raw data to connected clients (use --net).
 
 Installation
 ---
@@ -93,6 +96,20 @@ better or worse compared to other similar programs.
 If you can capture traffic that Dump1090 is not able to decode properly, drop
 me an email with a download link. I may try to improve the detection during
 my free time (this is just an hobby project).
+
+Network server features
+---
+
+By enabling the networking support with --net Dump1090 starts listening
+for clients connections on port 30002 (you can change the port using
+the --net-ro-port option).
+
+Connected clients are served with data ASAP as they arrive from the device
+(or from file if --ifile is used) in the raw format similar to the following:
+
+*8D451E8B99019699C00B0A81F36E;
+
+Every entry is separated by a simple newline (LF character, hex 0x0A).
 
 Antenna
 ---

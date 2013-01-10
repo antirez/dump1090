@@ -5,11 +5,11 @@ PROGNAME=dump1090
 
 all: dump1090
 
-dump1090.o: dump1090.c
-	$(CC) $(CFLAGS) dump1090.c -c -o dump1090.o
+%.o: %.c
+	$(CC) $(CFLAGS) -c $<
 
-dump1090: dump1090.o
-	$(CC) -g -o dump1090 dump1090.o $(LIBS)
+dump1090: dump1090.o anet.o
+	$(CC) -g -o dump1090 dump1090.o anet.o $(LIBS)
 
 clean:
 	rm -f *.o dump1090
