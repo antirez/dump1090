@@ -893,6 +893,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     mm->heading = heading * 360 / (M_PI*2);
                     /* We don't want negative values but a 0-360 scale. */
                     if (mm->heading < 0) mm->heading += 360;
+                } else {
+                    mm->heading = 0;
                 }
             } else if (mm->mesub == 3 || mm->mesub == 4) {
                 mm->heading_is_valid = msg[5] & (1<<2);
