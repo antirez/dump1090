@@ -1,3 +1,4 @@
 *.o
 dump1090
-testfiles/test*.bin
+testfiles/*.bin
+misc
