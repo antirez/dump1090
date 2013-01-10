@@ -919,7 +919,10 @@ void displayModesMessage(struct modesMessage *mm) {
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
     printf(";\n");
 
-    if (Modes.raw) return; /* Enough for --raw mode */
+    if (Modes.raw) {
+        fflush(stdout); /* Provide data to the reader ASAP. */
+        return; /* Enough for --raw mode */
+    }
 
     printf("CRC: %06x (%s)\n", (int)mm->crc, mm->crcok ? "ok" : "wrong");
     if (mm->errorbit != -1)
