@@ -1400,7 +1400,7 @@ double cprDlonFunction(int i, int isodd) {
  *    seconds.
  */
 void decodeCPR(struct aircraft *a) {
-    const double AirDlat0 = 6;
+    const double AirDlat0 = 360.0 / 60;
     const double AirDlat1 = 360.0 / 59;
     double lat0 = a->even_cprlat;
     double lat1 = a->odd_cprlat;
@@ -1408,9 +1408,12 @@ void decodeCPR(struct aircraft *a) {
     double lon1 = a->odd_cprlon;
 
     /* Compute the Latitude Index "j" */
-    int j = ((59*lat0 - 60*lat1) / 131072) + 0.5;
+    int j = floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
     double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
     double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
+
+    if (rlat0 >= 90 && rlat0 <= 270) rlat0 -= 360;
+    if (rlat1 >= 90 && rlat1 <= 270) rlat1 -= 360;
 
     /* Check that both are in the same latitude zone, or abort. */
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
@@ -1419,18 +1422,19 @@ void decodeCPR(struct aircraft *a) {
     if (a->even_cprtime > a->odd_cprtime) {
         /* Use even packet. */
         int ni = cprNFunction(rlat0,0);
-        int m = (((lon0 * (cprNLFunction(rlat0)-1)) -
-                  (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5;
+        int m = floor((((lon0 * (cprNLFunction(rlat0)-1)) -
+                        (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
         a->lon = cprDlonFunction(rlat0,0) * (cprModFunction(m,ni)+lon0/131072);
         a->lat = rlat0;
     } else {
         /* Use odd packet. */
         int ni = cprNFunction(rlat1,1);
-        int m = (((lon0 * (cprNLFunction(rlat1)-1)) -
-                  (lon1 * cprNLFunction(rlat1))) / 131072) + 0.5;
+        int m = floor((((lon0 * (cprNLFunction(rlat1)-1)) -
+                        (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
         a->lon = cprDlonFunction(rlat1,1) * (cprModFunction(m,ni)+lon1/131072);
         a->lat = rlat1;
     }
+    if (a->lon > 180) a->lon -= 360;
 }
 
 /* Receive new messages and populate the interactive mode with more info. */
