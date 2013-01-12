@@ -16,7 +16,7 @@ The main features are:
 * Interactive mode where aircrafts currently detected are shown
   as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
-* TCP server streaming raw data to connected clients (use --net).
+* TCP server streaming and recceiving raw data to/from connected clients (using --net).
 
 Installation
 ---
@@ -51,12 +51,12 @@ To decode data from file, use:
 
     ./dump1090 --ifile /path/to/binfile
 
-The binary file should be created using rtl_sdr like this (or with any other
+The binary file should be created using `rtl_sdr` like this (or with any other
 program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
 
     rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin
 
-In the example rtl_sdr a gain of 50 is used, simply you should use the highest
+In the example `rtl_sdr` a gain of 50 is used, simply you should use the highest
 gain availabe for your tuner. This is not needed when calling Dump1090 itself
 as it is able to select the highest gain supported automatically.
 
@@ -110,7 +110,7 @@ Port 30002
 Connected clients are served with data ASAP as they arrive from the device
 (or from file if --ifile is used) in the raw format similar to the following:
 
-*8D451E8B99019699C00B0A81F36E;
+    *8D451E8B99019699C00B0A81F36E;
 
 Every entry is separated by a simple newline (LF character, hex 0x0A).
 
@@ -119,7 +119,7 @@ Port 30001
 
 Port 30001 is the raw input port, and can be used to feed Dump1090 with
 data in the same format as specified above, with hex messages starting with
-a '*' and ending with a ';' character.
+a `*` and ending with a `;` character.
 
 So for instance if there is another remote Dump1090 instance collecting data
 it is possible to sum the output to a local Dump1090 instance doing something
