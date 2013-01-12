@@ -101,8 +101,11 @@ Network server features
 ---
 
 By enabling the networking support with --net Dump1090 starts listening
-for clients connections on port 30002 (you can change the port using
-the --net-ro-port option).
+for clients connections on port 30002 and 30001 (you can change both the
+ports if you want, see --help output).
+
+Port 30002
+---
 
 Connected clients are served with data ASAP as they arrive from the device
 (or from file if --ifile is used) in the raw format similar to the following:
@@ -110,6 +113,32 @@ Connected clients are served with data ASAP as they arrive from the device
 *8D451E8B99019699C00B0A81F36E;
 
 Every entry is separated by a simple newline (LF character, hex 0x0A).
+
+Port 30001
+---
+
+Port 30001 is the raw input port, and can be used to feed Dump1090 with
+data in the same format as specified above, with hex messages starting with
+a '*' and ending with a ';' character.
+
+So for instance if there is another remote Dump1090 instance collecting data
+it is possible to sum the output to a local Dump1090 instance doing something
+like this:
+
+    nc remote-dump1090.example.net 30002 | nc localhost 30001
+
+It is important to note that what is received via port 30001 is also
+broadcasted to clients listening to port 30002.
+
+In general everything received from port 30001 is handled exactly like the
+normal traffic from RTL devices or from file when --ifile is used.
+
+It is possible to use Dump1090 just as an hub using --ifile with /dev/zero
+as argument as in the following example:
+
+    ./dump1090 --ifile /dev/zero --net --interactive
+
+Then you can feed it from different data sources from the internet.
 
 Antenna
 ---
