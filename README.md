@@ -16,7 +16,10 @@ The main features are:
 * Interactive mode where aircrafts currently detected are shown
   as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
-* TCP server streaming and recceiving raw data to/from connected clients (using --net).
+* TCP server streaming and recceiving raw data to/from connected clients
+  (using --net).
+* Embedded HTTP server that displays the currently detected aircrafts on
+  Google Map.
 
 Installation
 ---
@@ -38,6 +41,11 @@ To just output hexadecimal messages:
 To run the program in interactive mode:
 
     ./dump1090 --interactive
+
+To run the program in interactive mode, with networking support, and connect
+with your browser to http://localhost:8080 to see live traffic:
+
+    ./dump1090 --interactive --net
 
 In iteractive mode it is possible to have a less information dense but more
 "arcade style" output, where the screen is refreshed every second displaying
@@ -136,7 +144,11 @@ normal traffic from RTL devices or from file when --ifile is used.
 It is possible to use Dump1090 just as an hub using --ifile with /dev/zero
 as argument as in the following example:
 
-    ./dump1090 --ifile /dev/zero --net --interactive
+    ./dump1090 --net-only
+
+Or alternatively to see what's happening on the screen:
+
+    ./dump1090 --net-only --interactive
 
 Then you can feed it from different data sources from the internet.
 

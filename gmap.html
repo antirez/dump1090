@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+
+<html>
+  <head>
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
+    <style type="text/css">
+      html { height: 100% }
+      body { height: 100%; margin: 0; padding: 0 }
+      #map_canvas { height: 100% }
+    </style>
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js">
+    </script>
+    <script type="text/javascript"
+      src="https://maps.googleapis.com/maps/api/js?sensor=true">
+    </script>
+    <script type="text/javascript">
+    Map=null;
+    CenterLat=50.0;
+    CenterLon=9.0;
+    Planes={};
+
+    function getIconForPlane(plane) {
+        return {
+            strokeWeight: 2,
+            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+            scale: 5,
+            fillColor: 'yellow',
+            fillOpacity: 0.8,
+            rotation: plane.track
+        };
+    }
+
+    function fetchData() {
+        $.getJSON('/data.json', function(data) {
+            var stillhere = {}
+            for (var j=0; j < data.length; j++) {
+                var plane = data[j];
+                stillhere[plane.hex] = true;
+
+                if (Planes[plane.hex]) {
+                    var myplane = Planes[plane.hex];
+                    var marker = myplane.marker;
+                    var icon = marker.getIcon();
+                    var newpos = new google.maps.LatLng(plane.lat, plane.lon);
+                    marker.setPosition(newpos);
+                    marker.setIcon(getIconForPlane(plane));
+                } else {
+                    var marker = new google.maps.Marker({
+                        position: new google.maps.LatLng(plane.lat, plane.lon),
+                        map: Map,
+                        title: plane.hex,
+                        icon: getIconForPlane(plane)
+                    });
+                    plane.marker = marker;
+                    Planes[plane.hex] = plane;
+                }
+            }
+
+            /* Remove idle planes. */
+            for (var p in Planes) {
+                if (!stillhere[p]) {
+                    Planes[p].marker.setMap(null);
+                    delete Planes[p];
+                }
+            }
+
+        });
+    }
+
+    function initialize() {
+        var mapOptions = {
+            center: new google.maps.LatLng(CenterLat, CenterLon),
+            zoom: 8,
+            mapTypeId: google.maps.MapTypeId.ROADMAP
+        };
+        Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+
+        /* Setup our timer to poll from the server. */
+        window.setInterval(function() {
+            fetchData();
+        }, 1000);
+    }
+    </script>
+  </head>
+  <body onload="initialize()">
+    <div id="map_canvas" style="width:100%; height:100%"></div>
+  </body>
+</html>
