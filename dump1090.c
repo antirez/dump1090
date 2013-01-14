@@ -1737,8 +1737,12 @@ int hexDigitVal(int c) {
  * The message is passed to the higher level layers, so it feeds
  * the selected screen output, the network output and so forth.
  * 
- * If the message looks invalid is silently discarded. */
-void decodeHexMessage(struct client *c) {
+ * If the message looks invalid is silently discarded.
+ *
+ * The function always returns 0 (success) to the caller as there is
+ * no case where we want broken messages here to close the client
+ * connection. */
+int decodeHexMessage(struct client *c) {
     char *hex = c->buf;
     int l = strlen(hex), j;
     unsigned char msg[MODES_LONG_MSG_BYTES];
@@ -1755,18 +1759,19 @@ void decodeHexMessage(struct client *c) {
     }
 
     /* Turn the message into binary. */
-    if (l < 2 || hex[0] != '*' || hex[l-1] != ';') return;
+    if (l < 2 || hex[0] != '*' || hex[l-1] != ';') return 0;
     hex++; l-=2; /* Skip * and ; */
-    if (l > MODES_LONG_MSG_BYTES*2) return; /* Too long message... broken. */
+    if (l > MODES_LONG_MSG_BYTES*2) return 0; /* Too long message... broken. */
     for (j = 0; j < l; j += 2) {
         int high = hexDigitVal(hex[j]);
         int low = hexDigitVal(hex[j+1]);
 
-        if (high == -1 || low == -1) return;
+        if (high == -1 || low == -1) return 0;
         msg[j/2] = (high<<4) | low;
     }
     decodeModesMessage(&mm,msg);
     useModesMessage(&mm);
+    return 0;
 }
 
 /* Return a description of planes in json. */
@@ -1820,8 +1825,11 @@ char *aircraftsToJson(int *len) {
 
 /* Get an HTTP request header and write the response to the client.
  * Again here we assume that the socket buffer is enough without doing
- * any kind of userspace buffering. */
-void handleHTTPRequest(struct client *c) {
+ * any kind of userspace buffering.
+ *
+ * Returns 1 on error to signal the caller the client connection should
+ * be closed. */
+int handleHTTPRequest(struct client *c) {
     char hdr[512];
     int clen, hdrlen;
     int keepalive;
@@ -1833,10 +1841,10 @@ void handleHTTPRequest(struct client *c) {
     /* Minimally parse the request. */
     keepalive = strstr(c->buf, "keep-alive") != NULL;
     p = strchr(c->buf,' ');
-    if (!p) return; /* There should be the method and a space... */
+    if (!p) return 1; /* There should be the method and a space... */
     url = ++p; /* Now this should point to the requested URL. */
     p = strchr(p, ' ');
-    if (!p) return; /* There should be a space before HTTP/... */
+    if (!p) return 1; /* There should be a space before HTTP/... */
     *p = '\0';
     /* printf("URL: %s\n", url); */
 
@@ -1854,7 +1862,10 @@ void handleHTTPRequest(struct client *c) {
             (fd = open("gmap.html",O_RDONLY)) != -1)
         {
             content = malloc(sbuf.st_size);
-            read(fd,content,sbuf.st_size);
+            if (read(fd,content,sbuf.st_size) == -1) {
+                snprintf(content,sbuf.st_size,"Error reading from file: %s",
+                    strerror(errno));
+            }
             clen = sbuf.st_size;
         } else {
             char buf[128];
@@ -1878,12 +1889,17 @@ void handleHTTPRequest(struct client *c) {
         ctype,
         keepalive ? "keep-alive" : "close",
         clen);
-    write(c->fd, hdr, hdrlen);
 
-    /* Send the actual content. */
-    write(c->fd, content, clen);
+    /* Send header and content. */
+    if (write(c->fd, hdr, hdrlen) == -1 ||
+        write(c->fd, content, clen) == -1)
+    {
+        free(content);
+        return 1;
+    }
     free(content);
     Modes.stat_http_requests++;
+    return 0;
 }
 
 /* This function polls the clients using read() in order to receive new
@@ -1893,9 +1909,13 @@ void handleHTTPRequest(struct client *c) {
  * separator 'sep', that is a null-terminated C string.
  *
  * Every full message received is decoded and passed to the higher layers
- * calling the function 'handler'. */
+ * calling the function 'handler'.
+ *
+ * The handelr returns 0 on success, or 1 to signal this function we
+ * should close the connection with the client in case of non-recoverable
+ * errors. */
 void modesReadFromClient(struct client *c, char *sep,
-                         void(*handler)(struct client *))
+                         int(*handler)(struct client *))
 {
     while(1) {
         int left = sizeof(c->buf) - c->buflen;
@@ -1919,7 +1939,12 @@ void modesReadFromClient(struct client *c, char *sep,
         if ((p = strstr(c->buf, sep)) != NULL) {
             i = p - c->buf; /* Turn it as an index inside the buffer. */
             c->buf[i] = '\0'; /* Te handler expects null terminated strings. */
-            handler(c); /* Call the function to process the message. */
+            /* Call the function to process the message. It returns 1
+             * on error to signal we should close the client connection. */
+            if (handler(c)) {
+                modesFreeClient(c->fd);
+                return;
+            }
             /* Move what's left at the start of the buffer. */
             i += strlen(sep); /* The separator is part of the previous msg. */
             memmove(c->buf,c->buf+i,c->buflen-i);
