@@ -1659,6 +1659,7 @@ void modesAcceptClients(void) {
             return; /* Max number of clients reached. */
         }
 
+        anetNonBlock(Modes.aneterr, fd);
         c = malloc(sizeof(*c));
         c->service = services[j];
         c->fd = fd;
