@@ -1854,6 +1854,7 @@ void handleHTTPRequest(struct client *c) {
         {
             content = malloc(sbuf.st_size);
             read(fd,content,sbuf.st_size);
+            clen = sbuf.st_size;
         } else {
             char buf[128];
 
