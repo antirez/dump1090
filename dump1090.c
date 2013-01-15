@@ -91,7 +91,7 @@
 struct client {
     int fd;         /* File descriptor. */
     int service;    /* TCP port the client is connected to. */
-    char buf[MODES_CLIENT_BUF_SIZE];    /* Read buffer. */
+    char buf[MODES_CLIENT_BUF_SIZE+1];    /* Read buffer. */
     int buflen;                         /* Amount of data on buffer. */
 };
 
@@ -1987,13 +1987,13 @@ void modesReadFromClient(struct client *c, char *sep,
                          int(*handler)(struct client *))
 {
     while(1) {
-        int left = sizeof(c->buf) - c->buflen;
+        int left = MODES_CLIENT_BUF_SIZE - c->buflen;
         int nread = read(c->fd, c->buf+c->buflen, left);
         int fullmsg = 0;
         int i;
         char *p;
 
-        if (nread < 0) {
+        if (nread <= 0) {
             if (nread == 0 || errno != EAGAIN) {
                 /* Error, or end of file. */
                 modesFreeClient(c->fd);
@@ -2002,10 +2002,13 @@ void modesReadFromClient(struct client *c, char *sep,
         }
         c->buflen += nread;
 
+        /* Always null-term so we are free to use strstr() */
+        c->buf[c->buflen] = '\0';
+
         /* If there is a complete message there must be the separator 'sep'
          * in the buffer, note that we full-scan the buffer at every read
          * for simplicity. */
-        if ((p = strstr(c->buf, sep)) != NULL) {
+        while ((p = strstr(c->buf, sep)) != NULL) {
             i = p - c->buf; /* Turn it as an index inside the buffer. */
             c->buf[i] = '\0'; /* Te handler expects null terminated strings. */
             /* Call the function to process the message. It returns 1
@@ -2018,14 +2021,14 @@ void modesReadFromClient(struct client *c, char *sep,
             i += strlen(sep); /* The separator is part of the previous msg. */
             memmove(c->buf,c->buf+i,c->buflen-i);
             c->buflen -= i;
+            c->buf[c->buflen] = '\0';
             /* Maybe there are more messages inside the buffer.
              * Start looping from the start again. */
-            i = -1;
             fullmsg = 1;
         }
         /* If our buffer is full discard it, this is some badly
          * formatted shit. */
-        if (c->buflen == sizeof(c->buf)) {
+        if (c->buflen == MODES_CLIENT_BUF_SIZE) {
             c->buflen = 0;
             /* If there is garbage, read more to discard it ASAP. */
             continue;
