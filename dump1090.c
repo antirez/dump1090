@@ -163,6 +163,7 @@ struct {
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
+    int aggressive;                 /* Aggressive detection algorithm. */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -174,6 +175,8 @@ struct {
     long long stat_goodcrc;
     long long stat_badcrc;
     long long stat_fixed;
+    long long stat_single_bit_fix;
+    long long stat_two_bits_fix;
     long long stat_http_requests;
 } Modes;
 
@@ -225,6 +228,8 @@ void interactiveShowData(void);
 void interactiveReceiveData(struct modesMessage *mm);
 void modesSendRawOutput(struct modesMessage *mm);
 void useModesMessage(struct modesMessage *mm);
+int fixSingleBitErrors(unsigned char *msg, int bits);
+int fixTwoBitsErrors(unsigned char *msg, int bits);
 
 /* ============================= Utility functions ========================== */
 
@@ -259,6 +264,7 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
+    Modes.aggressive = 0;
 }
 
 void modesInit(void) {
@@ -300,6 +306,8 @@ void modesInit(void) {
     Modes.stat_goodcrc = 0;
     Modes.stat_badcrc = 0;
     Modes.stat_fixed = 0;
+    Modes.stat_single_bit_fix = 0;
+    Modes.stat_two_bits_fix = 0;
     Modes.stat_http_requests = 0;
     Modes.exit = 0;
 }
@@ -496,13 +504,22 @@ void dumpRawMessage(char *descr, unsigned char *msg,
                     uint16_t *m, uint32_t offset)
 {
     int j;
+    int msgtype = msg[0]>>3;
+    int fixable = 0;
+
+    if (msgtype == 11 || msgtype == 17) {
+        int msgbits = (msgtype == 11) ? MODES_SHORT_MSG_BITS :
+                                        MODES_LONG_MSG_BITS;
+        if (fixSingleBitErrors(msg,msgbits) != -1) fixable = 1;
+        else if (fixTwoBitsErrors(msg,msgbits) != -1) fixable = 2;
+    }
 
     printf("\n--- %s\n    ", descr);
     for (j = 0; j < MODES_LONG_MSG_BYTES; j++) {
         printf("%02x",msg[j]);
         if (j == MODES_SHORT_MSG_BYTES-1) printf(" ... ");
     }
-    printf("\n");
+    printf(" (DF %d, Fixable: %d)\n", msgtype, fixable);
     dumpMagnitudeVector(m,offset);
     printf("---\n\n");
 }
@@ -598,6 +615,44 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
              * position. */
             memcpy(msg,aux,bits/8);
             return j;
+        }
+    }
+    return -1;
+}
+
+/* Similar to fixSingleBitErrors() but try every possible two bit combination.
+ * This is very slow and should be tried only against DF17 messages that
+ * don't pass the checksum, and only in Aggressive Mode. */
+int fixTwoBitsErrors(unsigned char *msg, int bits) {
+    int j, i;
+    unsigned char aux[MODES_LONG_MSG_BITS/8];
+
+    for (j = 0; j < bits; j++) {
+        int byte1 = j/8;
+        int bitmask1 = 1 << (7-(j%8));
+
+        for (i = j+1; i < bits; i++) {
+            int byte2 = i/8;
+            int bitmask2 = 1 << (7-(i%8));
+            uint32_t crc1, crc2;
+
+            memcpy(aux,msg,bits/8);
+
+            aux[byte1] ^= bitmask1; /* Flip j-th bit. */
+            aux[byte2] ^= bitmask2; /* Flip i-th bit. */
+
+            crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
+                   ((uint32_t)aux[(bits/8)-2] << 8) |
+                    (uint32_t)aux[(bits/8)-1];
+            crc2 = modesChecksum(aux,bits);
+
+            if (crc1 == crc2) {
+                /* The error is fixed. Overwrite the original buffer with
+                 * the corrected sequence, and returns the error bit
+                 * position. */
+                memcpy(msg,aux,bits/8);
+                return j | (i<<8);
+            }
         }
     }
     return -1;
@@ -821,6 +876,11 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         (mm->msgtype == 11 || mm->msgtype == 17))
     {
         if ((mm->errorbit = fixSingleBitErrors(msg,mm->msgbits)) != -1) {
+            mm->crc = modesChecksum(msg,mm->msgbits);
+            mm->crcok = 1;
+        } else if (Modes.aggressive && mm->msgtype == 17 &&
+                   (mm->errorbit = fixTwoBitsErrors(msg,mm->msgbits)) != -1)
+        {
             mm->crc = modesChecksum(msg,mm->msgbits);
             mm->crcok = 1;
         }
@@ -1133,35 +1193,39 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             continue;
         }
 
-        /* The samples between the two spikes must be < than the average
-         * of the high spikes level. */
-        high = (m[j]+m[j+2]+m[j+7]+m[j+9])/4;
-        if (m[j+3] >= high ||
-            m[j+4] >= high ||
-            m[j+5] >= high ||
-            m[j+6] >= high)
-        {
-            if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
-                m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage("Too high level in samples between 3 and 6",
-                    msg, m, j);
-            continue;
-        }
+        if (Modes.aggressive) {
+            /* The samples between the two spikes must be < than the average
+             * of the high spikes level. */
+            high = (m[j]+m[j+2]+m[j+7]+m[j+9])/4;
+            if (m[j+3] >= high ||
+                m[j+4] >= high ||
+                m[j+5] >= high ||
+                m[j+6] >= high)
+            {
+                if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
+                    m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                    dumpRawMessage(
+                        "Too high level in samples between 3 and 6",
+                        msg, m, j);
+                continue;
+            }
 
-        /* Similarly samples in the range 10-15 must be low, as it is the
-         * space between the preamble and real data. */
-        if (m[j+10] >= high ||
-            m[j+11] >= high ||
-            m[j+12] >= high ||
-            m[j+13] >= high ||
-            m[j+14] >= high ||
-            m[j+15] >= high)
-        {
-            if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
-                m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage("Too high level in samples between 10 and 15",
-                    msg, m, j);
-            continue;
+            /* Similarly samples in the range 10-15 must be low, as it is the
+             * space between the preamble and real data. */
+            if (m[j+10] >= high ||
+                m[j+11] >= high ||
+                m[j+12] >= high ||
+                m[j+13] >= high ||
+                m[j+14] >= high ||
+                m[j+15] >= high)
+            {
+                if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
+                    m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                    dumpRawMessage(
+                        "Too high level in samples between 10 and 15",
+                        msg, m, j);
+                continue;
+            }
         }
         Modes.stat_valid_preamble++;
 
@@ -1218,12 +1282,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
          * and CRC may not be correct. This is handled by the next layer. */
-        if (errors == 0) {
+        if (errors == 0 || (Modes.aggressive && errors < 3)) {
             struct modesMessage mm;
 
             /* Decode the received message and update statistics */
             decodeModesMessage(&mm,msg);
-            Modes.stat_demodulated++;
+            if (errors == 0) Modes.stat_demodulated++;
             if (mm.errorbit == -1) {
                 if (mm.crcok)
                     Modes.stat_goodcrc++;
@@ -1232,12 +1296,17 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             } else {
                 Modes.stat_badcrc++;
                 Modes.stat_fixed++;
+                if (mm.errorbit < MODES_LONG_MSG_BITS)
+                    Modes.stat_single_bit_fix++;
+                else
+                    Modes.stat_two_bits_fix++;
             }
 
             /* Output debug mode info if needed. */
             if (Modes.debug == MODES_DEBUG_DEMOD)
                 dumpRawMessage("Demodulated with 0 errors", msg, m, j);
-            else if (Modes.debug == MODES_DEBUG_BADCRC && !mm.crcok)
+            else if (Modes.debug == MODES_DEBUG_BADCRC &&
+                     (!mm.crcok || mm.errorbit != -1))
                 dumpRawMessage("Decoded with bad CRC", msg, m, j);
             else if (Modes.debug == MODES_DEBUG_GOODCRC && mm.crcok &&
                      mm.errorbit == -1)
@@ -2002,6 +2071,7 @@ void showHelp(void) {
 "--net-http-port <port>   HTTP server port (default: 8080).\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
+"--aggressive             More CPU for more messages (two bits fixes, ...).\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
@@ -2072,6 +2142,8 @@ int main(int argc, char **argv) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
+        } else if (!strcmp(argv[j],"--aggressive")) {
+            Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
@@ -2153,7 +2225,11 @@ int main(int argc, char **argv) {
         printf("%lld demodulated with zero errors\n", Modes.stat_demodulated);
         printf("%lld with good crc\n", Modes.stat_goodcrc);
         printf("%lld with bad crc\n", Modes.stat_badcrc);
-        printf("%lld single bit errors corrected\n", Modes.stat_fixed);
+        printf("%lld errors corrected\n", Modes.stat_fixed);
+        printf("%lld single bit errors\n", Modes.stat_single_bit_fix);
+        printf("%lld two bits errors\n", Modes.stat_two_bits_fix);
+        printf("%lld total usable messages\n",
+            Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
     rtlsdr_close(Modes.dev);

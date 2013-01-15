@@ -173,6 +173,25 @@ resources:
 * http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html
 * http://modesbeast.com/pix/adsb-ant-drawing.gif
 
+Aggressive mode
+---
+
+With --aggressive it is possible to activate the *aggressive mode* that is a
+modified version of the Mode S packet detection and decoding.
+THe aggresive mode uses more CPU usually (especially if there are many planes
+sending DF17 packets), but can detect a few more messages.
+
+The algorithm in aggressive mode is modified in the following ways:
+
+* Preamble detection is weakened to be more liberal in what is consdered valid.
+* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
+  vector with the same eight). Normally only messages without errors are
+  checked.
+* It tries to fix DF17 messages trying every two bits combination.
+
+The use of aggressive mdoe is only advised in places where there is low traffic
+in order to have a chance to capture some more messages.
+
 Debug mode
 ---
 
