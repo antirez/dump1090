@@ -70,6 +70,7 @@
 #define MODES_DEBUG_BADCRC 3
 #define MODES_DEBUG_GOODCRC 4
 #define MODES_DEBUG_NOPREAMBLE 5
+#define MODES_DEBUG_NET 6
 
 /* When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
  * at least greater than a given level for us to dump the signal. */
@@ -84,6 +85,7 @@
 #define MODES_NET_INPUT_RAW_PORT 30001
 #define MODES_NET_HTTP_PORT 8080
 #define MODES_CLIENT_BUF_SIZE 1024
+#define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
 
@@ -1734,9 +1736,13 @@ void modesAcceptClients(void) {
         c->fd = fd;
         c->buflen = 0;
         Modes.clients[fd] = c;
+        anetSetSendBuffer(Modes.aneterr,fd,MODES_NET_SNDBUF_SIZE);
 
         if (Modes.maxfd < fd) Modes.maxfd = fd;
         j--; /* Try again with the same listening port. */
+
+        if (Modes.debug == MODES_DEBUG_NET)
+            printf("Created new client %d\n", fd);
     }
 }
 
@@ -1745,6 +1751,9 @@ void modesFreeClient(int fd) {
     close(fd);
     free(Modes.clients[fd]);
     Modes.clients[fd] = NULL;
+
+    if (Modes.debug == MODES_DEBUG_NET)
+        printf("Closing client %d\n", fd);
 
     /* If this was our maxfd, rescan the full clients array to check what's
      * the new max. */
@@ -1901,21 +1910,35 @@ char *aircraftsToJson(int *len) {
 int handleHTTPRequest(struct client *c) {
     char hdr[512];
     int clen, hdrlen;
-    int keepalive;
+    int httpver, keepalive;
     char *p, *url, *content;
     char *ctype;
 
-    /* printf("HTTP request: %s\n", c->buf); */
+    if (Modes.debug == MODES_DEBUG_NET)
+        printf("\nHTTP request: %s\n", c->buf);
 
     /* Minimally parse the request. */
-    keepalive = strstr(c->buf, "keep-alive") != NULL;
+    httpver = (strstr(c->buf, "HTTP/1.1") != NULL) ? 11 : 10;
+    if (httpver == 10) {
+        /* HTTP 1.0 defaults to close, unless otherwise specified. */
+        keepalive = strstr(c->buf, "Connection: keep-alive") != NULL;
+    } else if (httpver == 11) {
+        /* HTTP 1.1 defaults to keep-alive, unless close is specified. */
+        keepalive = strstr(c->buf, "Connection: close") == NULL;
+    }
+
+    /* Identify he URL. */
     p = strchr(c->buf,' ');
     if (!p) return 1; /* There should be the method and a space... */
     url = ++p; /* Now this should point to the requested URL. */
     p = strchr(p, ' ');
     if (!p) return 1; /* There should be a space before HTTP/... */
     *p = '\0';
-    /* printf("URL: %s\n", url); */
+
+    if (Modes.debug == MODES_DEBUG_NET) {
+        printf("\nHTTP keep alive: %d\n", keepalive);
+        printf("HTTP requested URL: %s\n\n", url);
+    }
 
     /* Select the content to send, we have just two so far:
      * "/" -> Our google map application.
@@ -1959,6 +1982,9 @@ int handleHTTPRequest(struct client *c) {
         keepalive ? "keep-alive" : "close",
         clen);
 
+    if (Modes.debug == MODES_DEBUG_NET)
+        printf("HTTP Reply header:\n%s", hdr);
+
     /* Send header and content. */
     if (write(c->fd, hdr, hdrlen) == -1 ||
         write(c->fd, content, clen) == -1)
@@ -1968,7 +1994,7 @@ int handleHTTPRequest(struct client *c) {
     }
     free(content);
     Modes.stat_http_requests++;
-    return 0;
+    return !keepalive;
 }
 
 /* This function polls the clients using read() in order to receive new

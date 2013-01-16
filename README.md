@@ -208,26 +208,30 @@ before the first peak to provide some context.
 
 It is possible to display different categories of messages:
 
-    --debug 1       Displays all the messages correctly demoudulated.
+  --debug 1         Displays all the messages correctly demoudulated.
                     A correctly demodulated message is just one that
                     makes sense as a Mode S message, the preamble makes
                     sense, and there are no message errors, that is,
                     no adiacet samples describing bits are the same
                     magnitude.
 
-    --debug 2       Only messages with demodulation errors are displayed,
+ --debug 2          Only messages with demodulation errors are displayed,
                     That is, only messages where one or more adiacent
                     samples that should describe bits are the same
                     magnitude.
 
-    --debug 3       Correctly deooded messages with Bad CRC are displayed.
+ --debug 3          Correctly deooded messages with Bad CRC are displayed.
 
-    --debug 4       Correctly deooded messages with good CRC are displayed.
+ --debug 4          Correctly deooded messages with good CRC are displayed.
 
-    --debug 5       Preamble detection failed in some way (specified when
+ --debug 5          Preamble detection failed in some way (specified when
                     dumping the samples) even if the current sample level
                     is greater than MODES_DEBUG_NOPREAMBLE_LEVEL (set to
                     25 by default).
+
+Network related debug modes:
+
+ --debug 6          Log network events (HTTP requests & others)
 
 How this program works?
 ---
