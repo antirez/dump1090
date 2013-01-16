@@ -15,17 +15,23 @@
     </script>
     <script type="text/javascript">
     Map=null;
-    CenterLat=50.0;
+    CenterLat=45.0;
     CenterLon=9.0;
     Planes={};
 
     function getIconForPlane(plane) {
+        var r = 255, g = 255, b = 0;
+        var maxalt = 40000; /* Max altitude in the average case */
+        var invalt = maxalt-plane.altitude;
+
+        if (invalt < 0) invalt = 0;
+        b = parseInt(255/maxalt*invalt);
         return {
-            strokeWeight: 2,
+            strokeWeight: 1,
             path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
             scale: 5,
-            fillColor: 'yellow',
-            fillOpacity: 0.8,
+            fillColor: 'rgb('+r+','+g+','+b+')',
+            fillOpacity: 0.9,
             rotation: plane.track
         };
     }
@@ -35,25 +41,30 @@
             var stillhere = {}
             for (var j=0; j < data.length; j++) {
                 var plane = data[j];
+                var marker = null;
                 stillhere[plane.hex] = true;
+                plane.flight = $.trim(plane.flight);
 
                 if (Planes[plane.hex]) {
                     var myplane = Planes[plane.hex];
-                    var marker = myplane.marker;
+                    marker = myplane.marker;
                     var icon = marker.getIcon();
                     var newpos = new google.maps.LatLng(plane.lat, plane.lon);
                     marker.setPosition(newpos);
                     marker.setIcon(getIconForPlane(plane));
                 } else {
-                    var marker = new google.maps.Marker({
+                    marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
                         map: Map,
-                        title: plane.hex,
                         icon: getIconForPlane(plane)
                     });
                     plane.marker = marker;
                     Planes[plane.hex] = plane;
                 }
+                if (plane.flight.length == 0)
+                    marker.setTitle(plane.hex)
+                else
+                    marker.setTitle(plane.flight+' ('+plane.hex+')')
             }
 
             /* Remove idle planes. */
@@ -70,7 +81,7 @@
     function initialize() {
         var mapOptions = {
             center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 8,
+            zoom: 5,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
         Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
