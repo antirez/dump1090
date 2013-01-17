@@ -152,6 +152,17 @@ Or alternatively to see what's happening on the screen:
 
 Then you can feed it from different data sources from the internet.
 
+Port 30003
+---
+
+Connected clients are served with messages in SBS1 (BaseStation) format, similar to:
+
+    MSG,4,,,738065,,,,,,,,420,179,,,0,,0,0,0,0
+    MSG,3,,,738065,,,,,,,35000,,,34.81609,34.07810,,,0,0,0,0
+
+This can be used to feed data to various sharing sites without the need to use another decoder.
+
+
 Antenna
 ---
 

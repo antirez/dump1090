@@ -8,10 +8,3 @@ TODO
   aircraft ICAO address, like: 30xxxx -> Italy.
 * Actually use the fancy --debug feature in order to improve the recognition
   algorithm if possibile.
-* Listen to port 30003 and provide output in the following format, to
-  connected clients:
-
-    Server: Welcome to the adsb-server
-    MSG,3,0,19,4841D9,19,2013/01/05,15:51:45.747,2013/01/05,15:51:45.747,,33700,,,51.8853,-6.2134,,,0,0,0,0
-    MSG,4,0,15,405638,15,2013/01/05,15:51:45.747,2013/01/05,15:51:45.747,,,415,188,,,0,,0,0,0,0
-    ...
