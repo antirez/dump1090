@@ -114,7 +114,7 @@ struct aircraft {
     int even_cprlat;
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
-    time_t odd_cprtime, even_cprtime;
+    long long odd_cprtime, even_cprtime;
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
 
@@ -1463,14 +1463,14 @@ int cprNLFunction(double lat) {
     else return 1;
 }
 
-int cprNFunction(int i, int isodd) {
-    int nl = cprNLFunction(i) - isodd;
+int cprNFunction(double lat, int isodd) {
+    int nl = cprNLFunction(lat) - isodd;
     if (nl < 1) nl = 1;
     return nl;
 }
 
-double cprDlonFunction(int i, int isodd) {
-    return 360.0 / cprNFunction(i, isodd);
+double cprDlonFunction(double lat, int isodd) {
+    return 360.0 / cprNFunction(lat, isodd);
 }
 
 /* This algorithm comes from:
@@ -1567,16 +1567,17 @@ void interactiveReceiveData(struct modesMessage *mm) {
             if (mm->fflag) {
                 a->odd_cprlat = mm->raw_latitude;
                 a->odd_cprlon = mm->raw_longitude;
-                a->odd_cprtime = a->seen; /* Current time. */
+                a->odd_cprtime = mstime();
             } else {
                 a->even_cprlat = mm->raw_latitude;
                 a->even_cprlon = mm->raw_longitude;
-                a->even_cprtime = a->seen; /* Current time. */
+                a->even_cprtime = mstime();
             }
             /* If the two data is less than 10 seconds apart, compute
              * the position. */
-            if (abs(a->even_cprtime - a->odd_cprtime) <= 10)
+            if (abs(a->even_cprtime - a->odd_cprtime) <= 10000) {
                 decodeCPR(a);
+            }
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
                 a->speed = mm->velocity;
