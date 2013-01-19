@@ -1849,38 +1849,51 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     int emergency = 0, ground = 0, alert = 0, spi = 0;
 
     if (mm->msgtype == 4 || mm->msgtype == 5 || mm->msgtype == 21) {
-            if (mm->identity == 7500 || mm->identity == 7600 || mm->identity == 7700) emergency = -1; /* identity is calculated/kept in base10 but is actually octal (07500 is represented as 7500) */
-            if (mm->fs == 1 || mm->fs == 3) ground = -1;
-            if (mm->fs == 2 || mm->fs == 3 || mm->fs == 4) alert = -1;
-            if (mm->fs == 4 || mm->fs == 5) spi = -1;
-        }
-
-    if (mm->msgtype == 0) {
-        p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,,,,", mm->aa1, mm->aa2, mm->aa3, mm->altitude);
-    } else if (mm->msgtype == 4) {
-        p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,%d,%d,%d,%d", mm->aa1, mm->aa2, mm->aa3, mm->altitude, alert, emergency, spi, ground);
-    } else if (mm->msgtype == 5) {
-        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d", mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
-    } else if (mm->msgtype == 11) {
-        p += sprintf(p, "MSG,8,,,%02X%02X%02X,,,,,,,,,,,,,,,,,", mm->aa1, mm->aa2, mm->aa3);
-    } else if (mm->msgtype == 17 && mm->metype == 4) {
-        p += sprintf(p, "MSG,1,,,%02X%02X%02X,,,,,,%s,,,,,,,,0,0,0,0", mm->aa1, mm->aa2, mm->aa3, mm->flight);
-    } else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
-        if (a->lat == 0 && a->lon == 0)
-            p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0", mm->aa1, mm->aa2, mm->aa3, mm->altitude);
-        else
-            p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,0,0,0,0", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
-    } else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1) {
-        int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
-        p += sprintf(p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0", mm->aa1, mm->aa2, mm->aa3, a->speed, a->track, vr);
-    } else if (mm->msgtype == 21) {
-        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d", mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+        /* Node: identity is calculated/kept in base10 but is actually
+         * octal (07500 is represented as 7500) */
+        if (mm->identity == 7500 || mm->identity == 7600 ||
+            mm->identity == 7700) emergency = -1;
+        if (mm->fs == 1 || mm->fs == 3) ground = -1;
+        if (mm->fs == 2 || mm->fs == 3 || mm->fs == 4) alert = -1;
+        if (mm->fs == 4 || mm->fs == 5) spi = -1;
     }
 
-    if (msg == p) return; // empty string
+    if (mm->msgtype == 0) {
+        p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,,,,",
+        mm->aa1, mm->aa2, mm->aa3, mm->altitude);
+    } else if (mm->msgtype == 4) {
+        p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,%d,%d,%d,%d",
+        mm->aa1, mm->aa2, mm->aa3, mm->altitude, alert, emergency, spi, ground);
+    } else if (mm->msgtype == 5) {
+        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
+        mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+    } else if (mm->msgtype == 11) {
+        p += sprintf(p, "MSG,8,,,%02X%02X%02X,,,,,,,,,,,,,,,,,",
+        mm->aa1, mm->aa2, mm->aa3);
+    } else if (mm->msgtype == 17 && mm->metype == 4) {
+        p += sprintf(p, "MSG,1,,,%02X%02X%02X,,,,,,%s,,,,,,,,0,0,0,0",
+        mm->aa1, mm->aa2, mm->aa3, mm->flight);
+    } else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
+        if (a->lat == 0 && a->lon == 0)
+            p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
+            mm->aa1, mm->aa2, mm->aa3, mm->altitude);
+        else
+            p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,"
+                            "0,0,0,0",
+            mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+    } else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1) {
+        int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
+
+        p += sprintf(p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
+        mm->aa1, mm->aa2, mm->aa3, a->speed, a->track, vr);
+    } else if (mm->msgtype == 21) {
+        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
+        mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+    } else {
+        return;
+    }
 
     *p++ = '\n';
-
     modesSendAllClients(Modes.sbsos, msg, p-msg);
 }
 
