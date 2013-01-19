@@ -698,15 +698,18 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
  * the address XOR checksum field in the message. This will recover the
  * address: if we found it in our cache, we can assume the message is ok.
  *
- * On success the input buffer is modified to remove the xored checksum
- * from the packet, so that the last three bytes will contain the
- * plain ICAO address.
+ * This function expects mm->msgtype and mm->msgbits to be correctly
+ * populated by the caller.
+ *
+ * On success the correct ICAO address is stored in the modesMessage
+ * structure in the aa3, aa2, and aa1 fiedls.
  *
  * If the function successfully recovers a message with a correct checksum
  * it returns 1. Otherwise 0 is returned. */
-int bruteForceAP(unsigned char *msg, int msgbits) {
+int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
     unsigned char aux[MODES_LONG_MSG_BYTES];
-    int msgtype = msg[0]>>3;
+    int msgtype = mm->msgtype;
+    int msgbits = mm->msgbits;
 
     if (msgtype == 0 ||         /* Short air surveillance */
         msgtype == 4 ||         /* Surveillance, altitude reply */
@@ -736,9 +739,9 @@ int bruteForceAP(unsigned char *msg, int msgbits) {
          * the message valid. */
         addr = aux[lastbyte] | (aux[lastbyte-1] << 8) | (aux[lastbyte-2] << 16);
         if (ICAOAddressWasRecentlySeen(addr)) {
-            msg[lastbyte] = aux[lastbyte];
-            msg[lastbyte-1] = aux[lastbyte-1];
-            msg[lastbyte-2] = aux[lastbyte-2];
+            mm->aa1 = aux[lastbyte-2];
+            mm->aa2 = aux[lastbyte-1];
+            mm->aa3 = aux[lastbyte];
             return 1;
         }
     }
@@ -939,30 +942,26 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->identity = a*1000 + b*100 + c*10 + d;
     }
 
-    /* Check if we can check the checksum for the Downlink Formats where
-     * the checksum is xored with the aircraft ICAO address. We try to
-     * brute force it using a list of recently seen aircraft addresses. */
+    /* DF 11 & 17: try to populate our ICAO addresses whitelist.
+     * DFs with an AP field (xored addr and crc), try to decode it. */
     if (mm->msgtype != 11 && mm->msgtype != 17) {
-        /* Return to the caller now if we can't resolve the API field and
-         * we need to check the checksum. */
-        if (bruteForceAP(msg,mm->msgbits)) {
-            /* We recovered the message!
-             * Populate the AA fields with the right information. */
-            mm->aa3 = msg[mm->msgbits/8-1];
-            mm->aa2 = msg[mm->msgbits/8-2];
-            mm->aa1 = msg[mm->msgbits/8-3];
+        /* Check if we can check the checksum for the Downlink Formats where
+         * the checksum is xored with the aircraft ICAO address. We try to
+         * brute force it using a list of recently seen aircraft addresses. */
+        if (bruteForceAP(msg,mm)) {
+            /* We recovered the message, mark the checksum as valid. */
             mm->crcok = 1;
         } else {
             mm->crcok = 0;
         }
-    }
-
-    /* If this is DF 11 or DF 17 and the checksum was ok,
-     * we can add this address to the list of recently seen
-     * addresses. */
-    if (mm->crcok && mm->errorbit == -1) {
-        uint32_t addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
-        addRecentlySeenICAOAddr(addr);
+    } else {
+        /* If this is DF 11 or DF 17 and the checksum was ok,
+         * we can add this address to the list of recently seen
+         * addresses. */
+        if (mm->crcok && mm->errorbit == -1) {
+            uint32_t addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
+            addRecentlySeenICAOAddr(addr);
+        }
     }
 
     /* Decode 13 bit altitude for DF0, DF4, DF16, DF20 */
