@@ -294,7 +294,7 @@ void modesInit(void) {
     /* Allocate the ICAO address cache. We use two uint32_t for every
      * entry because it's a addr / timestamp pair for every entry. */
     Modes.icao_cache = malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
-    memset(Modes.icao_cache,0,sizeof(Modes.icao_cache));
+    memset(Modes.icao_cache,0,sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
     Modes.aircrafts = NULL;
     Modes.interactive_last_update = 0;
     if ((Modes.data = malloc(Modes.data_len)) == NULL ||
