@@ -65,12 +65,13 @@
 #define MODES_UNIT_FEET 0
 #define MODES_UNIT_METERS 1
 
-#define MODES_DEBUG_DEMOD 1
-#define MODES_DEBUG_DEMODERR 2
-#define MODES_DEBUG_BADCRC 3
-#define MODES_DEBUG_GOODCRC 4
-#define MODES_DEBUG_NOPREAMBLE 5
-#define MODES_DEBUG_NET 6
+#define MODES_DEBUG_DEMOD (1<<0)
+#define MODES_DEBUG_DEMODERR (1<<1)
+#define MODES_DEBUG_BADCRC (1<<2)
+#define MODES_DEBUG_GOODCRC (1<<3)
+#define MODES_DEBUG_NOPREAMBLE (1<<4)
+#define MODES_DEBUG_NET (1<<5)
+#define MODES_DEBUG_JS (1<<6)
 
 /* When debug is set to MODES_DEBUG_NOPREAMBLE, the first sample must be
  * at least greater than a given level for us to dump the signal. */
@@ -184,6 +185,7 @@ struct {
     long long stat_two_bits_fix;
     long long stat_http_requests;
     long long stat_sbs_connections;
+    long long stat_out_of_phase;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -196,6 +198,7 @@ struct modesMessage {
     uint32_t crc;               /* Message CRC */
     int errorbit;               /* Bit corrected. -1 if no bit corrected. */
     int aa1, aa2, aa3;          /* ICAO Address bytes 1 2 and 3 */
+    int phase_corrected;        /* True if phase correction was applied. */
 
     /* DF 11 */
     int ca;                     /* Responder capabilities. */
@@ -237,6 +240,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
+int modesMessageLenByType(int type);
 
 /* ============================= Utility functions ========================== */
 
@@ -280,7 +284,12 @@ void modesInit(void) {
 
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
-    Modes.data_len = MODES_DATA_LEN;
+    /* We add a full message minus a final bit to the length, so that we
+     * can carry the remaining part of the buffer that we can't process
+     * in the message detection loop, back at the start of the next data
+     * to process. This way we are able to also detect messages crossing
+     * two reads. */
+    Modes.data_len = MODES_DATA_LEN + (MODES_FULL_LEN-1)*4;
     Modes.data_ready = 0;
     /* Allocate the ICAO address cache. We use two uint32_t for every
      * entry because it's a addr / timestamp pair for every entry. */
@@ -293,6 +302,7 @@ void modesInit(void) {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
     }
+    memset(Modes.data,127,Modes.data_len);
 
     /* Populate the I/Q -> Magnitude lookup table. It is used because
      * sqrt or round may be expensive and may vary a lot depending on
@@ -318,6 +328,7 @@ void modesInit(void) {
     Modes.stat_two_bits_fix = 0;
     Modes.stat_http_requests = 0;
     Modes.stat_sbs_connections = 0;
+    Modes.stat_out_of_phase = 0;
     Modes.exit = 0;
 }
 
@@ -385,8 +396,12 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     MODES_NOTUSED(ctx);
 
     pthread_mutex_lock(&Modes.data_mutex);
-    if (len > Modes.data_len) len = Modes.data_len;
-    memcpy(Modes.data, buf, len);
+    if (len > MODES_DATA_LEN) len = MODES_DATA_LEN;
+    /* Move the last part of the previous buffer, that was not processed,
+     * on the start of the new buffer. */
+    memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+    /* Read the new data. */
+    memcpy(Modes.data+(MODES_FULL_LEN-1)*4, buf, len);
     Modes.data_ready = 1;
     /* Signal to the other thread that new data is ready */
     pthread_cond_signal(&Modes.data_cond);
@@ -414,8 +429,11 @@ void readDataFromFile(void) {
             pthread_mutex_lock(&Modes.data_mutex);
         }
 
-        toread = Modes.data_len;
-        p = Modes.data;
+        /* Move the last part of the previous buffer, that was not processed,
+         * on the start of the new buffer. */
+        memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+        toread = MODES_DATA_LEN;
+        p = Modes.data+(MODES_FULL_LEN-1)*4;
         while(toread) {
             nread = read(Modes.fd, p, toread);
             if (nread <= 0) {
@@ -444,7 +462,7 @@ void *readerThreadEntryPoint(void *arg) {
     if (Modes.filename == NULL) {
         rtlsdr_read_async(Modes.dev, rtlsdrCallback, NULL,
                               MODES_ASYNC_BUF_NUMBER,
-                              Modes.data_len);
+                              MODES_DATA_LEN);
     } else {
         readDataFromFile();
     }
@@ -491,7 +509,7 @@ void dumpMagnitudeBar(int index, int magnitude) {
  * for context. */
 
 void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
-    uint32_t padding = 5; /* Show 5 samples before the actual start. */
+    uint32_t padding = 5; /* Show a few samples before the actual start. */
     uint32_t start = (offset < padding) ? 0 : offset-padding;
     uint32_t end = offset + (MODES_PREAMBLE_US*2)+(MODES_SHORT_MSG_BITS*2) - 1;
     uint32_t j;
@@ -501,6 +519,40 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     }
 }
 
+/* Produce a raw representation of the message as a Javascript file
+ * loadable by debug.html. */
+void dumpRawMessageJS(char *descr, unsigned char *msg,
+                      uint16_t *m, uint32_t offset, int fixable)
+{
+    int padding = 5; /* Show a few samples before the actual start. */
+    int start = offset - padding;
+    int end = offset + (MODES_PREAMBLE_US*2)+(MODES_LONG_MSG_BITS*2) - 1;
+    FILE *fp;
+    int j, fix1 = -1, fix2 = -1;
+
+    if (fixable != -1) {
+        fix1 = fixable & 0xff;
+        if (fixable > 255) fix2 = fixable >> 8;
+    }
+
+    if ((fp = fopen("frames.js","a")) == NULL) {
+        fprintf(stderr, "Error opening frames.js: %s\n", strerror(errno));
+        exit(1);
+    }
+
+    fprintf(fp,"frames.push({\"descr\": \"%s\", \"mag\": [", descr);
+    for (j = start; j <= end; j++) {
+        fprintf(fp,"%d", j < 0 ? 0 : m[j]);
+        if (j != end) fprintf(fp,",");
+    }
+    fprintf(fp,"], \"fix1\": %d, \"fix2\": %d, \"bits\": %d, \"hex\": \"",
+        fix1, fix2, modesMessageLenByType(msg[0]>>3));
+    for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
+        fprintf(fp,"\\x%02x",msg[j]);
+    fprintf(fp,"\"});\n");
+    fclose(fp);
+}
+
 /* This is a wrapper for dumpMagnitudeVector() that also show the message
  * in hex format with an additional description.
  *
@@ -508,19 +560,29 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
  * msg    points to the decoded message
  * m      is the original magnitude vector
  * offset is the offset where the message starts
+ *
+ * The function also produces the Javascript file used by debug.html to
+ * display packets in a graphical format if the Javascript output was
+ * enabled.
  */
 void dumpRawMessage(char *descr, unsigned char *msg,
                     uint16_t *m, uint32_t offset)
 {
     int j;
     int msgtype = msg[0]>>3;
-    int fixable = 0;
+    int fixable = -1;
 
     if (msgtype == 11 || msgtype == 17) {
         int msgbits = (msgtype == 11) ? MODES_SHORT_MSG_BITS :
                                         MODES_LONG_MSG_BITS;
-        if (fixSingleBitErrors(msg,msgbits) != -1) fixable = 1;
-        else if (fixTwoBitsErrors(msg,msgbits) != -1) fixable = 2;
+        fixable = fixSingleBitErrors(msg,msgbits);
+        if (fixable == -1)
+            fixable = fixTwoBitsErrors(msg,msgbits);
+    }
+
+    if (Modes.debug & MODES_DEBUG_JS) {
+        dumpRawMessageJS(descr, msg, m, offset, fixable);
+        return;
     }
 
     printf("\n--- %s\n    ", descr);
@@ -640,6 +702,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
         int byte1 = j/8;
         int bitmask1 = 1 << (7-(j%8));
 
+        /* Don't check the same pairs multiple times, so i starts from j+1 */
         for (i = j+1; i < bits; i++) {
             int byte2 = i/8;
             int bitmask2 = 1 << (7-(i%8));
@@ -660,6 +723,9 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
                  * the corrected sequence, and returns the error bit
                  * position. */
                 memcpy(msg,aux,bits/8);
+                /* We return the two bits as a 16 bit integer by shifting
+                 * 'i' on the left. This is possible since 'i' will always
+                 * be non-zero because i starts from j+1. */
                 return j | (i<<8);
             }
         }
@@ -1041,6 +1107,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             }
         }
     }
+    mm->phase_corrected = 0; /* Set to 1 by the caller if needed. */
 }
 
 /* This function gets a decoded Mode S Message and prints it on the screen
@@ -1177,13 +1244,67 @@ void computeMagnitudeVector(void) {
     }
 }
 
+/* Return -1 if the message is out of fase left-side
+ * Return  1 if the message is out of fase right-size
+ * Return  0 if the message is not particularly out of phase. */
+int detectOutOfPhase(uint16_t *m) {
+    m += 16; /* Skip preamble. */
+    if (m[3] > m[2]/2) return 1;
+    if (m[6] > m[7]/2) return -1;
+    return 0;
+}
+
+/* This function does not really correct the phase of the message, it just
+ * applies a transformation to the first sample representing a given bit:
+ *
+ * If the previous bit was one, we amplify it a bit.
+ * If the previous bit was zero, we decrease it a bit.
+ *
+ * This simple transformation makes the message a bit more likely to be
+ * correctly decoded for out of phase messages:
+ *
+ * When messages are out of phase there is more uncertainty in
+ * sequences of the same bit multiple times, since 11111 will be
+ * transmitted as continuously altering magnitude (high, low, high, low...)
+ * 
+ * However because the message is out of phase some part of the high
+ * is mixed in the low part, so that it is hard to distinguish if it is
+ * a zero or a one.
+ *
+ * However when the message is out of phase passing from 0 to 1 or from
+ * 1 to 0 happens in a very recognizable way, for instance in the 0 -> 1
+ * transition, magnitude goes low, high, high, low, and one of of the
+ * two middle samples the high will be *very* high as part of the previous
+ * or next high signal will be mixed there.
+ *
+ * Applying our simple transformation we make more likely if the current
+ * bit is a zero, to detect another zero. Symmetrically if it is a one
+ * it will be more likely to detect a one because of the transformation.
+ * In this way similar levels will be interpreted more likely in the
+ * correct way. */
+void applyPhaseCorrection(uint16_t *m) {
+    int j;
+
+    for (j = 0; j < (MODES_LONG_MSG_BITS-1)*2; j += 2) {
+        if (m[j] > m[j+1]) {
+            /* One */
+            m[j+2] = (m[j+2] * 5) / 4;
+        } else {
+            /* Zero */
+            m[j+2] = (m[j+2] * 4) / 5;
+        }
+    }
+}
+
 /* Detect a Mode S messages inside the magnitude buffer pointed by 'm' and of
  * size 'mlen' bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it. */
 void detectModeS(uint16_t *m, uint32_t mlen) {
     unsigned char bits[MODES_LONG_MSG_BITS];
     unsigned char msg[MODES_LONG_MSG_BITS/2];
+    uint16_t aux[MODES_LONG_MSG_BITS*2];
     uint32_t j;
+    int use_correction = 0;
 
     /* The Mode S preamble is made of impulses of 0.5 microseconds at
      * the following time offsets:
@@ -1209,7 +1330,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      * 9   -------------------
      */
     for (j = 0; j < mlen - MODES_FULL_LEN*2; j++) {
-        int low, high, i, errors;
+        int low, high, delta, i, errors;
+        int good_message = 0, out_of_phase;
+
+        if (use_correction) goto good_preamble; /* We already checked it. */
 
         /* First check of relations between the first 10 samples
          * representing a valid preamble. We don't even investigate further
@@ -1225,23 +1349,23 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             m[j+8] < m[j+9] &&
             m[j+9] > m[j+6]))
         {
-            if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
+            if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                 m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
                 dumpRawMessage("Unexpected ratio among first 10 samples",
                     msg, m, j);
             continue;
         }
 
-        if (Modes.aggressive) {
+        if (!Modes.aggressive) {
             /* The samples between the two spikes must be < than the average
-             * of the high spikes level. */
-            high = (m[j]+m[j+2]+m[j+7]+m[j+9])/4;
-            if (m[j+3] >= high ||
-                m[j+4] >= high ||
-                m[j+5] >= high ||
-                m[j+6] >= high)
+             * of the high spikes level. We don't test bits too near to
+             * the high levels as signals can be out of phase so part of the
+             * energy can be in the near samples. */
+            high = (m[j]+m[j+2]+m[j+7]+m[j+9])/6;
+            if (m[j+4] >= high ||
+                m[j+5] >= high)
             {
-                if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
+                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage(
                         "Too high level in samples between 3 and 6",
@@ -1249,16 +1373,15 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                 continue;
             }
 
-            /* Similarly samples in the range 10-15 must be low, as it is the
-             * space between the preamble and real data. */
-            if (m[j+10] >= high ||
-                m[j+11] >= high ||
+            /* Similarly samples in the range 11-14 must be low, as it is the
+             * space between the preamble and real data. Again we don't test
+             * bits too near to high levels, see above. */
+            if (m[j+11] >= high ||
                 m[j+12] >= high ||
                 m[j+13] >= high ||
-                m[j+14] >= high ||
-                m[j+15] >= high)
+                m[j+14] >= high)
             {
-                if (Modes.debug == MODES_DEBUG_NOPREAMBLE &&
+                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
                     m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
                     dumpRawMessage(
                         "Too high level in samples between 10 and 15",
@@ -1268,13 +1391,28 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         }
         Modes.stat_valid_preamble++;
 
+good_preamble:
+        out_of_phase = detectOutOfPhase(m+j);
+
+        /* If the previous attempt with this message failed, retry using
+         * magnitude correction. */
+        if (use_correction) {
+            memcpy(aux,m+j+MODES_PREAMBLE_US*2,sizeof(aux));
+            applyPhaseCorrection(m+j);
+        }
+
         /* Decode all the next 112 bits, regardless of the actual message
          * size. We'll check the actual message type later. */
         errors = 0;
         for (i = 0; i < MODES_LONG_MSG_BITS*2; i += 2) {
             low = m[j+i+MODES_PREAMBLE_US*2];
             high = m[j+i+MODES_PREAMBLE_US*2+1];
-            if (low == high) {
+            delta = low-high;
+            if (delta < 0) delta = -delta;
+
+            if (i > 0 && delta < 256) {
+                bits[i/2] = bits[i/2-1];
+            } else if (low == high) {
                 /* Checking if two adiacent samples have the same magnitude
                  * is an effective way to detect if it's just random noise
                  * that was detected as a valid preamble. */
@@ -1287,6 +1425,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                 bits[i/2] = 0;
             }
         }
+
+        /* Restore the original message if we used magnitude correction. */
+        if (use_correction)
+            memcpy(m+j+MODES_PREAMBLE_US*2,aux,sizeof(aux));
 
         /* Pack bits into bytes */
         for (i = 0; i < MODES_LONG_MSG_BITS; i += 8) {
@@ -1306,7 +1448,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
         /* Last check, high and low bits are different enough in magnitude
          * to mark this as real message and not just noise? */
-        int delta = 0;
+        delta = 0;
         for (i = 0; i < msglen*8*2; i += 2) {
             delta += abs(m[j+i+MODES_PREAMBLE_US*2]-
                          m[j+i+MODES_PREAMBLE_US*2+1]);
@@ -1316,7 +1458,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         /* Filter for an average delta of three is small enough to let almost
          * every kind of message to pass, but high enough to filter some
          * random noise. */
-        if (delta < 10*255) continue;
+        if (delta < 10*255) {
+            use_correction = 0;
+            continue;
+        }
 
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
@@ -1326,41 +1471,64 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             /* Decode the received message and update statistics */
             decodeModesMessage(&mm,msg);
-            if (errors == 0) Modes.stat_demodulated++;
-            if (mm.errorbit == -1) {
-                if (mm.crcok)
-                    Modes.stat_goodcrc++;
-                else
+
+            /* Update statistics. */
+            if (mm.crcok || (!out_of_phase || use_correction)) {
+                if (errors == 0) Modes.stat_demodulated++;
+                if (mm.errorbit == -1) {
+                    if (mm.crcok)
+                        Modes.stat_goodcrc++;
+                    else
+                        Modes.stat_badcrc++;
+                } else {
                     Modes.stat_badcrc++;
-            } else {
-                Modes.stat_badcrc++;
-                Modes.stat_fixed++;
-                if (mm.errorbit < MODES_LONG_MSG_BITS)
-                    Modes.stat_single_bit_fix++;
-                else
-                    Modes.stat_two_bits_fix++;
+                    Modes.stat_fixed++;
+                    if (mm.errorbit < MODES_LONG_MSG_BITS)
+                        Modes.stat_single_bit_fix++;
+                    else
+                        Modes.stat_two_bits_fix++;
+                }
             }
 
             /* Output debug mode info if needed. */
-            if (Modes.debug == MODES_DEBUG_DEMOD)
-                dumpRawMessage("Demodulated with 0 errors", msg, m, j);
-            else if (Modes.debug == MODES_DEBUG_BADCRC &&
-                     (!mm.crcok || mm.errorbit != -1))
-                dumpRawMessage("Decoded with bad CRC", msg, m, j);
-            else if (Modes.debug == MODES_DEBUG_GOODCRC && mm.crcok &&
-                     mm.errorbit == -1)
-                dumpRawMessage("Decoded with good CRC", msg, m, j);
+            if (!out_of_phase || use_correction) {
+                if (Modes.debug & MODES_DEBUG_DEMOD)
+                    dumpRawMessage("Demodulated with 0 errors", msg, m, j);
+                else if (Modes.debug & MODES_DEBUG_BADCRC &&
+                         mm.msgtype == 17 &&
+                         (!mm.crcok || mm.errorbit != -1))
+                    dumpRawMessage("Decoded with bad CRC", msg, m, j);
+                else if (Modes.debug & MODES_DEBUG_GOODCRC && mm.crcok &&
+                         mm.errorbit == -1)
+                    dumpRawMessage("Decoded with good CRC", msg, m, j);
+            }
+
+            /* Skip this message if we are sure it's fine. */
+            if (mm.crcok) {
+                j += (MODES_PREAMBLE_US+(msglen*8))*2;
+                good_message = 1;
+                if (use_correction)
+                    mm.phase_corrected = 1;
+            }
 
             /* Pass data to the next layer */
             useModesMessage(&mm);
-
-            /* Skip this message if we are sure it's fine. */
-            if (mm.crcok) j += (MODES_PREAMBLE_US+(msglen*8))*2;
         } else {
-            if (Modes.debug == MODES_DEBUG_DEMODERR) {
+            if (Modes.debug & MODES_DEBUG_DEMODERR &&
+                (!out_of_phase || use_correction))
+            {
                 printf("The following message has %d demod errors\n", errors);
                 dumpRawMessage("Demodulated with errors", msg, m, j);
             }
+        }
+
+        /* Retry with phase correction if possible. */
+        if (!good_message && !use_correction && out_of_phase) {
+            j--;
+            use_correction = 1;
+            Modes.stat_out_of_phase++;
+        } else {
+            use_correction = 0;
         }
     }
 }
@@ -1785,7 +1953,7 @@ void modesAcceptClients(void) {
 
         j--; /* Try again with the same listening port. */
 
-        if (Modes.debug == MODES_DEBUG_NET)
+        if (Modes.debug & MODES_DEBUG_NET)
             printf("Created new client %d\n", fd);
     }
 }
@@ -1796,7 +1964,7 @@ void modesFreeClient(int fd) {
     free(Modes.clients[fd]);
     Modes.clients[fd] = NULL;
 
-    if (Modes.debug == MODES_DEBUG_NET)
+    if (Modes.debug & MODES_DEBUG_NET)
         printf("Closing client %d\n", fd);
 
     /* If this was our maxfd, rescan the full clients array to check what's
@@ -2014,7 +2182,7 @@ int handleHTTPRequest(struct client *c) {
     char *p, *url, *content;
     char *ctype;
 
-    if (Modes.debug == MODES_DEBUG_NET)
+    if (Modes.debug & MODES_DEBUG_NET)
         printf("\nHTTP request: %s\n", c->buf);
 
     /* Minimally parse the request. */
@@ -2035,7 +2203,7 @@ int handleHTTPRequest(struct client *c) {
     if (!p) return 1; /* There should be a space before HTTP/... */
     *p = '\0';
 
-    if (Modes.debug == MODES_DEBUG_NET) {
+    if (Modes.debug & MODES_DEBUG_NET) {
         printf("\nHTTP keep alive: %d\n", keepalive);
         printf("HTTP requested URL: %s\n\n", url);
     }
@@ -2082,7 +2250,7 @@ int handleHTTPRequest(struct client *c) {
         keepalive ? "keep-alive" : "close",
         clen);
 
-    if (Modes.debug == MODES_DEBUG_NET)
+    if (Modes.debug & MODES_DEBUG_NET)
         printf("HTTP Reply header:\n%s", hdr);
 
     /* Send header and content. */
@@ -2206,8 +2374,16 @@ void showHelp(void) {
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
-"--debug <level>          Debug mode, see README for more information.\n"
+"--debug <flags>          Debug mode (verbose), see README for details.\n"
 "--help                   Show this help.\n"
+"\n"
+"Debug mode flags: d = Log frames decoded with errors\n"
+"                  D = Log frames decoded with zero errors\n"
+"                  c = Log frames with bad CRC\n"
+"                  C = Log frames with good CRC\n"
+"                  p = Log frames with bad preamble\n"
+"                  n = Log network debugging info\n"
+"                  j = Log frames to frames.js, loadable by debug.html.\n"
     );
 }
 
@@ -2283,7 +2459,23 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
             Modes.interactive_ttl = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {
-            Modes.debug = atoi(argv[++j]);
+            char *f = argv[++j];
+            while(*f) {
+                switch(*f) {
+                case 'D': Modes.debug |= MODES_DEBUG_DEMOD; break;
+                case 'd': Modes.debug |= MODES_DEBUG_DEMODERR; break;
+                case 'C': Modes.debug |= MODES_DEBUG_GOODCRC; break;
+                case 'c': Modes.debug |= MODES_DEBUG_BADCRC; break;
+                case 'p': Modes.debug |= MODES_DEBUG_NOPREAMBLE; break;
+                case 'n': Modes.debug |= MODES_DEBUG_NET; break;
+                case 'j': Modes.debug |= MODES_DEBUG_JS; break;
+                default:
+                    fprintf(stderr, "Unknown debugging flag: %c\n", *f);
+                    exit(1);
+                    break;
+                }
+                f++;
+            }
         } else if (!strcmp(argv[j],"--stats")) {
             Modes.stats = 1;
         } else if (!strcmp(argv[j],"--snip") && more) {
@@ -2354,7 +2546,10 @@ int main(int argc, char **argv) {
     /* If --ifile and --stats were given, print statistics. */
     if (Modes.stats && Modes.filename) {
         printf("%lld valid preambles\n", Modes.stat_valid_preamble);
-        printf("%lld demodulated with zero errors\n", Modes.stat_demodulated);
+        printf("%lld demodulated again after phase correction\n",
+            Modes.stat_out_of_phase);
+        printf("%lld demodulated with zero errors\n",
+            Modes.stat_demodulated);
         printf("%lld with good crc\n", Modes.stat_goodcrc);
         printf("%lld with bad crc\n", Modes.stat_badcrc);
         printf("%lld errors corrected\n", Modes.stat_fixed);

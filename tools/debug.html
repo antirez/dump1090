@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html>
+<body>
+<head>
+<script>
+var frames = [];
+var currentFrame = 144;
+
+var modes_checksum_table = [
+0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,
+0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,
+0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,
+0x939020, 0x49c810, 0x24e408, 0x127204, 0x093902, 0x049c81, 0xfdb444, 0x7eda22,
+0x3f6d11, 0xe04c8c, 0x702646, 0x381323, 0xe3f395, 0x8e03ce, 0x4701e7, 0xdc7af7,
+0x91c77f, 0xb719bb, 0xa476d9, 0xadc168, 0x56e0b4, 0x2b705a, 0x15b82d, 0xf52612,
+0x7a9309, 0xc2b380, 0x6159c0, 0x30ace0, 0x185670, 0x0c2b38, 0x06159c, 0x030ace,
+0x018567, 0xff38b7, 0x80665f, 0xbfc92b, 0xa01e91, 0xaff54c, 0x57faa6, 0x2bfd53,
+0xea04ad, 0x8af852, 0x457c29, 0xdd4410, 0x6ea208, 0x375104, 0x1ba882, 0x0dd441,
+0xf91024, 0x7c8812, 0x3e4409, 0xe0d800, 0x706c00, 0x383600, 0x1c1b00, 0x0e0d80,
+0x0706c0, 0x038360, 0x01c1b0, 0x00e0d8, 0x00706c, 0x003836, 0x001c1b, 0xfff409,
+0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
+0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,
+0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
+];
+
+function modesChecksum(frame) {
+    var crc = 0;
+    var bits = frame.bits;
+    var offset = (bits == 112) ? 0 : (112-56);
+
+    for(var j = 0; j < bits; j++) {
+        var byte = j/8;
+        var bit = j%8;
+        var bitmask = 1 << (7-bit);
+
+        /* If bit is set, xor with corresponding table entry. */
+        if (frame.hex.charCodeAt(byte) & bitmask)
+            crc ^= modes_checksum_table[j+offset];
+    }
+    return crc; /* 24 bit checksum. */
+}
+
+function getFrameChecksum(frame) {
+    var res = "";
+    for (j = 0; j < frame.hex.length; j++) {
+        var val = frame.hex.charCodeAt(j);
+        var h = val.toString(16);
+        if (h.length == 1) h = "0"+h;
+        res += h;
+    }
+    return res;
+}
+
+function displayFrame(i) {
+    var div = document.getElementById("frame");
+    var msgbits = 8+112;
+    var frame = frames[i];
+    var padding = frame.mag.length - msgbits*2;
+
+    /* Remove the old representation. */
+    var nodes = div.childNodes.length;
+    for(var j = 0; j < nodes; j++) {
+        div.removeChild(div.firstChild);
+    }
+
+    /* Display the new one. */
+    for (var j = -padding; j < msgbits*2+padding; j++) {
+        var m = frame.mag[j+padding];
+        var type;
+
+        if (j < 0) type = "noise";
+        if (j >= 0 && j < 16) type = "pre";
+        if (j >= 16) {
+            if (!(j % 2)) {
+                var next = frame.mag[j+padding+1];
+                if (m > next)
+                    type = "one";
+                else
+                    type = "zero";
+            }
+            var bit = (j-16)/2;
+            if (bit == frame.fix1 ||
+                bit == frame.fix2)
+                type = "err";
+        }
+        var sample = document.createElement("div");
+        sample.setAttribute("class","sample "+type);
+        sample.setAttribute("title","sample "+j+" ("+m+")");
+        sample.style.left = ""+((j+padding)*4)+"px";
+        sample.style.height = ""+(m/256)+"px";
+        div.appendChild(sample);
+    }
+    document.getElementById("info").innerHTML =
+        "#"+currentFrame+" "+frame.descr+"<br>"+
+        "Bits:"+frame.bits+"<br>"+
+        "DF  : "+(frame.hex.charCodeAt(0) >> 3)+"<br>"+
+        "fix1: "+frame.fix1+"<br>"+
+        "fix2: "+frame.fix2+"<br>"+
+        "hex : "+getFrameChecksum(frame)+"<br>"+
+        "crc (computed): "+modesChecksum(frame).toString(16)+"<br>";
+}
+
+function recomputeHex(frame) {
+    var padding = frame.mag.length - (112+8)*2;
+    var b = [];
+    var hex = "";
+
+    /* Get bits */
+    for (var j = 0; j < frame.bits*2; j += 2) {
+        var bit;
+        var l = frame.mag[padding+j+16];
+        var r = frame.mag[padding+j+1+16];
+        if (l > r)
+            bit = 1;
+        else
+            bit = 0;
+        b.push(bit);
+    }
+    /* Pack into bytes */
+    for (j = 0; j < frame.bits; j+= 8) {
+        hex += String.fromCharCode(
+            b[j]<<7 |
+            b[j+1]<<6 |
+            b[j+2]<<5 |
+            b[j+3]<<4 |
+            b[j+4]<<3 |
+            b[j+5]<<2 |
+            b[j+6]<<1 |
+            b[j+7]);
+    }
+    frame.hex = hex;
+}
+
+window.onload = function() {
+    document.getElementById("next").onclick = function() {
+        if (currentFrame != frames.length-1) currentFrame++;
+        displayFrame(currentFrame);
+    }
+    document.getElementById("prev").onclick = function() {
+        if (currentFrame != 0) currentFrame--;
+        displayFrame(currentFrame);
+    }
+    document.getElementById("ca").onclick = function() {
+        correctAmplitude(frames[currentFrame]);
+        recomputeHex(frames[currentFrame]);
+        displayFrame(currentFrame);
+    }
+    document.getElementById("re").onclick = function() {
+        recomputeHex(frames[currentFrame]);
+        displayFrame(currentFrame);
+    }
+    displayFrame(currentFrame);
+}
+</script>
+<script src="frames.js"></script>
+<style>
+#frame {
+    width: 1024px;
+    height: 255px;
+    border: 1px #aaa solid;
+    position: relative;
+}
+.sample {
+    position: absolute;
+    bottom: 0px;
+}
+.pre {
+    width:4px;
+    background-color: orange;
+}
+.one {
+    width:4px;
+    background-color: #0000cc;
+}
+.zero {
+    width:4px;
+    background-color: #aaaaaa;
+}
+.err {
+    width:4px;
+    background-color: #cc6666;
+}
+.noise {
+    width:2px;
+    background-color: #ffffff;
+    border: 1px #aaa dotted;
+}
+</style>
+</head>
+<div id="frame">
+</div>
+<pre id="info">
+</pre>
+<input type="button" id="prev" value="Prev frame">
+<input type="button" id="next" value="Next frame">
+<input type="button" id="re" value="Recompute Hex">
+</body>
+</html>

@@ -7,19 +7,20 @@ The main features are:
 
 * Robust decoding of weak messages, with mode1090 many users observed
   improved range compared to other popular decoders.
+* Network support: TCP30003 stream (MSG5...), Raw packets, HTTP.
+* Embedded HTTP server that displays the currently detected aircrafts on
+  Google Map.
 * Single bit errors correction using the 24 bit CRC.
 * Ability to decode DF11, DF17 messages.
 * Ability to decode DF formats like DF0, DF4, DF5, DF16, DF20 and DF21
   where the checksum is xored with the ICAO address by brute forcing the
   checksum field using recently seen ICAO addresses.
 * Decode raw IQ samples from file (using --ifile command line switch).
-* Interactive mode where aircrafts currently detected are shown
-  as a list refreshing as more data arrives.
+* Interactive command-line-interfae mode where aircrafts currently detected
+  are shown as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
 * TCP server streaming and recceiving raw data to/from connected clients
   (using --net).
-* Embedded HTTP server that displays the currently detected aircrafts on
-  Google Map.
 
 Installation
 ---
@@ -155,13 +156,13 @@ Then you can feed it from different data sources from the internet.
 Port 30003
 ---
 
-Connected clients are served with messages in SBS1 (BaseStation) format, similar to:
+Connected clients are served with messages in SBS1 (BaseStation) format,
+similar to:
 
     MSG,4,,,738065,,,,,,,,420,179,,,0,,0,0,0,0
     MSG,3,,,738065,,,,,,,35000,,,34.81609,34.07810,,,0,0,0,0
 
 This can be used to feed data to various sharing sites without the need to use another decoder.
-
 
 Antenna
 ---
@@ -217,32 +218,12 @@ An index shows the sample number, where 0 is the sample where the first
 Mode S peak was found. Some additional background noise is also added
 before the first peak to provide some context.
 
-It is possible to display different categories of messages:
+To enable debug mode and check what combinations of packets you can
+log, use `mode1090 --help` to obtain a list of available debug flags.
 
-  --debug 1         Displays all the messages correctly demoudulated.
-                    A correctly demodulated message is just one that
-                    makes sense as a Mode S message, the preamble makes
-                    sense, and there are no message errors, that is,
-                    no adiacet samples describing bits are the same
-                    magnitude.
-
- --debug 2          Only messages with demodulation errors are displayed,
-                    That is, only messages where one or more adiacent
-                    samples that should describe bits are the same
-                    magnitude.
-
- --debug 3          Correctly deooded messages with Bad CRC are displayed.
-
- --debug 4          Correctly deooded messages with good CRC are displayed.
-
- --debug 5          Preamble detection failed in some way (specified when
-                    dumping the samples) even if the current sample level
-                    is greater than MODES_DEBUG_NOPREAMBLE_LEVEL (set to
-                    25 by default).
-
-Network related debug modes:
-
- --debug 6          Log network events (HTTP requests & others)
+Debug mode includes an optional javascript output that is used to visualize
+packets using a web browser, you can use the file debug.html under the
+'tools' directory to load the generated frames.js file.
 
 How this program works?
 ---

@@ -1,10 +1,5 @@
 TODO
 
-* Extract from information from captured Mode S messages. Currently we only
-  decode what is trival to decode.
-* Decode CPR encoded latitude and longitude, display it in normal and
-  interactive mode.
-* Show nationality in interactive mode and normal mode using the
-  aircraft ICAO address, like: 30xxxx -> Italy.
-* Actually use the fancy --debug feature in order to improve the recognition
-  algorithm if possibile.
+* Extract more information from captured Mode S messages.
+* Improve the web interface gmap.html.
+* Enhance the algorithm to reliably decode more messages.
