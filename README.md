@@ -195,7 +195,6 @@ sending DF17 packets), but can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
 
-* Preamble detection is weakened to be more liberal in what is consdered valid.
 * Up to two demodulation errors are tolerated (adjacent entires in the magnitude
   vector with the same eight). Normally only messages without errors are
   checked.
