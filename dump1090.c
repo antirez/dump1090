@@ -1246,11 +1246,15 @@ void computeMagnitudeVector(void) {
 
 /* Return -1 if the message is out of fase left-side
  * Return  1 if the message is out of fase right-size
- * Return  0 if the message is not particularly out of phase. */
+ * Return  0 if the message is not particularly out of phase.
+ *
+ * Note: this function will access m[-1], so the caller should make sure to
+ * call it only if we are not at the start of the current buffer. */
 int detectOutOfPhase(uint16_t *m) {
-    m += 16; /* Skip preamble. */
-    if (m[3] > m[2]/2) return 1;
-    if (m[6] > m[7]/2) return -1;
+    if (m[3] > m[2]/3) return 1;
+    if (m[10] > m[9]/3) return 1;
+    if (m[6] > m[7]/3) return -1;
+    if (m[-1] > m[1]/3) return -1;
     return 0;
 }
 
@@ -1285,6 +1289,7 @@ int detectOutOfPhase(uint16_t *m) {
 void applyPhaseCorrection(uint16_t *m) {
     int j;
 
+    m += 16; /* Skip preamble. */
     for (j = 0; j < (MODES_LONG_MSG_BITS-1)*2; j += 2) {
         if (m[j] > m[j+1]) {
             /* One */
@@ -1331,7 +1336,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      */
     for (j = 0; j < mlen - MODES_FULL_LEN*2; j++) {
         int low, high, delta, i, errors;
-        int good_message = 0, out_of_phase;
+        int good_message = 0;
 
         if (use_correction) goto good_preamble; /* We already checked it. */
 
@@ -1392,13 +1397,15 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         Modes.stat_valid_preamble++;
 
 good_preamble:
-        out_of_phase = detectOutOfPhase(m+j);
-
         /* If the previous attempt with this message failed, retry using
          * magnitude correction. */
         if (use_correction) {
             memcpy(aux,m+j+MODES_PREAMBLE_US*2,sizeof(aux));
-            applyPhaseCorrection(m+j);
+            if (j && detectOutOfPhase(m+j)) {
+                applyPhaseCorrection(m+j);
+                Modes.stat_out_of_phase++;
+            }
+            /* TODO ... apply other kind of corrections. */
         }
 
         /* Decode all the next 112 bits, regardless of the actual message
@@ -1473,7 +1480,7 @@ good_preamble:
             decodeModesMessage(&mm,msg);
 
             /* Update statistics. */
-            if (mm.crcok || (!out_of_phase || use_correction)) {
+            if (mm.crcok || use_correction) {
                 if (errors == 0) Modes.stat_demodulated++;
                 if (mm.errorbit == -1) {
                     if (mm.crcok)
@@ -1491,7 +1498,7 @@ good_preamble:
             }
 
             /* Output debug mode info if needed. */
-            if (!out_of_phase || use_correction) {
+            if (use_correction) {
                 if (Modes.debug & MODES_DEBUG_DEMOD)
                     dumpRawMessage("Demodulated with 0 errors", msg, m, j);
                 else if (Modes.debug & MODES_DEBUG_BADCRC &&
@@ -1514,19 +1521,16 @@ good_preamble:
             /* Pass data to the next layer */
             useModesMessage(&mm);
         } else {
-            if (Modes.debug & MODES_DEBUG_DEMODERR &&
-                (!out_of_phase || use_correction))
-            {
+            if (Modes.debug & MODES_DEBUG_DEMODERR && use_correction) {
                 printf("The following message has %d demod errors\n", errors);
                 dumpRawMessage("Demodulated with errors", msg, m, j);
             }
         }
 
         /* Retry with phase correction if possible. */
-        if (!good_message && !use_correction && out_of_phase) {
+        if (!good_message && !use_correction) {
             j--;
             use_correction = 1;
-            Modes.stat_out_of_phase++;
         } else {
             use_correction = 0;
         }
