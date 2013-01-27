@@ -2142,8 +2142,10 @@ char *aircraftsToJson(int *len) {
         if (a->lat != 0 && a->lon != 0) {
             l = snprintf(p,buflen,
                 "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
-                "\"lon\":%f, \"altitude\":%d, \"track\":%d},\n",
-                a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track);
+                "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
+                "\"speed\":%d},\n",
+                a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
+                a->speed);
             p += l; buflen -= l;
             /* Resize if needed. */
             if (buflen < 256) {
