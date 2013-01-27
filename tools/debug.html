@@ -4,7 +4,7 @@
 <head>
 <script>
 var frames = [];
-var currentFrame = 144;
+var currentFrame = 0;
 
 var modes_checksum_table = [
 0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,
@@ -138,11 +138,6 @@ window.onload = function() {
     }
     document.getElementById("prev").onclick = function() {
         if (currentFrame != 0) currentFrame--;
-        displayFrame(currentFrame);
-    }
-    document.getElementById("ca").onclick = function() {
-        correctAmplitude(frames[currentFrame]);
-        recomputeHex(frames[currentFrame]);
         displayFrame(currentFrame);
     }
     document.getElementById("re").onclick = function() {
