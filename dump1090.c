@@ -2396,6 +2396,7 @@ void backgroundTasks(void) {
     if (Modes.net) {
         modesAcceptClients();
         modesReadFromClients();
+        interactiveRemoveStaleAircrafts();
     }
 
     /* Refresh screen when in interactive mode. */
