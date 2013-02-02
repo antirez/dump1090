@@ -1704,8 +1704,8 @@ void decodeCPR(struct aircraft *a) {
     double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
     double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
 
-    if (rlat0 >= 90 && rlat0 <= 270) rlat0 -= 360;
-    if (rlat1 >= 90 && rlat1 <= 270) rlat1 -= 360;
+    if (rlat0 >= 270) rlat0 -= 360;
+    if (rlat1 >= 270) rlat1 -= 360;
 
     /* Check that both are in the same latitude zone, or abort. */
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
