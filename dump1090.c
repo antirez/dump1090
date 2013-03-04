@@ -117,6 +117,7 @@ struct aircraft {
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     long long odd_cprtime, even_cprtime;
+    int squawk;
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
 
@@ -1585,6 +1586,7 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->lon = 0;
     a->seen = time(NULL);
     a->messages = 0;
+    a->squawk = 0;
     a->next = NULL;
     return a;
 }
@@ -1767,6 +1769,8 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         a->altitude = mm->altitude;
+     } else if(mm->msgtype == 5 || mm->msgtype == 21) {
+        a->squawk = mm->identity;
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
@@ -1809,8 +1813,8 @@ void interactiveShowData(void) {
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
-"--------------------------------------------------------------------------------\n",
+"Hex    Squawk Flight   Altitude  Speed   Lat       Lon       Track  Messages  Seen %s\n"
+"--------------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
@@ -1821,9 +1825,14 @@ void interactiveShowData(void) {
             altitude /= 3.2828;
             speed *= 1.852;
         }
+        
+        char squawk[5] = "0";
+        if (a->squawk > 0 && a->squawk <= 7777) {
+            sprintf(squawk, "%04d", a->squawk);
+        }
 
-        printf("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
-            a->hexaddr, a->flight, altitude, speed,
+        printf("%-6s %-4s   %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d    %-9ld %d sec\n",
+            a->hexaddr, squawk, a->flight, altitude, speed,
             a->lat, a->lon, a->track, a->messages,
             (int)(now - a->seen));
         a = a->next;
