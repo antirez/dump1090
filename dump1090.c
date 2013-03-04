@@ -1813,8 +1813,8 @@ void interactiveShowData(void) {
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex    Squawk Flight   Altitude  Speed   Lat       Lon       Track  Messages  Seen %s\n"
-"--------------------------------------------------------------------------------------\n",
+"Hex     Squawk  Flight   Altitude  Speed   Lat       Lon       Track  Messages  Seen %s\n"
+"----------------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
@@ -1831,7 +1831,7 @@ void interactiveShowData(void) {
             sprintf(squawk, "%04d", a->squawk);
         }
 
-        printf("%-6s %-4s   %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d    %-9ld %d sec\n",
+        printf("%-6s  %-4s    %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d    %-9ld %d sec\n",
             a->hexaddr, squawk, a->flight, altitude, speed,
             a->lat, a->lon, a->track, a->messages,
             (int)(now - a->seen));
