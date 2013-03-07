@@ -164,6 +164,13 @@ similar to:
 
 This can be used to feed data to various sharing sites without the need to use another decoder.
 
+MySQL Database feed
+---
+
+By enabling the MySQL Databse support with --mysql Dump1090 starts feeding
+received planes with position data to the dump1090 database.
+
+
 Antenna
 ---
 
