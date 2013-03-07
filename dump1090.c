@@ -2436,9 +2436,22 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         MYSQL *conn;
         conn = mysql_init(NULL);
         mysql_real_connect(conn, "localhost", "root", "root", "dump1090", 0, NULL, 0);
-        //printf("db opened!\n");
+
+        // check if flight already exists in database
+
+
+
+        // if we have the aircraft already lets update the position and time in the flight table
+
+
+
+        // if not lets add a new entry to the flights table
+
+
+
+        // insert new database entry to the track (gps/gpx data) table
         char msg[1000];
-        snprintf(msg, 999, "INSERT INTO flights (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+        snprintf(msg, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
 
         if (mysql_query(conn, msg)) {
         printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
