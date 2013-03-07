@@ -3,18 +3,18 @@
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *  *  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
  *  *  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -2424,42 +2424,34 @@ void backgroundTasks(void) {
 }
 
 
-/* Write planes to MySQL Database */
+/* Write aircraft data to a MySQL Database */
 void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
-     
-     /* FIXME move that to main stuff while passing --mysql */
-     
-  
+     /* we store icao, altitude, lat, lon only if we have received an aircraft position */
 
      if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
         if (a->lat != 0 && a->lon != 0) {
-        printf("%02X%02X%02X,%d,%1.5f,%1.5f\n", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+        //printf("%02X%02X%02X,%d,%1.5f,%1.5f\n", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+         /* FIXME move that to main stuff while passing --mysql */
+
         MYSQL *conn;
         conn = mysql_init(NULL);
-        mysql_real_connect(conn, "localhost", "root", "root", "dump1090", 0, NULL, 0);     
-        printf("db opened!\n");
+        mysql_real_connect(conn, "localhost", "root", "root", "dump1090", 0, NULL, 0);
+        //printf("db opened!\n");
         char msg[1000];
-        snprintf(msg, 999, "INSERT INTO flights (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", 
-        mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
-  
+        snprintf(msg, 999, "INSERT INTO flights (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
 
-
-    /* FIXME error checking missing */
-    if (mysql_query(conn, msg)) {
-      printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-      exit(1);
-    }
-    printf("db queried!\n");
+        if (mysql_query(conn, msg)) {
+        printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+        }
+    //printf("db queried!\n");
     mysql_close(conn);
-    printf("db closed!\n");
-    
- }
-    
-    
+    //printf("db closed!\n");
+    }
+
  }
 
-
-}         
+}
 
 
 int main(int argc, char **argv) {
