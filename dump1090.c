@@ -2437,11 +2437,23 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         conn = mysql_init(NULL);
         mysql_real_connect(conn, "localhost", "root", "root", "dump1090", 0, NULL, 0);
 
-        // check if flight already exists in database
+        // check if flight already exists in mysql flighst database table
+        
+
+        /********************************************************************************************/
+        /* lets get registration and aircraft type from an online database or ICAO MASTER.TXT       */
+        /* Example for ICAO: 896139                                                                 */
+        /*                                                                                          */
+        /* "http://www.flightradar24.com/data/_ajaxcalls/autocomplete_airplanes.php?typing=896139"  */
+        /*                                                                                          */
+        /* returns:                                                                                 */
+        /*                                                                                          */
+        /* "A6-RJX - 896139 - Royal Jet - Boeing 737-7AK (BBJ) (29865)"                             */
+        /********************************************************************************************/
 
 
-
-        // if we have the aircraft already lets update the position and time in the flight table
+        // if we have the aircraft already lets update the position and time in the flights table
+        // we overwrite the old position data - full track is done with the tracks table below
 
 
 
@@ -2449,7 +2461,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
 
 
-        // insert new database entry to the track (gps/gpx data) table
+        // insert new database entry to the tracks (gps/gpx data) table 
         char msg[1000];
         snprintf(msg, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
 
