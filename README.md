@@ -170,6 +170,7 @@ MySQL Database feed
 By enabling the MySQL Databse support with --mysql Dump1090 starts feeding
 received planes with position data to the dump1090 database.
 
+    ./dump1090 --mysql
 
 Antenna
 ---
