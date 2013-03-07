@@ -41,8 +41,9 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
-#include "rtl-sdr.h"
+#include <rtl-sdr.h>
 #include "anet.h"
+#include <mysql/mysql.h>
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -158,6 +159,7 @@ struct {
     int raw;                        /* Raw output format. */
     int debug;                      /* Debugging mode. */
     int net;                        /* Enable networking. */
+    int mysql;                      /* Enable mysql database */
     int net_only;                   /* Enable just networking. */
     int net_output_sbs_port;        /* SBS output TCP port. */
     int net_output_raw_port;        /* Raw output TCP port. */
@@ -238,6 +240,7 @@ struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void modesSendRawOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
+void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
@@ -266,6 +269,7 @@ void modesInitConfig(void) {
     Modes.check_crc = 1;
     Modes.raw = 0;
     Modes.net = 0;
+    Modes.mysql = 0;
     Modes.net_only = 0;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
     Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
@@ -1546,9 +1550,10 @@ void useModesMessage(struct modesMessage *mm) {
     if (!Modes.stats && (Modes.check_crc == 0 || mm->crcok)) {
         /* Track aircrafts in interactive mode or if the HTTP
          * interface is enabled. */
-        if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0) {
+        if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0 || Modes.mysql > 0) {
             struct aircraft *a = interactiveReceiveData(mm);
-            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
+            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients */
+            if (a && Modes.mysql > 0) modesFeedMySQL(mm, a); /* Feed MySQL Database */
         }
         /* In non-interactive way, display messages on standard output. */
         if (!Modes.interactive) {
@@ -1559,7 +1564,7 @@ void useModesMessage(struct modesMessage *mm) {
         if (Modes.net) {
             modesSendRawOutput(mm);  /* Feed raw output clients. */
         }
-    }
+  }
 }
 
 /* ========================= Interactive mode =============================== */
@@ -2377,6 +2382,7 @@ void showHelp(void) {
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
+"--mysql                  Feed data to mysql.\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
 "--help                   Show this help.\n"
@@ -2401,6 +2407,10 @@ void backgroundTasks(void) {
         interactiveRemoveStaleAircrafts();
     }
 
+    //if (Modes.mysql) {
+    //    printf("mysql mode called...");
+    //}
+
     /* Refresh screen when in interactive mode. */
     if (Modes.interactive &&
         (mstime() - Modes.interactive_last_update) >
@@ -2410,7 +2420,47 @@ void backgroundTasks(void) {
         interactiveShowData();
         Modes.interactive_last_update = mstime();
     }
+
 }
+
+
+/* Write planes to MySQL Database */
+void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
+     
+     /* FIXME move that to main stuff while passing --mysql */
+     
+  
+
+     if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
+        if (a->lat != 0 && a->lon != 0) {
+        printf("%02X%02X%02X,%d,%1.5f,%1.5f\n", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+        MYSQL *conn;
+        conn = mysql_init(NULL);
+        mysql_real_connect(conn, "localhost", "root", "root", "dump1090", 0, NULL, 0);     
+        printf("db opened!\n");
+        char msg[1000];
+        snprintf(msg, 999, "INSERT INTO flights (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", 
+        mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+  
+
+
+    /* FIXME error checking missing */
+    if (mysql_query(conn, msg)) {
+      printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+      exit(1);
+    }
+    printf("db queried!\n");
+    mysql_close(conn);
+    printf("db closed!\n");
+    
+ }
+    
+    
+ }
+
+
+}         
+
 
 int main(int argc, char **argv) {
     int j;
@@ -2455,6 +2505,8 @@ int main(int argc, char **argv) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
+        } else if (!strcmp(argv[j],"--mysql"))  {
+            Modes.mysql = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
             Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
