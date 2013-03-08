@@ -2435,7 +2435,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
         MYSQL *conn;
         conn = mysql_init(NULL);
-        mysql_real_connect(conn, "localhost", "root", "root", "dump1090", 0, NULL, 0);
+        mysql_real_connect(conn, "localhost", "pi", "raspberry", "dump1090", 0, NULL, 0);
 
         // check if flight already exists in mysql flighst database table
         
