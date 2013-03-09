@@ -2463,7 +2463,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
         // insert new database entry to the tracks (gps/gpx data) table 
         char msg[1000];
-        snprintf(msg, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+        snprintf(msg, 999, "INSERT INTO tracks (flight, icao, alt, lat , lon) VALUES ('%s','%02X%02X%02X','%d','%1.5f','%1.5f')", mm->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
 
         if (mysql_query(conn, msg)) {
         printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
