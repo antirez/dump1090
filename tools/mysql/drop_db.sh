@@ -6,4 +6,4 @@
 #
 # copyright 2013, Oliver Goldenstein, DL6KBG
 #
-mysql -upi -praspberry dump1090 -B -e "drop database \`dump1090\`;" 
+mysql -upi -praspberry -B -e "drop database \`dump1090\`;" 

@@ -16,7 +16,7 @@ USE dump1090;
 
 CREATE TABLE IF NOT EXISTS `tracks` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
-  `flight` varchar(7) COLLATE utf8_unicode_ci
+  `flight` varchar(6) COLLATE utf8_unicode_ci NOT NULL,
   `icao` varchar(6) COLLATE utf8_unicode_ci NOT NULL,
   `alt` smallint(6) NOT NULL,
   `lat` decimal(17,14) NOT NULL,
