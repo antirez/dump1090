@@ -1,8 +1,6 @@
 #!/bin/bash
 #
-# truncate_db.sh
-#
-# resets the table 'tracks' 
+# delete database
 #
 # copyright 2013, Oliver Goldenstein, DL6KBG
 #

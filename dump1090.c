@@ -2426,56 +2426,40 @@ void backgroundTasks(void) {
 
 /* Write aircraft data to a MySQL Database */
 void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
-     /* we store icao, altitude, lat, lon only if we have received an aircraft position */
-
-     if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
-        if (a->lat != 0 && a->lon != 0) {
-        //printf("%02X%02X%02X,%d,%1.5f,%1.5f\n", mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
-         /* FIXME move that to main stuff while passing --mysql */
 
         MYSQL *conn;
         conn = mysql_init(NULL);
         mysql_real_connect(conn, "localhost", "pi", "raspberry", "dump1090", 0, NULL, 0);
+        // update live table
+        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
+        if (a->lat != 0 && a->lon != 0) {
+        char msgf[1000];
+        snprintf(msgf, 999, "INSERT INTO flights (flight, icao, airline, alt, lat, lon) VALUES ('%s','%02X%02X%02X','%s','%d','%1.5f','%1.5f') ON DUPLICATE KEY UPDATE flight=VALUES(flight), icao=VALUES(icao), airline=VALUES(airline), alt=VALUES(alt), lat=VALUES(lat), lon=VALUES(lon)",
+        a->flight, mm->aa1, mm->aa2, mm->aa3, a->flight, mm->altitude, a->lat, a->lon);
 
-        // check if flight already exists in mysql flighst database table
-        
-
-        /********************************************************************************************/
-        /* lets get registration and aircraft type from an online database or ICAO MASTER.TXT       */
-        /* Example for ICAO: 896139                                                                 */
-        /*                                                                                          */
-        /* "http://www.flightradar24.com/data/_ajaxcalls/autocomplete_airplanes.php?typing=896139"  */
-        /*                                                                                          */
-        /* returns:                                                                                 */
-        /*                                                                                          */
-        /* "A6-RJX - 896139 - Royal Jet - Boeing 737-7AK (BBJ) (29865)"                             */
-        /********************************************************************************************/
-
-
-        // if we have the aircraft already lets update the position and time in the flights table
-        // we overwrite the old position data - full track is done with the tracks table below
-
-
-
-        // if not lets add a new entry to the flights table
-
-
-
-        // insert new database entry to the tracks (gps/gpx data) table 
-        char msg[1000];
-        snprintf(msg, 999, "INSERT INTO tracks (flight, icao, alt, lat , lon) VALUES ('%s','%02X%02X%02X','%d','%1.5f','%1.5f')", a->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
-
-        if (mysql_query(conn, msg)) {
-        printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+            if (mysql_query(conn, msgf)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
         exit(1);
         }
-    //printf("db queried!\n");
-    mysql_close(conn);
-    //printf("db closed!\n");
-    }
+   }
+}
+        // update tracks table if we have position data
+        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
+          if (a->lat != 0 && a->lon != 0) {
+            char msgt[1000];
+              snprintf(msgt, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')",
+                                   mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+            if (mysql_query(conn, msgt)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+
+
+        }
+
+   }
 
  }
-
+	mysql_close(conn);
 }
 
 

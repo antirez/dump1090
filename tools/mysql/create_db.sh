@@ -6,4 +6,4 @@
 #
 # copyright 2013, Oliver Goldenstein, DL6KBG
 #
-mysql -uroot -praspberry < create_database.sql 
+mysql -uroot -proot < create_database.sql 
