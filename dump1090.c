@@ -1823,7 +1823,7 @@ void interactiveShowData(void) {
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
-            altitude /= 3.2828;
+            altitude /= 3.28084; // 3.2828 orig by antirez
             speed *= 1.852;
         }
 
@@ -2140,7 +2140,7 @@ char *aircraftsToJson(int *len) {
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
-            altitude /= 3.2828;
+            altitude /= 3.28084; // 3.2828
             speed *= 1.852;
         }
 
