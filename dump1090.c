@@ -141,6 +141,7 @@ struct {
     int enable_agc;
     rtlsdr_dev_t *dev;
     int freq;
+    int ppm_error;
 
     /* Networking */
     char aneterr[ANET_ERR_LEN];
@@ -163,6 +164,7 @@ struct {
     int net_output_raw_port;        /* Raw output TCP port. */
     int net_input_raw_port;         /* Raw input TCP port. */
     int net_http_port;              /* HTTP port. */
+    int quiet;                      /* Suppress stdout */
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows. */
     int interactive_ttl;            /* Interactive mode: TTL before deletion. */
@@ -260,6 +262,7 @@ void modesInitConfig(void) {
     Modes.gain = MODES_MAX_GAIN;
     Modes.dev_index = 0;
     Modes.enable_agc = 0;
+    Modes.ppm_error = 0;
     Modes.freq = MODES_DEFAULT_FREQ;
     Modes.filename = NULL;
     Modes.fix_errors = 1;
@@ -276,6 +279,7 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
+    Modes.quiet = 0;
     Modes.aggressive = 0;
 }
 
@@ -337,7 +341,6 @@ void modesInit(void) {
 void modesInitRTLSDR(void) {
     int j;
     int device_count;
-    int ppm_error = 0;
     char vendor[256], product[256], serial[256];
 
     device_count = rtlsdr_get_device_count();
@@ -377,7 +380,7 @@ void modesInitRTLSDR(void) {
     } else {
         fprintf(stderr, "Using automatic gain control.\n");
     }
-    rtlsdr_set_freq_correction(Modes.dev, ppm_error);
+    rtlsdr_set_freq_correction(Modes.dev, Modes.ppm_error);
     if (Modes.enable_agc) rtlsdr_set_agc_mode(Modes.dev, 1);
     rtlsdr_set_center_freq(Modes.dev, Modes.freq);
     rtlsdr_set_sample_rate(Modes.dev, MODES_DEFAULT_RATE);
@@ -1551,7 +1554,7 @@ void useModesMessage(struct modesMessage *mm) {
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
         }
         /* In non-interactive way, display messages on standard output. */
-        if (!Modes.interactive) {
+        if (!Modes.interactive && !Modes.quiet) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
@@ -2358,7 +2361,7 @@ void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
-"--enable-agc>            Enable the Automatic Gain Control (default: off).\n"
+"--enable-agc             Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
@@ -2379,6 +2382,8 @@ void showHelp(void) {
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
+"--quiet                  Disable output to stdout. Use for daemon applications.\n"
+"--ppm <error>            Set the receiver error on parts per million (default 0).\n"
 "--help                   Show this help.\n"
 "\n"
 "Debug mode flags: d = Log frames decoded with errors\n"
@@ -2489,7 +2494,11 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
-        } else {
+        } else if (!strcmp(argv[j],"--ppm") && more) {
+	    Modes.ppm_error = atoi(argv[++j]);
+	} else if (!strcmp(argv[j],"--quiet")) {
+	    Modes.quiet = 1;
+	} else {
             fprintf(stderr,
                 "Unknown or not enough arguments for option '%s'.\n\n",
                 argv[j]);
