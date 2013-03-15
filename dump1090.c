@@ -1141,7 +1141,7 @@ void displayModesMessage(struct modesMessage *mm) {
 
     if (mm->msgtype == 0) {
         /* DF 0 */
-        printf("DF 0: Short Air-Air Surveillance.\n");
+        printf("DF 0: .\n");
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
         printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
@@ -2431,11 +2431,57 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         conn = mysql_init(NULL);
         mysql_real_connect(conn, "localhost", "pi", "raspberry", "dump1090", 0, NULL, 0);
         // update live table
+        
+        // DF 0 (Short Air to Air, ACAS has: altitude, icao) LED1
+        if (mm->msgtype == 0){    
+        char msgf[1000];
+        snprintf(msgf, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), msgt=VALUES(msgt)", mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype);
+
+            if (mysql_query(conn, msgf)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+        }
+}
+        // DF 4/20 (Surveillance (roll call) Altitude has: altitude, icao, flight status, DR, UM) LED2
+        // TODO flight status, DR, UM
+        if (mm->msgtype == 4 || mm->msgtype == 20){
+        char msgf[1000];
+        snprintf(msgf, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), msgt=VALUES(msgt)", mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype);
+
+            if (mysql_query(conn, msgf)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+        }
+}
+        // DF 5/21 (Surveillance (roll call) IDENT Reply, has: alt, icao, flight status, DR, UM, squawk) LED3
+        if (mm->msgtype == 5 || mm->msgtype == 21){
+        char msgf[1000];
+        snprintf(msgf, 999, "INSERT INTO flights (icao, alt, squawk, msgt) VALUES ('%02X%02X%02X','%d','%d','%d') ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), squawk=VALUES(squawk), msgt=Values(msgt)", mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->identity, mm->msgtype);
+
+            if (mysql_query(conn, msgf)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+        }
+
+}
+        // DF11 (Mode S Only All-Call Reply (Acq. Squitter if II=0) has: ) LED4
+        // TODO capability ?
+        if (mm->msgtype == 11){
+        char msgf[1000];
+        snprintf(msgf, 999, "INSERT INTO flights (icao, msgt) VALUES ('%02X%02X%02X','%d') ON DUPLICATE KEY UPDATE icao=VALUES(icao), msgt=VALUES(msgt)", mm->aa1, mm->aa2, mm->aa3, mm->msgtype);
+
+            if (mysql_query(conn, msgf)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+        }
+   
+}
+        
         if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
         if (a->lat != 0 && a->lon != 0) {
         char msgf[1000];
-        snprintf(msgf, 999, "INSERT INTO flights (flight, icao, airline, alt, lat, lon) VALUES ('%s','%02X%02X%02X','%s','%d','%1.5f','%1.5f') ON DUPLICATE KEY UPDATE flight=VALUES(flight), icao=VALUES(icao), airline=VALUES(airline), alt=VALUES(alt), lat=VALUES(lat), lon=VALUES(lon)",
-        a->flight, mm->aa1, mm->aa2, mm->aa3, a->flight, mm->altitude, a->lat, a->lon);
+        snprintf(msgf, 999, "INSERT INTO flights (msgt, flight, icao, airline, alt, lat, lon, speed, heading) VALUES ('%d','%s','%02X%02X%02X','%s','%d','%1.5f','%1.5f','%d','%d') ON DUPLICATE KEY UPDATE msgt=VALUES(msgt), flight=VALUES(flight), icao=VALUES(icao), airline=VALUES(airline), alt=VALUES(alt), lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading)",
+        mm->msgtype, a->flight, mm->aa1, mm->aa2, mm->aa3, a->flight, mm->altitude, a->lat, a->lon, a->speed, a->track);
 
             if (mysql_query(conn, msgf)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
@@ -2443,21 +2489,36 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         }
    }
 }
-        // update tracks table if we have position data
-        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
-          if (a->lat != 0 && a->lon != 0) {
-            char msgt[1000];
-              snprintf(msgt, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')",
-                                   mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
-            if (mysql_query(conn, msgt)) {
+
+        // update tracks table if we have position data (df 17 extended squitter with position)
+        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
+        if (a->lat != 0 && a->lon != 0) {
+            char msgtracks[1000];
+              snprintf(msgtracks, 999, "INSERT INTO tracks (msgt, icao, alt, lat , lon) VALUES ('%d','%02X%02X%02X','%d','%1.5f','%1.5f')",
+                                   mm->msgtype, mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+            if (mysql_query(conn, msgtracks)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
         exit(1);
+     
 
+    
+     
+     }
+     //
+            
+        else {
+        char msgf[1000];
+        snprintf(msgf, 999, "INSERT INTO flights (msgt, flight, icao, airline, alt) VALUES ('%d','%s','%02X%02X%02X','%s','%d') ON DUPLICATE KEY UPDATE msgt=VALUES(msgt), flight=VALUES(flight), icao=VALUES(icao), airline=VALUES(airline), alt=VALUES(alt)",
+        mm->msgtype, a->flight, mm->aa1, mm->aa2, mm->aa3, a->flight, mm->altitude);
 
+            if (mysql_query(conn, msgf)) {
+            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
         }
-
-   }
-
+}
+   //
+   } 
+      
  }
 	mysql_close(conn);
 }
