@@ -2494,8 +2494,8 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
         if (a->lat != 0 && a->lon != 0) {
             char msgtracks[1000];
-              snprintf(msgtracks, 999, "INSERT INTO tracks (msgt, icao, alt, lat , lon) VALUES ('%d','%02X%02X%02X','%d','%1.5f','%1.5f')",
-                                   mm->msgtype, mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+              snprintf(msgtracks, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')",
+                                   mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
             if (mysql_query(conn, msgtracks)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
         exit(1);
