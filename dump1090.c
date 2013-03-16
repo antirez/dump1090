@@ -44,6 +44,7 @@
 #include <rtl-sdr.h>
 #include "anet.h"
 #include <mysql/mysql.h>
+//#include <wiringPi.h>
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -91,6 +92,14 @@
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
+
+// wiringPi debug LEDs for frame indication
+//#define LED 0
+//#define LED 1
+//#define LED 2
+//#define LED 3
+//#define LED 4
+//#define LED 5
 
 /* Structure used to describe a networking client. */
 struct client {
@@ -2426,14 +2435,21 @@ void backgroundTasks(void) {
 
 /* Write aircraft data to a MySQL Database */
 void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
-
+        
+        //if (wiringPiSetup () == -1) 
+        //pinMode (LED, OUTPUT);
+        //digitalWrite (LED, 1); // led on
+        //delay(100); // mS
+        //digitalWrite (LED, 0); // led off 
+ 
+                
         MYSQL *conn;
         conn = mysql_init(NULL);
         mysql_real_connect(conn, "localhost", "pi", "raspberry", "dump1090", 0, NULL, 0);
         // update live table
         
         // DF 0 (Short Air to Air, ACAS has: altitude, icao) LED1
-        if (mm->msgtype == 0){    
+        if (mm->msgtype == 0){
         char msgf[1000];
         snprintf(msgf, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), msgt=VALUES(msgt)", mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype);
 
@@ -2459,7 +2475,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         snprintf(msgf, 999, "INSERT INTO flights (icao, alt, squawk, msgt) VALUES ('%02X%02X%02X','%d','%d','%d') ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), squawk=VALUES(squawk), msgt=Values(msgt)", mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->identity, mm->msgtype);
 
             if (mysql_query(conn, msgf)) {
-            printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
         exit(1);
         }
 
@@ -2476,9 +2492,9 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
         }
    
 }
-        
-        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
-        if (a->lat != 0 && a->lon != 0) {
+        // DF 17 () LED5
+        if (mm->msgtype == 17){
+        //if (a->lat != 0 && a->lon != 0) {
         char msgf[1000];
         snprintf(msgf, 999, "INSERT INTO flights (msgt, flight, icao, airline, alt, lat, lon, speed, heading) VALUES ('%d','%s','%02X%02X%02X','%s','%d','%1.5f','%1.5f','%d','%d') ON DUPLICATE KEY UPDATE msgt=VALUES(msgt), flight=VALUES(flight), icao=VALUES(icao), airline=VALUES(airline), alt=VALUES(alt), lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading)",
         mm->msgtype, a->flight, mm->aa1, mm->aa2, mm->aa3, a->flight, mm->altitude, a->lat, a->lon, a->speed, a->track);
@@ -2487,9 +2503,9 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
         exit(1);
         }
-   }
+   //}
 }
-
+        // DF 17 with position  LED6 
         // update tracks table if we have position data (df 17 extended squitter with position)
         if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
         if (a->lat != 0 && a->lon != 0) {
