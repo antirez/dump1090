@@ -44,7 +44,7 @@
 #include <rtl-sdr.h>
 #include "anet.h"
 #include <mysql/mysql.h>
-//#include <wiringPi.h>
+#include <wiringPi.h>
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -94,7 +94,7 @@
 #define MODES_NOTUSED(V) ((void) V)
 
 // wiringPi debug LEDs for frame indication
-//#define LED 0
+#define LED 0
 //#define LED 1
 //#define LED 2
 //#define LED 3
@@ -253,6 +253,8 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
+
+extern int  wiringPiSetup(void) ;
 
 /* ============================= Utility functions ========================== */
 
@@ -2435,19 +2437,21 @@ void backgroundTasks(void) {
 
 /* Write aircraft data to a MySQL Database */
 void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
-        
-        //if (wiringPiSetup () == -1) 
-        //pinMode (LED, OUTPUT);
-        //digitalWrite (LED, 1); // led on
-        //delay(100); // mS
-        //digitalWrite (LED, 0); // led off 
- 
-                
+
+        // TODO mv to new function
+        if (wiringPiSetup () == -1)
+        return 1 ;         
+        pinMode (LED, OUTPUT);
+
+        digitalWrite (LED, 1); // led on
+        delay(50); // mS
+        digitalWrite (LED, 0); // led off 
+
         MYSQL *conn;
         conn = mysql_init(NULL);
         mysql_real_connect(conn, "localhost", "pi", "raspberry", "dump1090", 0, NULL, 0);
         // update live table
-        
+
         // DF 0 (Short Air to Air, ACAS has: altitude, icao) LED1
         if (mm->msgtype == 0){
         char msgf[1000];

@@ -1,5 +1,5 @@
 CFLAGS=-O2 -g -Wall -W `pkg-config --cflags librtlsdr` `mysql_config --cflags --libs`
-LIBS=`pkg-config --libs librtlsdr` `mysql_config --libs` -lpthread -lm
+LIBS=`pkg-config --libs librtlsdr` `mysql_config --libs` -lwiringPi -lpthread -lm
 
 CC=gcc
 PROGNAME=dump1090
