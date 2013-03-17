@@ -2446,7 +2446,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
             if (mysql_query(conn, msgf)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
         }
 }
         // DF 4/20 (Surveillance (roll call) Altitude has: altitude, icao, flight status, DR, UM)
@@ -2457,7 +2457,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
             if (mysql_query(conn, msgf)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
         }
 }
         // DF 5/21 (Surveillance (roll call) IDENT Reply, has: alt, icao, flight status, DR, UM, squawk)
@@ -2467,7 +2467,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
             if (mysql_query(conn, msgf)) {
              printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
         }
 
 }
@@ -2478,7 +2478,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
             if (mysql_query(conn, msgf)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
         }
 
 }
@@ -2489,7 +2489,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
             if (mysql_query(conn, msgf)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
         }
 }
         // update tracks table if we have position data (df 17 extended squitter with position)
@@ -2500,7 +2500,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
                                    mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
             if (mysql_query(conn, msgtracks)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
 
      }
 
@@ -2511,7 +2511,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
             if (mysql_query(conn, msgf)) {
             printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
-        exit(1);
+        //exit(1);
         }
      }
 
