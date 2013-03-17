@@ -2367,7 +2367,7 @@ void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
-"--enable-agc>            Enable the Automatic Gain Control (default: off).\n"
+"--enable-agc             Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
