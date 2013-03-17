@@ -17,7 +17,7 @@ USE dump1090;
 CREATE TABLE IF NOT EXISTS `tracks` (
   `id` int(11) unsigned NOT NULL AUTO_INCREMENT,
   `icao` varchar(6) COLLATE utf8_unicode_ci NOT NULL,
-  `alt` smallint(6) NOT NULL,
+  `alt` int(6) NOT NULL,
   `lat` decimal(17,14) NOT NULL,
   `lon` decimal(17,14) NOT NULL,
   `last_update` timestamp NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

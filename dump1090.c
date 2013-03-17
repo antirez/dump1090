@@ -94,10 +94,10 @@
 #define MODES_NOTUSED(V) ((void) V)
 
 /* Raspberr Pi / WiringPi Pin Numbers */
-#define LED_FRAME 0
-#define LED_DF4   1
-#define LED DF5   2
-#define LED DF17  3
+//#define LED_1 0
+#define LED_2 1
+//#define LED_3 2
+#define LED_4 3
 
 /* Structure used to describe a networking client. */
 struct client {
@@ -2524,19 +2524,22 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 /* Enable Debug LED output for raspberry Pi */
 void modesDebugLed(struct modesMessage *mm, struct aircraft *a) {
 
-     /*************************/
-     /*   #define LED_FRAME 0 */
-     /*   #define LED_DF4   1 */
-     /*   #define LED DF5   2 */
-     /*   #define LED DF17  3 */
-     /*************************/
-
         if (wiringPiSetup () == -1)
-        pinMode (LED_FRAME, OUTPUT);
-
-        digitalWrite (LED_FRAME, 1); // led on
+        pinMode(LED_4, OUTPUT);
+        digitalWrite(LED_4, 1); // led on
         delay(50); // mS
-        digitalWrite (LED_FRAME, 0); // led off 
+        digitalWrite(LED_4, 0); // led off
+        
+        
+        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
+        if (a->lat != 0 && a->lon != 0) {
+        pinMode(LED_2, OUTPUT);
+        digitalWrite(LED_2, 1); // led on
+        delay(50); // mS
+        digitalWrite(LED_2, 0); // led off
+        }
+    }
+
 }
 
 
