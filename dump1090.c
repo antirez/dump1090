@@ -2440,7 +2440,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     /* we flill a live 'flights' table - update old data */
     /* DF 0 (Short Air to Air, ACAS has: altitude, icao) */
     if (mm->msgtype == 0){
-         p+ = snprintf(p, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') "
+         p += snprintf(p, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') "
                               "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), msgt=VALUES(msgt)",
                                mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype);
          if (mysql_query(conn, p)) {
@@ -2451,7 +2451,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     /* DF 4/20 (Surveillance (roll call) Altitude has: altitude, icao, flight status, DR, UM) */
     /* TODO flight status, DR, UM */
     if (mm->msgtype == 4 || mm->msgtype == 20){
-         p+ = snprintf(p, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') "
+         p += snprintf(p, 999, "INSERT INTO flights (icao, alt, msgt) VALUES ('%02X%02X%02X','%d','%d') "
                               "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), msgt=VALUES(msgt)",
                                mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype);
          if (mysql_query(conn, p)) {
@@ -2461,7 +2461,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     }
     /* DF 5/21 (Surveillance (roll call) IDENT Reply, has: alt, icao, flight status, DR, UM, squawk) */
     if (mm->msgtype == 5 || mm->msgtype == 21){
-         p+ = snprintf(p, 999, "INSERT INTO flights (icao, alt, squawk, msgt) VALUES ('%02X%02X%02X','%d','%d','%d') "
+         p += snprintf(p, 999, "INSERT INTO flights (icao, alt, squawk, msgt) VALUES ('%02X%02X%02X','%d','%d','%d') "
                              "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), squawk=VALUES(squawk), msgt=Values(msgt)",
                                 mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->identity, mm->msgtype);
            if (mysql_query(conn, p)) {
@@ -2471,7 +2471,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     }
     /* DF 11 */
     if (mm->msgtype == 11){
-         p+ = snprintf(p, 999, "INSERT INTO flights (icao, msgt) VALUES ('%02X%02X%02X','%d') "
+         p += snprintf(p, 999, "INSERT INTO flights (icao, msgt) VALUES ('%02X%02X%02X','%d') "
                                "ON DUPLICATE KEY UPDATE icao=VALUES(icao), msgt=VALUES(msgt)",
                                 mm->aa1, mm->aa2, mm->aa3, mm->msgtype);
          if (mysql_query(conn, p)) {
@@ -2481,7 +2481,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     }
     /* DF17 */
     if (mm->msgtype == 17){
-         p+ = snprintf(p, 999, "INSERT INTO flights (msgt, flight, icao, airline, alt, lat, lon, speed, heading) "
+         p += snprintf(p, 999, "INSERT INTO flights (msgt, flight, icao, airline, alt, lat, lon, speed, heading) "
                                    "VALUES ('%d','%s','%02X%02X%02X','%s','%d','%1.5f','%1.5f','%d','%d') "
                                    "ON DUPLICATE KEY UPDATE "
                                    "msgt=VALUES(msgt), flight=VALUES(flight), icao=VALUES(icao), airline=VALUES(airline), alt=VALUES(alt), "
@@ -2496,7 +2496,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     /* update 'tracks' table if we have position data (df 17 extended squitter with position) */
     if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
          if (a->lat != 0 && a->lon != 0) {
-              p+ = snprintf(p, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')",
+              p += snprintf(p, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')",
                                          mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
                    if (mysql_query(conn, p)) {
                         printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
@@ -2504,7 +2504,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
                    }
          }
     }
-    p++;
+    //p++;
 }
 /* Enable Debug LED output for raspberry Pi */
 void modesDebugLed(struct modesMessage *mm, struct aircraft *a) {
