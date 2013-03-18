@@ -44,7 +44,6 @@
 #include <rtl-sdr.h>
 #include "anet.h"
 #include <mysql/mysql.h>
-#include <wiringPi.h>
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -92,12 +91,6 @@
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
-
-/* Raspberr Pi / WiringPi Pin Numbers */
-//#define LED_1 0
-#define LED_2 1
-//#define LED_3 2
-#define LED_4 3
 
 /* Structure used to describe a networking client. */
 struct client {
@@ -167,7 +160,6 @@ struct {
     int debug;                      /* Debugging mode. */
     int net;                        /* Enable networking. */
     int mysql;                      /* Enable mysql database */
-    int led;		            /* Enable LED output for Raspberry Pi */
     int net_only;                   /* Enable just networking. */
     int net_output_sbs_port;        /* SBS output TCP port. */
     int net_output_raw_port;        /* Raw output TCP port. */
@@ -249,7 +241,6 @@ void modesSendRawOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
 void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a);
-void modesDebugLed(struct modesMessage *mm, struct aircraft *a);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
@@ -279,7 +270,6 @@ void modesInitConfig(void) {
     Modes.raw = 0;
     Modes.net = 0;
     Modes.mysql = 0;
-    Modes.led = 0;
     Modes.net_only = 0;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
     Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
@@ -1560,11 +1550,10 @@ void useModesMessage(struct modesMessage *mm) {
     if (!Modes.stats && (Modes.check_crc == 0 || mm->crcok)) {
         /* Track aircrafts in interactive mode or if the HTTP
          * interface is enabled. */
-        if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0 || Modes.mysql > 0 || Modes.led > 0) {
+        if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0 || Modes.mysql > 0) {
             struct aircraft *a = interactiveReceiveData(mm);
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients */
             if (a && Modes.mysql > 0) modesFeedMySQL(mm, a); /* Feed MySQL Database */
-            if (a && Modes.led > 0) modesDebugLed(mm, a); /* Enbable dbug LEDs for Raspberry Pi */
         }
         /* In non-interactive way, display messages on standard output. */
         if (!Modes.interactive) {
@@ -2394,7 +2383,6 @@ void showHelp(void) {
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--mysql                  Feed data to mysql.\n"
-"--led                    Enable Debug LED output for raspberry Pi.\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
 "--help                   Show this help.\n"
@@ -2511,28 +2499,6 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 	mysql_close(conn);
 }
 
-/* Enable Debug LED output for raspberry Pi */
-void modesDebugLed(struct modesMessage *mm, struct aircraft *a) {
-
-        if (wiringPiSetup () == -1)
-        pinMode(LED_4, OUTPUT);
-        digitalWrite(LED_4, 1); // led on
-        delay(50); // mS
-        digitalWrite(LED_4, 0); // led off
-        
-        
-        if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18){
-        if (a->lat != 0 && a->lon != 0) {
-        pinMode(LED_2, OUTPUT);
-        digitalWrite(LED_2, 1); // led on
-        delay(50); // mS
-        digitalWrite(LED_2, 0); // led off
-        }
-    }
-
-}
-
-
 int main(int argc, char **argv) {
     int j;
 
@@ -2578,8 +2544,6 @@ int main(int argc, char **argv) {
             Modes.metric = 1;
         } else if (!strcmp(argv[j],"--mysql"))  {
             Modes.mysql = 1;
-        } else if (!strcmp(argv[j],"--led"))  {
-            Modes.led = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
             Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
