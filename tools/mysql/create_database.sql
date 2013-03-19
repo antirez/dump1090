@@ -30,7 +30,6 @@ CREATE TABLE IF NOT EXISTS `flights` (
         `flight` varchar(7) COLLATE utf8_unicode_ci NOT NULL,
         `squawk` int(4) NOT NULL,
         `regn` varchar(16) COLLATE utf8_unicode_ci NOT NULL,
-        `airline` varchar(3) COLLATE utf8_unicode_ci NOT NULL,
         `alt` int(6) NOT NULL,
         `lat` decimal(17,14) NOT NULL,
         `lon` decimal(17,14) NOT NULL,
