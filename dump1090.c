@@ -2431,7 +2431,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     /* we flill a live 'flights' table - update old data */
     /* DF 0 (Short Air to Air, ACAS has: altitude, icao) */
     if (mm->msgtype == 0) {
-         snprintf(p, 999, "INSERT INTO flights (icao, country, alt, df, msgs) VALUES ('%02X%02X%02X', '%02X', '%d', '%d', '%d') "
+         snprintf(p, 999, "INSERT INTO flights (icao, country, alt, df, msgs) VALUES ('%02X%02X%02X', '%02X', '%d', '%d', '%ld') "
                           "ON DUPLICATE KEY UPDATE "
                           "icao=VALUES(icao), country=VALUES(country), alt=VALUES(alt), df=VALUES(df), msgs=VALUES(msgs)",
                            mm->aa1, mm->aa2, mm->aa3, mm->aa1, mm->altitude, mm->msgtype, a->messages);
@@ -2443,7 +2443,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     /* DF 4/20 (Surveillance (roll call) Altitude has: altitude, icao, flight status, DR, UM) */
     /* TODO flight status, DR, UM */
     if (mm->msgtype == 4 || mm->msgtype == 20){
-         snprintf(p, 999, "INSERT INTO flights (icao, alt, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%d') "
+         snprintf(p, 999, "INSERT INTO flights (icao, alt, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%ld') "
                           "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), df=VALUES(df), msgs=VALUES(msgs)",
                            mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype, a->messages);
          if (mysql_query(conn, p)) {
@@ -2453,7 +2453,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     }
     /* DF 5/21 (Surveillance (roll call) IDENT Reply, has: alt, icao, flight status, DR, UM, squawk) */
     if (mm->msgtype == 5 || mm->msgtype == 21) {
-         snprintf(p, 999, "INSERT INTO flights (icao, alt, squawk, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%d', '%d') "
+         snprintf(p, 999, "INSERT INTO flights (icao, alt, squawk, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%d', '%ld') "
                           "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), squawk=VALUES(squawk), df=VALUES(df), "
                           "msgs=VALUES(msgs)",
                            mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->identity, mm->msgtype, a->messages);
@@ -2464,7 +2464,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     }
     /* DF 11 */
     if (mm->msgtype == 11) {
-         snprintf(p, 999, "INSERT INTO flights (icao, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d') "
+         snprintf(p, 999, "INSERT INTO flights (icao, df, msgs) VALUES ('%02X%02X%02X', '%d', '%ld') "
                           "ON DUPLICATE KEY UPDATE icao=VALUES(icao), df=VALUES(df), msgs=VALUES(msgs)",
                            mm->aa1, mm->aa2, mm->aa3, mm->msgtype, a->messages);
          if (mysql_query(conn, p)) {
@@ -2476,7 +2476,7 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     /* DF17 *with or without position data */
     if (mm->msgtype == 17) {
          snprintf(p, 999, "INSERT INTO flights (df, flight, icao, alt, vr, lat, lon, speed, heading, msgs) "
-                          "VALUES ('%d', '%s', '%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%d') "
+                          "VALUES ('%d', '%s', '%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%ld') "
                           "ON DUPLICATE KEY UPDATE "
                           "df=VALUES(df), flight=VALUES(flight), icao=VALUES(icao), alt=VALUES(alt), vr=VALUES(vr), "
                           "lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading), msgs=VALUES(msgs)", 
