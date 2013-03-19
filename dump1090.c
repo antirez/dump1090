@@ -2427,14 +2427,14 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     mysql_real_connect(conn, "127.0.0.1", "pi", "raspberry", "dump1090", 0, NULL, 0);
 
     char msgFlights[1000], *p = msgFlights;
-    /* TODO */
 
     /* we flill a live 'flights' table - update old data */
     /* DF 0 (Short Air to Air, ACAS has: altitude, icao) */
     if (mm->msgtype == 0) {
-         snprintf(p, 999, "INSERT INTO flights (icao, alt, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%d') "
-                          "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), df=VALUES(df), msgs=VALUES(msgs)",
-                           mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype, a->messages);
+         snprintf(p, 999, "INSERT INTO flights (icao, country, alt, df, msgs) VALUES ('%02X%02X%02X', '%02X', '%d', '%d', '%d') "
+                          "ON DUPLICATE KEY UPDATE "
+                          "icao=VALUES(icao), country=VALUES(country), alt=VALUES(alt), df=VALUES(df), msgs=VALUES(msgs)",
+                           mm->aa1, mm->aa2, mm->aa3, mm->aa1, mm->altitude, mm->msgtype, a->messages);
          if (mysql_query(conn, p)) {
               printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
          exit(1);
@@ -2473,14 +2473,14 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
          }
          //mysql_close(conn);
     }
-    /* DF17 */
+    /* DF17 *with or without position data */
     if (mm->msgtype == 17) {
          snprintf(p, 999, "INSERT INTO flights (df, flight, icao, alt, vr, lat, lon, speed, heading, msgs) "
-                          "VALUES ('%d' ,'%s' ,'%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%d') "
+                          "VALUES ('%d', '%s', '%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%d') "
                           "ON DUPLICATE KEY UPDATE "
                           "df=VALUES(df), flight=VALUES(flight), icao=VALUES(icao), alt=VALUES(alt), vr=VALUES(vr), "
-                          "lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading), msgs=VALUES(msgs)",
-                           mm->msgtype, a->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->vert_rate, a->lat, a->lon,
+                          "lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading), msgs=VALUES(msgs)", 
+                           mm->msgtype, a->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->vert_rate, a->lat, a->lon, 
                            a->speed, a->track, a->messages);
          if (mysql_query(conn, p)) {
               printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
