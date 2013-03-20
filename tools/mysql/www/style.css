@@ -9,6 +9,12 @@ body {
 	padding: 10px;
 	font-size: 12px;
 }
+#flights {
+	color: #E65D7D;
+        font-weight: bold;
+        text-decoration: none;
+}
+
 a {
 	color: #E65D7D;
 	font-weight: bold;
@@ -19,48 +25,16 @@ a img {
 }
 div {
 	margin: 1em 0;
+	color: #E65D7D;
+        font-weight: bold;
+        text-decoration: none;
 }
-
-
-.fleft {
-	float: left;
-}
-.fright {
-	float: right;
-}
-.clear {
-	clear: both;
-}
-.wrap {
-	width: 1000px;
-	margin: auto;
-}
-
-#content {
-	margin: 4em 0;
-}
-
-#extra div {
-	float: left;
-}
-
-footer {
-	padding-top: 1em;
-	display: block;
-	font-size: 0.8em;
-}
-
 /* TABLE */
-#table {
-	color: #FFF;
-}
-#table a {
-	color: #FFF;
-	font-weight: bold;
-	text-decoration: none;
-}
 table {
 	width: 100%;
+	font-weight: bold;
+        text-decoration: none;
+	color: #9EBEC9;
 }
 td, th {
 	padding: 0.3em 0.5em;
