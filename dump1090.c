@@ -2418,7 +2418,6 @@ void backgroundTasks(void) {
 
 }
 
-
 /* Write aircraft data to a MySQL Database */
 void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
 
@@ -2475,12 +2474,12 @@ void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
     }
     /* DF17 *with or without position data */
     if (mm->msgtype == 17) {
-         snprintf(p, 999, "INSERT INTO flights (df, flight, icao, alt, vr, lat, lon, speed, heading, msgs) "
-                          "VALUES ('%d', '%s', '%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%ld') "
+         snprintf(p, 999, "INSERT INTO flights (df, flight, airline, icao, alt, vr, lat, lon, speed, heading, msgs) "
+                          "VALUES ('%d', '%s', '%3s', '%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%ld') "
                           "ON DUPLICATE KEY UPDATE "
-                          "df=VALUES(df), flight=VALUES(flight), icao=VALUES(icao), alt=VALUES(alt), vr=VALUES(vr), "
+                          "df=VALUES(df), flight=VALUES(flight), airline=VALUES(airline), icao=VALUES(icao), alt=VALUES(alt), vr=VALUES(vr), "
                           "lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading), msgs=VALUES(msgs)", 
-                           mm->msgtype, a->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->vert_rate, a->lat, a->lon, 
+                           mm->msgtype, a->flight, a->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->vert_rate, a->lat, a->lon, 
                            a->speed, a->track, a->messages);
          if (mysql_query(conn, p)) {
               printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
