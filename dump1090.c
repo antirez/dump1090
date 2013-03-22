@@ -1,20 +1,20 @@
-/* Mode1090, a Mode S messages decoder for RTLSDR devices.
+/* dump1090, is a Mode S messages decoder for RTLSDR devices.
  *
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *  *  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
  *  *  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -41,8 +41,9 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
-#include "rtl-sdr.h"
+#include <rtl-sdr.h>
 #include "anet.h"
+#include <mysql/mysql.h>
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -158,6 +159,7 @@ struct {
     int raw;                        /* Raw output format. */
     int debug;                      /* Debugging mode. */
     int net;                        /* Enable networking. */
+    int mysql;                      /* Enable mysql database  */
     int net_only;                   /* Enable just networking. */
     int net_output_sbs_port;        /* SBS output TCP port. */
     int net_output_raw_port;        /* Raw output TCP port. */
@@ -238,6 +240,7 @@ struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void modesSendRawOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
+void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
@@ -266,6 +269,7 @@ void modesInitConfig(void) {
     Modes.check_crc = 1;
     Modes.raw = 0;
     Modes.net = 0;
+    Modes.mysql = 0;
     Modes.net_only = 0;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
     Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
@@ -1137,7 +1141,7 @@ void displayModesMessage(struct modesMessage *mm) {
 
     if (mm->msgtype == 0) {
         /* DF 0 */
-        printf("DF 0: Short Air-Air Surveillance.\n");
+        printf("DF 0: .\n");
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
         printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
@@ -1546,9 +1550,10 @@ void useModesMessage(struct modesMessage *mm) {
     if (!Modes.stats && (Modes.check_crc == 0 || mm->crcok)) {
         /* Track aircrafts in interactive mode or if the HTTP
          * interface is enabled. */
-        if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0) {
+        if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0 || Modes.mysql > 0) {
             struct aircraft *a = interactiveReceiveData(mm);
-            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
+            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients */
+            if (a && Modes.mysql > 0) modesFeedMySQL(mm, a); /* Feed MySQL Database */
         }
         /* In non-interactive way, display messages on standard output. */
         if (!Modes.interactive) {
@@ -1559,7 +1564,7 @@ void useModesMessage(struct modesMessage *mm) {
         if (Modes.net) {
             modesSendRawOutput(mm);  /* Feed raw output clients. */
         }
-    }
+  }
 }
 
 /* ========================= Interactive mode =============================== */
@@ -1818,7 +1823,7 @@ void interactiveShowData(void) {
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
-            altitude /= 3.2828;
+            altitude /= 3.28084; // 3.2828 orig by antirez
             speed *= 1.852;
         }
 
@@ -2135,7 +2140,7 @@ char *aircraftsToJson(int *len) {
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
-            altitude /= 3.2828;
+            altitude /= 3.28084; // 3.2828
             speed *= 1.852;
         }
 
@@ -2377,6 +2382,7 @@ void showHelp(void) {
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
+"--mysql                  Feed data to mysql.\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
 "--help                   Show this help.\n"
@@ -2401,7 +2407,6 @@ void backgroundTasks(void) {
         interactiveRemoveStaleAircrafts();
     }
 
-    /* Refresh screen when in interactive mode. */
     if (Modes.interactive &&
         (mstime() - Modes.interactive_last_update) >
         MODES_INTERACTIVE_REFRESH_TIME)
@@ -2410,6 +2415,89 @@ void backgroundTasks(void) {
         interactiveShowData();
         Modes.interactive_last_update = mstime();
     }
+
+}
+
+/* Write aircraft data to a MySQL Database */
+void modesFeedMySQL(struct modesMessage *mm, struct aircraft *a) {
+
+    MYSQL *conn;
+    conn = mysql_init(NULL);
+    mysql_real_connect(conn, "127.0.0.1", "pi", "raspberry", "dump1090", 0, NULL, 0);
+
+    char msgFlights[1000], *p = msgFlights;
+
+    /* we flill a live 'flights' table - update old data */
+    /* DF 0 (Short Air to Air, ACAS has: altitude, icao) */
+    if (mm->msgtype == 0) {
+         snprintf(p, 999, "INSERT INTO flights (icao, country, alt, df, msgs) VALUES ('%02X%02X%02X', '%02X', '%d', '%d', '%ld') "
+                          "ON DUPLICATE KEY UPDATE "
+                          "icao=VALUES(icao), country=VALUES(country), alt=VALUES(alt), df=VALUES(df), msgs=VALUES(msgs)",
+                           mm->aa1, mm->aa2, mm->aa3, mm->aa1, mm->altitude, mm->msgtype, a->messages);
+         if (mysql_query(conn, p)) {
+              printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+         exit(1);
+         }
+    }
+    /* DF 4/20 (Surveillance (roll call) Altitude has: altitude, icao, flight status, DR, UM) */
+    /* TODO flight status, DR, UM */
+    if (mm->msgtype == 4 || mm->msgtype == 20){
+         snprintf(p, 999, "INSERT INTO flights (icao, alt, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%ld') "
+                          "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), df=VALUES(df), msgs=VALUES(msgs)",
+                           mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->msgtype, a->messages);
+         if (mysql_query(conn, p)) {
+               printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+         exit(1);
+         }
+    }
+    /* DF 5/21 (Surveillance (roll call) IDENT Reply, has: alt, icao, flight status, DR, UM, squawk) */
+    if (mm->msgtype == 5 || mm->msgtype == 21) {
+         snprintf(p, 999, "INSERT INTO flights (icao, alt, squawk, df, msgs) VALUES ('%02X%02X%02X', '%d', '%d', '%d', '%ld') "
+                          "ON DUPLICATE KEY UPDATE icao=VALUES(icao), alt=VALUES(alt), squawk=VALUES(squawk), df=VALUES(df), "
+                          "msgs=VALUES(msgs)",
+                           mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->identity, mm->msgtype, a->messages);
+           if (mysql_query(conn, p)) {
+                printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+        exit(1);
+        }
+    }
+    /* DF 11 */
+    if (mm->msgtype == 11) {
+         snprintf(p, 999, "INSERT INTO flights (icao, df, msgs) VALUES ('%02X%02X%02X', '%d', '%ld') "
+                          "ON DUPLICATE KEY UPDATE icao=VALUES(icao), df=VALUES(df), msgs=VALUES(msgs)",
+                           mm->aa1, mm->aa2, mm->aa3, mm->msgtype, a->messages);
+         if (mysql_query(conn, p)) {
+                printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+         exit(1);
+         }
+         //mysql_close(conn);
+    }
+    /* DF17 *with or without position data */
+    if (mm->msgtype == 17) {
+         snprintf(p, 999, "INSERT INTO flights (df, flight, airline, icao, alt, vr, lat, lon, speed, heading, msgs) "
+                          "VALUES ('%d', '%s', '%3s', '%02X%02X%02X', '%d', '%d', '%1.5f', '%1.5f', '%d', '%d', '%ld') "
+                          "ON DUPLICATE KEY UPDATE "
+                          "df=VALUES(df), flight=VALUES(flight), airline=VALUES(airline), icao=VALUES(icao), alt=VALUES(alt), vr=VALUES(vr), "
+                          "lat=VALUES(lat), lon=VALUES(lon), speed=VALUES(speed), heading=VALUES(heading), msgs=VALUES(msgs)", 
+                           mm->msgtype, a->flight, a->flight, mm->aa1, mm->aa2, mm->aa3, mm->altitude, mm->vert_rate, a->lat, a->lon, 
+                           a->speed, a->track, a->messages);
+         if (mysql_query(conn, p)) {
+              printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+         exit(1);
+         }
+    }
+    /* update 'tracks' table if we have position data (df 17 extended squitter with position) */
+    if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
+         if (a->lat != 0 && a->lon != 0) {
+              snprintf(p, 999, "INSERT INTO tracks (icao, alt, lat , lon) VALUES ('%02X%02X%02X','%d','%1.5f','%1.5f')",
+                                         mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+                   if (mysql_query(conn, p)) {
+                        printf("Error %u: %s\n", mysql_errno(conn), mysql_error(conn));
+                   exit(1);
+                   }
+         }
+    }
+    mysql_close(conn);
 }
 
 int main(int argc, char **argv) {
@@ -2455,6 +2543,8 @@ int main(int argc, char **argv) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
+        } else if (!strcmp(argv[j],"--mysql"))  {
+            Modes.mysql = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
             Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
@@ -2563,7 +2653,6 @@ int main(int argc, char **argv) {
         printf("%lld total usable messages\n",
             Modes.stat_goodcrc + Modes.stat_fixed);
     }
-
     rtlsdr_close(Modes.dev);
     return 0;
 }

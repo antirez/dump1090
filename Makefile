@@ -1,5 +1,6 @@
-CFLAGS=-O2 -g -Wall -W `pkg-config --cflags librtlsdr`
-LIBS=`pkg-config --libs librtlsdr` -lpthread -lm
+CFLAGS=-O2 -g -Wall -W `pkg-config --cflags librtlsdr` `mysql_config --cflags --libs`
+LIBS=`pkg-config --libs librtlsdr` `mysql_config --libs` -lpthread -lm
+
 CC=gcc
 PROGNAME=dump1090
 
@@ -13,3 +14,4 @@ dump1090: dump1090.o anet.o
 
 clean:
 	rm -f *.o dump1090
+
