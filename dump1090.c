@@ -49,16 +49,22 @@
 #define MODES_DEFAULT_WIDTH        1000
 #define MODES_DEFAULT_HEIGHT       700
 #define MODES_ASYNC_BUF_NUMBER     12
-#define MODES_DATA_LEN             (16*16384)   /* 256k */
+#define MODES_ASYNC_BUF_SIZE       (16*16384)   /* 256k */
+#define MODES_ASYNC_BUF_SAMPLES    (MODES_ASYNC_BUF_SIZE / 2) /* Each sample is 2 bytes */
 #define MODES_AUTO_GAIN            -100         /* Use automatic gain. */
 #define MODES_MAX_GAIN             999999       /* Use max available gain. */
 
-#define MODES_PREAMBLE_US 8       /* microseconds */
-#define MODES_LONG_MSG_BITS 112
-#define MODES_SHORT_MSG_BITS 56
-#define MODES_FULL_LEN (MODES_PREAMBLE_US+MODES_LONG_MSG_BITS)
-#define MODES_LONG_MSG_BYTES (112/8)
-#define MODES_SHORT_MSG_BYTES (56/8)
+#define MODES_PREAMBLE_US        8              /* microseconds = bits */
+#define MODES_PREAMBLE_SAMPLES  (MODES_PREAMBLE_US       * 2)
+#define MODES_PREAMBLE_SIZE     (MODES_PREAMBLE_SAMPLES  * sizeof(uint16_t))
+#define MODES_LONG_MSG_BYTES     14
+#define MODES_SHORT_MSG_BYTES    7
+#define MODES_LONG_MSG_BITS     (MODES_LONG_MSG_BYTES    * 8)
+#define MODES_SHORT_MSG_BITS    (MODES_SHORT_MSG_BYTES   * 8)
+#define MODES_LONG_MSG_SAMPLES  (MODES_LONG_MSG_BITS     * 2)
+#define MODES_SHORT_MSG_SAMPLES (MODES_SHORT_MSG_BITS    * 2)
+#define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
+#define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
 #define MODES_ICAO_CACHE_LEN 1024 /* Power of two required. */
 #define MODES_ICAO_CACHE_TTL 60   /* Time to live of cached addresses. */
@@ -129,6 +135,8 @@ struct {
     unsigned char *data;            /* Raw IQ samples buffer */
     uint16_t *magnitude;            /* Magnitude vector */
     uint32_t data_len;              /* Buffer length. */
+    long long timestampBlk;         /* Timestamp of the start of the current block */
+    long long timestampMsg;         /* Timestamp of the current message. */
     int fd;                         /* --ifile option file descriptor. */
     int data_ready;                 /* Data ready to be processed. */
     uint32_t *icao_cache;           /* Recently seen ICAO addresses cache. */
@@ -156,6 +164,7 @@ struct {
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
     int raw;                        /* Raw output format. */
+    int beast;                      /* Beast binary format output. */
     int debug;                      /* Debugging mode. */
     int net;                        /* Enable networking. */
     int net_only;                   /* Enable just networking. */
@@ -199,6 +208,8 @@ struct modesMessage {
     int errorbit;               /* Bit corrected. -1 if no bit corrected. */
     int aa1, aa2, aa3;          /* ICAO Address bytes 1 2 and 3 */
     int phase_corrected;        /* True if phase correction was applied. */
+    long long timestampMsg;     /* Timestamp of the message. */  
+    unsigned char signalLevel;  /* Signal Amplitude */
 
     /* DF 11 */
     int ca;                     /* Responder capabilities. */
@@ -236,6 +247,7 @@ struct modesMessage {
 void interactiveShowData(void);
 struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void modesSendRawOutput(struct modesMessage *mm);
+void modesSendBeastOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
@@ -265,6 +277,7 @@ void modesInitConfig(void) {
     Modes.fix_errors = 1;
     Modes.check_crc = 1;
     Modes.raw = 0;
+    Modes.beast = 0;
     Modes.net = 0;
     Modes.net_only = 0;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
@@ -289,20 +302,22 @@ void modesInit(void) {
      * in the message detection loop, back at the start of the next data
      * to process. This way we are able to also detect messages crossing
      * two reads. */
-    Modes.data_len = MODES_DATA_LEN + (MODES_FULL_LEN-1)*4;
     Modes.data_ready = 0;
+    Modes.timestampBlk = 0;
+    Modes.timestampMsg = 0;
     /* Allocate the ICAO address cache. We use two uint32_t for every
      * entry because it's a addr / timestamp pair for every entry. */
     Modes.icao_cache = malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
     memset(Modes.icao_cache,0,sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
     Modes.aircrafts = NULL;
     Modes.interactive_last_update = 0;
-    if ((Modes.data = malloc(Modes.data_len)) == NULL ||
-        (Modes.magnitude = malloc(Modes.data_len*2)) == NULL) {
+    if ((Modes.data = malloc(MODES_ASYNC_BUF_SIZE)) == NULL ||
+        (Modes.magnitude = malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE)) == NULL) {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
     }
-    memset(Modes.data,127,Modes.data_len);
+    memset(Modes.data,127,MODES_ASYNC_BUF_SIZE);
+    memset(Modes.magnitude,0, MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
 
     /* Populate the I/Q -> Magnitude lookup table. It is used because
      * sqrt or round may be expensive and may vary a lot depending on
@@ -396,12 +411,9 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     MODES_NOTUSED(ctx);
 
     pthread_mutex_lock(&Modes.data_mutex);
-    if (len > MODES_DATA_LEN) len = MODES_DATA_LEN;
-    /* Move the last part of the previous buffer, that was not processed,
-     * on the start of the new buffer. */
-    memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+    if (len > MODES_ASYNC_BUF_SIZE) len = MODES_ASYNC_BUF_SIZE;
     /* Read the new data. */
-    memcpy(Modes.data+(MODES_FULL_LEN-1)*4, buf, len);
+    memcpy(Modes.data, buf, len);
     Modes.data_ready = 1;
     /* Signal to the other thread that new data is ready */
     pthread_cond_signal(&Modes.data_cond);
@@ -429,11 +441,8 @@ void readDataFromFile(void) {
             pthread_mutex_lock(&Modes.data_mutex);
         }
 
-        /* Move the last part of the previous buffer, that was not processed,
-         * on the start of the new buffer. */
-        memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
-        toread = MODES_DATA_LEN;
-        p = Modes.data+(MODES_FULL_LEN-1)*4;
+        toread = MODES_ASYNC_BUF_SIZE;
+        p = Modes.data;
         while(toread) {
             nread = read(Modes.fd, p, toread);
             if (nread <= 0) {
@@ -462,7 +471,7 @@ void *readerThreadEntryPoint(void *arg) {
     if (Modes.filename == NULL) {
         rtlsdr_read_async(Modes.dev, rtlsdrCallback, NULL,
                               MODES_ASYNC_BUF_NUMBER,
-                              MODES_DATA_LEN);
+                              MODES_ASYNC_BUF_SIZE);
     } else {
         readDataFromFile();
     }
@@ -511,7 +520,7 @@ void dumpMagnitudeBar(int index, int magnitude) {
 void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     uint32_t padding = 5; /* Show a few samples before the actual start. */
     uint32_t start = (offset < padding) ? 0 : offset-padding;
-    uint32_t end = offset + (MODES_PREAMBLE_US*2)+(MODES_SHORT_MSG_BITS*2) - 1;
+    uint32_t end = offset + (MODES_PREAMBLE_SAMPLES)+(MODES_SHORT_MSG_SAMPLES) - 1;
     uint32_t j;
 
     for (j = start; j <= end; j++) {
@@ -526,7 +535,7 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
 {
     int padding = 5; /* Show a few samples before the actual start. */
     int start = offset - padding;
-    int end = offset + (MODES_PREAMBLE_US*2)+(MODES_LONG_MSG_BITS*2) - 1;
+    int end = offset + (MODES_PREAMBLE_SAMPLES)+(MODES_LONG_MSG_SAMPLES) - 1;
     FILE *fp;
     int j, fix1 = -1, fix2 = -1;
 
@@ -665,7 +674,7 @@ int modesMessageLenByType(int type) {
  * of the error bit. Otherwise if fixing failed -1 is returned. */
 int fixSingleBitErrors(unsigned char *msg, int bits) {
     int j;
-    unsigned char aux[MODES_LONG_MSG_BITS/8];
+    unsigned char aux[MODES_LONG_MSG_BYTES];
 
     for (j = 0; j < bits; j++) {
         int byte = j/8;
@@ -696,7 +705,7 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
  * don't pass the checksum, and only in Aggressive Mode. */
 int fixTwoBitsErrors(unsigned char *msg, int bits) {
     int j, i;
-    unsigned char aux[MODES_LONG_MSG_BITS/8];
+    unsigned char aux[MODES_LONG_MSG_BYTES];
 
     for (j = 0; j < bits; j++) {
         int byte1 = j/8;
@@ -933,6 +942,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
     /* Work on our local copy */
     memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
+    mm->timestampMsg = Modes.timestampMsg;
+    mm->signalLevel  = 0xA5;
     msg = mm->msg;
 
     /* Get the message type ASAP as other operations depend on this */
@@ -1228,19 +1239,21 @@ void displayModesMessage(struct modesMessage *mm) {
 /* Turn I/Q samples pointed by Modes.data into the magnitude vector
  * pointed by Modes.magnitude. */
 void computeMagnitudeVector(void) {
-    uint16_t *m = Modes.magnitude;
+    uint16_t *m = &Modes.magnitude[MODES_PREAMBLE_SAMPLES+MODES_LONG_MSG_SAMPLES];
     unsigned char *p = Modes.data;
     uint32_t j;
 
+    memcpy(Modes.magnitude,&Modes.magnitude[MODES_ASYNC_BUF_SAMPLES], MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
+
     /* Compute the magnitudo vector. It's just SQRT(I^2 + Q^2), but
      * we rescale to the 0-255 range to exploit the full resolution. */
-    for (j = 0; j < Modes.data_len; j += 2) {
-        int i = p[j]-127;
-        int q = p[j+1]-127;
+    for (j = 0; j < MODES_ASYNC_BUF_SAMPLES; j ++) {
+        int i = (*p++)-127;
+        int q = (*p++)-127;
 
         if (i < 0) i = -i;
         if (q < 0) q = -q;
-        m[j/2] = Modes.maglut[i*129+q];
+        *m++ = Modes.maglut[i*129+q];
     }
 }
 
@@ -1289,8 +1302,8 @@ int detectOutOfPhase(uint16_t *m) {
 void applyPhaseCorrection(uint16_t *m) {
     int j;
 
-    m += 16; /* Skip preamble. */
-    for (j = 0; j < (MODES_LONG_MSG_BITS-1)*2; j += 2) {
+    m += MODES_PREAMBLE_SAMPLES; /* Skip preamble. */
+    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2) {
         if (m[j] > m[j+1]) {
             /* One */
             m[j+2] = (m[j+2] * 5) / 4;
@@ -1306,8 +1319,8 @@ void applyPhaseCorrection(uint16_t *m) {
  * stream of bits and passed to the function to display it. */
 void detectModeS(uint16_t *m, uint32_t mlen) {
     unsigned char bits[MODES_LONG_MSG_BITS];
-    unsigned char msg[MODES_LONG_MSG_BITS/2];
-    uint16_t aux[MODES_LONG_MSG_BITS*2];
+    unsigned char msg[MODES_LONG_MSG_BYTES];
+    uint16_t aux[MODES_LONG_MSG_SAMPLES];
     uint32_t j;
     int use_correction = 0;
 
@@ -1334,7 +1347,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      * 8   --
      * 9   -------------------
      */
-    for (j = 0; j < mlen - MODES_FULL_LEN*2; j++) {
+    for (j = 0; j < mlen; j++) {
         int low, high, delta, i, errors;
         int good_message = 0;
 
@@ -1393,12 +1406,13 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             continue;
         }
         Modes.stat_valid_preamble++;
+        Modes.timestampMsg = Modes.timestampBlk + j;   
 
 good_preamble:
         /* If the previous attempt with this message failed, retry using
          * magnitude correction. */
         if (use_correction) {
-            memcpy(aux,m+j+MODES_PREAMBLE_US*2,sizeof(aux));
+            memcpy(aux,m+j+MODES_PREAMBLE_SAMPLES,sizeof(aux));
             if (j && detectOutOfPhase(m+j)) {
                 applyPhaseCorrection(m+j);
                 Modes.stat_out_of_phase++;
@@ -1409,9 +1423,9 @@ good_preamble:
         /* Decode all the next 112 bits, regardless of the actual message
          * size. We'll check the actual message type later. */
         errors = 0;
-        for (i = 0; i < MODES_LONG_MSG_BITS*2; i += 2) {
-            low = m[j+i+MODES_PREAMBLE_US*2];
-            high = m[j+i+MODES_PREAMBLE_US*2+1];
+        for (i = 0; i < MODES_LONG_MSG_SAMPLES; i += 2) {
+            low = m[j+i+MODES_PREAMBLE_SAMPLES];
+            high = m[j+i+MODES_PREAMBLE_SAMPLES+1];
             delta = low-high;
             if (delta < 0) delta = -delta;
 
@@ -1422,7 +1436,7 @@ good_preamble:
                  * is an effective way to detect if it's just random noise
                  * that was detected as a valid preamble. */
                 bits[i/2] = 2; /* error */
-                if (i < MODES_SHORT_MSG_BITS*2) errors++;
+                if (i < MODES_SHORT_MSG_SAMPLES) errors++;
             } else if (low > high) {
                 bits[i/2] = 1;
             } else {
@@ -1433,7 +1447,7 @@ good_preamble:
 
         /* Restore the original message if we used magnitude correction. */
         if (use_correction)
-            memcpy(m+j+MODES_PREAMBLE_US*2,aux,sizeof(aux));
+            memcpy(m+j+MODES_PREAMBLE_SAMPLES,aux,sizeof(aux));
 
         /* Pack bits into bytes */
         for (i = 0; i < MODES_LONG_MSG_BITS; i += 8) {
@@ -1455,8 +1469,8 @@ good_preamble:
          * to mark this as real message and not just noise? */
         delta = 0;
         for (i = 0; i < msglen*8*2; i += 2) {
-            delta += abs(m[j+i+MODES_PREAMBLE_US*2]-
-                         m[j+i+MODES_PREAMBLE_US*2+1]);
+            delta += abs(m[j+i+MODES_PREAMBLE_SAMPLES]-
+                         m[j+i+MODES_PREAMBLE_SAMPLES+1]);
         }
         delta /= msglen*4;
 
@@ -1556,8 +1570,11 @@ void useModesMessage(struct modesMessage *mm) {
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
         /* Send data to connected clients. */
-        if (Modes.net) {
-            modesSendRawOutput(mm);  /* Feed raw output clients. */
+        if (Modes.net) {  /* Feed raw output clients. */
+            if (Modes.beast)
+                modesSendBeastOutput(mm);
+            else
+                modesSendRawOutput(mm);
         }
     }
 }
@@ -1867,7 +1884,7 @@ void snipMode(int level) {
     while ((i = getchar()) != EOF && (q = getchar()) != EOF) {
         if (abs(i-127) < level && abs(q-127) < level) {
             c++;
-            if (c > MODES_PREAMBLE_US*4) continue;
+            if (c > MODES_PREAMBLE_SIZE) continue;
         } else {
             c = 0;
         }
@@ -1995,6 +2012,32 @@ void modesSendAllClients(int service, void *msg, int len) {
             }
         }
     }
+}
+
+/* Write raw output in Beast Binary format with MLAT Counter to TCP clients */
+void modesSendBeastOutput(struct modesMessage *mm) {
+    char msg[64], *p = msg;
+    int  msgLen = mm->msgbits / 8;
+    char * pTimeStamp;
+    int  j;
+
+    *p++ = 0x1a;
+    if      (msgLen == MODES_SHORT_MSG_BYTES)
+      {*p++ = '2';}
+    else if (msgLen == MODES_LONG_MSG_BYTES)
+      {*p++ = '3';}
+    else
+      {return;}
+
+    *p++ = mm->signalLevel;
+
+    pTimeStamp = (char *) &mm->timestampMsg;
+    for (j = 5; j >= 0; j--) {
+        *p++ = pTimeStamp[j];
+    }
+
+    memcpy(p, mm->msg, msgLen);
+    modesSendAllClients(Modes.ros, msg, (msgLen + 9));
 }
 
 /* Write raw output to TCP clients. */
@@ -2366,6 +2409,7 @@ void showHelp(void) {
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
+"--net-beast              TCP raw output in Beast binary format.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
 "--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
 "--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
@@ -2440,6 +2484,8 @@ int main(int argc, char **argv) {
             Modes.raw = 1;
         } else if (!strcmp(argv[j],"--net")) {
             Modes.net = 1;
+        } else if (!strcmp(argv[j],"--net-beast")) {
+            Modes.beast = 1;
         } else if (!strcmp(argv[j],"--net-only")) {
             Modes.net = 1;
             Modes.net_only = 1;
@@ -2542,7 +2588,8 @@ int main(int argc, char **argv) {
          * stuff * at the same time. (This should only be useful with very
          * slow processors). */
         pthread_mutex_unlock(&Modes.data_mutex);
-        detectModeS(Modes.magnitude, Modes.data_len/2);
+        detectModeS(Modes.magnitude, MODES_ASYNC_BUF_SAMPLES);
+        Modes.timestampBlk += MODES_ASYNC_BUF_SAMPLES;
         backgroundTasks();
         pthread_mutex_lock(&Modes.data_mutex);
         if (Modes.exit) break;
