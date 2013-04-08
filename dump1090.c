@@ -1825,20 +1825,25 @@ void interactiveShowData(void) {
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex     Squawk  Flight   Altitude  Speed   Lat       Lon       Track  Messages  Seen %s\n"
-"----------------------------------------------------------------------------------------\n",
+"Hex     Sqwk  Flight    Alt    Speed  Lat      Lon      Track  Msgs    Seen %s\n"
+"-------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
         int altitude = a->altitude, speed = a->speed;
+        char squawk[5] = "0";
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
             altitude /= 3.2828;
             speed *= 1.852;
         }
+        
+        if (a->squawk > 0 && a->squawk <= 7777) {
+            sprintf(squawk, "%04d", a->squawk);
+        }
 
-        printf("%-6s  %-4s    %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d    %-9ld %d sec\n",
+        printf("%-6s  %-4s  %-8s  %-7d %-5d %-7.03f  %-7.03f  %-3d    %-7ld %d sec\n",
             a->hexaddr, squawk, a->flight, altitude, speed,
             a->lat, a->lon, a->track, a->messages,
             (int)(now - a->seen));
