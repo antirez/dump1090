@@ -123,6 +123,7 @@ struct aircraft {
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     long long odd_cprtime, even_cprtime;
+    int squawk;
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
 
@@ -134,9 +135,7 @@ struct {
     pthread_cond_t data_cond;       /* Conditional variable associated. */
     unsigned char *data;            /* Raw IQ samples buffer */
     uint16_t *magnitude;            /* Magnitude vector */
-    uint32_t data_len;              /* Buffer length. */
     long long timestampBlk;         /* Timestamp of the start of the current block */
-    long long timestampMsg;         /* Timestamp of the current message. */
     int fd;                         /* --ifile option file descriptor. */
     int data_ready;                 /* Data ready to be processed. */
     uint32_t *icao_cache;           /* Recently seen ICAO addresses cache. */
@@ -149,6 +148,7 @@ struct {
     int enable_agc;
     rtlsdr_dev_t *dev;
     int freq;
+    int ppm_error;
 
     /* Networking */
     char aneterr[ANET_ERR_LEN];
@@ -172,6 +172,7 @@ struct {
     int net_output_raw_port;        /* Raw output TCP port. */
     int net_input_raw_port;         /* Raw input TCP port. */
     int net_http_port;              /* HTTP port. */
+    int quiet;                      /* Suppress stdout */
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows. */
     int interactive_ttl;            /* Interactive mode: TTL before deletion. */
@@ -272,6 +273,7 @@ void modesInitConfig(void) {
     Modes.gain = MODES_MAX_GAIN;
     Modes.dev_index = 0;
     Modes.enable_agc = 0;
+    Modes.ppm_error = 0;
     Modes.freq = MODES_DEFAULT_FREQ;
     Modes.filename = NULL;
     Modes.fix_errors = 1;
@@ -289,6 +291,7 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
+    Modes.quiet = 0;
     Modes.aggressive = 0;
 }
 
@@ -304,7 +307,6 @@ void modesInit(void) {
      * two reads. */
     Modes.data_ready = 0;
     Modes.timestampBlk = 0;
-    Modes.timestampMsg = 0;
     /* Allocate the ICAO address cache. We use two uint32_t for every
      * entry because it's a addr / timestamp pair for every entry. */
     Modes.icao_cache = malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
@@ -352,7 +354,6 @@ void modesInit(void) {
 void modesInitRTLSDR(void) {
     int j;
     int device_count;
-    int ppm_error = 0;
     char vendor[256], product[256], serial[256];
 
     device_count = rtlsdr_get_device_count();
@@ -392,7 +393,7 @@ void modesInitRTLSDR(void) {
     } else {
         fprintf(stderr, "Using automatic gain control.\n");
     }
-    rtlsdr_set_freq_correction(Modes.dev, ppm_error);
+    rtlsdr_set_freq_correction(Modes.dev, Modes.ppm_error);
     if (Modes.enable_agc) rtlsdr_set_agc_mode(Modes.dev, 1);
     rtlsdr_set_center_freq(Modes.dev, Modes.freq);
     rtlsdr_set_sample_rate(Modes.dev, MODES_DEFAULT_RATE);
@@ -901,10 +902,6 @@ char *fs_str[8] = {
     /* 7 */ "Value 7 is not assigned"
 };
 
-/* ME message type to description table. */
-char *me_str[] = {
-};
-
 char *getMEDescription(int metype, int mesub) {
     char *mename = "Unknown";
 
@@ -942,7 +939,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
     /* Work on our local copy */
     memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
-    mm->timestampMsg = Modes.timestampMsg;
     mm->signalLevel  = 0xA5;
     msg = mm->msg;
 
@@ -1406,7 +1402,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             continue;
         }
         Modes.stat_valid_preamble++;
-        Modes.timestampMsg = Modes.timestampBlk + j;   
 
 good_preamble:
         /* If the previous attempt with this message failed, retry using
@@ -1489,6 +1484,7 @@ good_preamble:
             struct modesMessage mm;
 
             /* Decode the received message and update statistics */
+            mm.timestampMsg = Modes.timestampBlk + j;
             decodeModesMessage(&mm,msg);
 
             /* Update statistics. */
@@ -1565,7 +1561,7 @@ void useModesMessage(struct modesMessage *mm) {
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
         }
         /* In non-interactive way, display messages on standard output. */
-        if (!Modes.interactive) {
+        if (!Modes.interactive && !Modes.quiet) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
@@ -1602,6 +1598,7 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->lon = 0;
     a->seen = time(NULL);
     a->messages = 0;
+    a->squawk = 0;
     a->next = NULL;
     return a;
 }
@@ -1784,6 +1781,8 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         a->altitude = mm->altitude;
+    } else if(mm->msgtype == 5 || mm->msgtype == 21) {
+        a->squawk = mm->identity;
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
@@ -1826,8 +1825,8 @@ void interactiveShowData(void) {
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
-"--------------------------------------------------------------------------------\n",
+"Hex     Squawk  Flight   Altitude  Speed   Lat       Lon       Track  Messages  Seen %s\n"
+"----------------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
@@ -1839,8 +1838,8 @@ void interactiveShowData(void) {
             speed *= 1.852;
         }
 
-        printf("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
-            a->hexaddr, a->flight, altitude, speed,
+        printf("%-6s  %-4s    %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d    %-9ld %d sec\n",
+            a->hexaddr, squawk, a->flight, altitude, speed,
             a->lat, a->lon, a->track, a->messages,
             (int)(now - a->seen));
         a = a->next;
@@ -2159,6 +2158,7 @@ int decodeHexMessage(struct client *c) {
         if (high == -1 || low == -1) return 0;
         msg[j/2] = (high<<4) | low;
     }
+    mm.timestampMsg = -1;
     decodeModesMessage(&mm,msg);
     useModesMessage(&mm);
     return 0;
@@ -2401,7 +2401,7 @@ void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
-"--enable-agc>            Enable the Automatic Gain Control (default: off).\n"
+"--enable-agc             Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
@@ -2423,6 +2423,8 @@ void showHelp(void) {
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
+"--quiet                  Disable output to stdout. Use for daemon applications.\n"
+"--ppm <error>            Set the receiver error on parts per million (default 0).\n"
 "--help                   Show this help.\n"
 "\n"
 "Debug mode flags: d = Log frames decoded with errors\n"
@@ -2535,7 +2537,11 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
-        } else {
+        } else if (!strcmp(argv[j],"--ppm") && more) {
+	        Modes.ppm_error = atoi(argv[++j]);
+	    } else if (!strcmp(argv[j],"--quiet")) {
+	        Modes.quiet = 1;
+	    } else {
             fprintf(stderr,
                 "Unknown or not enough arguments for option '%s'.\n\n",
                 argv[j]);
