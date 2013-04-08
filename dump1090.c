@@ -445,7 +445,7 @@ void readDataFromFile(void) {
         }
 
         toread = MODES_ASYNC_BUF_SIZE;
-        p = Modes.data;
+        p = (unsigned char *) Modes.data;
         while(toread) {
             nread = read(Modes.fd, p, toread);
             if (nread <= 0) {
