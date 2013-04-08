@@ -133,7 +133,7 @@ struct {
     pthread_t reader_thread;
     pthread_mutex_t data_mutex;     /* Mutex to synchronize buffer access. */
     pthread_cond_t data_cond;       /* Conditional variable associated. */
-    unsigned char *data;            /* Raw IQ samples buffer */
+    uint16_t *data;                 /* Raw IQ samples buffer */
     uint16_t *magnitude;            /* Magnitude vector */
     long long timestampBlk;         /* Timestamp of the start of the current block */
     int fd;                         /* --ifile option file descriptor. */
@@ -328,10 +328,12 @@ void modesInit(void) {
      * We scale to 0-255 range multiplying by 1.4 in order to ensure that
      * every different I/Q pair will result in a different magnitude value,
      * not losing any resolution. */
-    Modes.maglut = malloc(129*129*2);
-    for (i = 0; i <= 128; i++) {
-        for (q = 0; q <= 128; q++) {
-            Modes.maglut[i*129+q] = round(sqrt(i*i+q*q)*360);
+    Modes.maglut = malloc(256*256*2);
+    for (i = 0; i <= 255; i++) {
+        int mag_i = i-127;
+        for (q = 0; q <= 255; q++) {
+            int mag_q = q - 127;
+            Modes.maglut[i*256+q] = round(sqrt((mag_i*mag_i)+(mag_q*mag_q))*360);
         }
     }
 
@@ -1236,7 +1238,7 @@ void displayModesMessage(struct modesMessage *mm) {
  * pointed by Modes.magnitude. */
 void computeMagnitudeVector(void) {
     uint16_t *m = &Modes.magnitude[MODES_PREAMBLE_SAMPLES+MODES_LONG_MSG_SAMPLES];
-    unsigned char *p = Modes.data;
+    uint16_t *p = Modes.data;
     uint32_t j;
 
     memcpy(Modes.magnitude,&Modes.magnitude[MODES_ASYNC_BUF_SAMPLES], MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
@@ -1244,12 +1246,7 @@ void computeMagnitudeVector(void) {
     /* Compute the magnitudo vector. It's just SQRT(I^2 + Q^2), but
      * we rescale to the 0-255 range to exploit the full resolution. */
     for (j = 0; j < MODES_ASYNC_BUF_SAMPLES; j ++) {
-        int i = (*p++)-127;
-        int q = (*p++)-127;
-
-        if (i < 0) i = -i;
-        if (q < 0) q = -q;
-        *m++ = Modes.maglut[i*129+q];
+        *m++ = Modes.maglut[*p++];
     }
 }
 
@@ -2538,10 +2535,10 @@ int main(int argc, char **argv) {
             showHelp();
             exit(0);
         } else if (!strcmp(argv[j],"--ppm") && more) {
-	        Modes.ppm_error = atoi(argv[++j]);
-	    } else if (!strcmp(argv[j],"--quiet")) {
-	        Modes.quiet = 1;
-	    } else {
+            Modes.ppm_error = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--quiet")) {
+            Modes.quiet = 1;
+        } else {
             fprintf(stderr,
                 "Unknown or not enough arguments for option '%s'.\n\n",
                 argv[j]);
