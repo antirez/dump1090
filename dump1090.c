@@ -1610,6 +1610,7 @@ int cprModFunction(int a, int b) {
 
 /* The NL function uses the precomputed table from 1090-WP-9-14 */
 int cprNLFunction(double lat) {
+    if (lat < 0) lat = -lat; /* Table is simmetric about the equator. */
     if (lat < 10.47047130) return 59;
     if (lat < 14.82817437) return 58;
     if (lat < 18.18626357) return 57;
