@@ -1481,7 +1481,7 @@ good_preamble:
             struct modesMessage mm;
 
             /* Decode the received message and update statistics */
-            mm.timestampMsg = Modes.timestampBlk + j;
+            mm.timestampMsg = Modes.timestampBlk + (j*6);
             decodeModesMessage(&mm,msg);
 
             /* Update statistics. */
@@ -1813,21 +1813,20 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 void interactiveShowData(void) {
     struct aircraft *a = Modes.aircrafts;
     time_t now = time(NULL);
-    char progress[4];
     int count = 0;
-
-    memset(progress,' ',3);
-    progress[time(NULL)%3] = '.';
-    progress[3] = '\0';
-
+    char progress;
+    char spinner[4] = "|/-\\";
+    
+    progress = spinner[time(NULL)%4];
+    
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex     Sqwk  Flight    Alt    Speed  Lat      Lon      Track  Msgs    Seen %s\n"
-"-------------------------------------------------------------------------------\n",
+"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n"
+"--------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
-        int altitude = a->altitude, speed = a->speed;
+        int altitude = a->altitude, speed = a->speed, msgs = a->messages;
         char squawk[5] = "0";
 
         /* Convert units to metric if --metric was specified. */
@@ -1836,14 +1835,28 @@ void interactiveShowData(void) {
             speed *= 1.852;
         }
         
+        if (altitude > 99999) {
+            altitude = 99999;
+        } else if (altitude < -9999) {
+            altitude = -9999;
+        }
+        
         if (a->squawk > 0 && a->squawk <= 7777) {
             sprintf(squawk, "%04d", a->squawk);
         }
+        
+        if (a->messages > 99999) {
+            msgs = 99999;
+        }
+        
+        char spacer = '\0';
+        if ((int)(now - a->seen) < 10) {
+            spacer = ' ';
+        }
 
-        printf("%-6s  %-4s  %-8s  %-7d %-5d %-7.03f  %-7.03f  %-3d    %-7ld %d sec\n",
+        printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
             a->hexaddr, squawk, a->flight, altitude, speed,
-            a->lat, a->lon, a->track, a->messages,
-            (int)(now - a->seen));
+            a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
         a = a->next;
         count++;
     }
@@ -2597,7 +2610,7 @@ int main(int argc, char **argv) {
          * slow processors). */
         pthread_mutex_unlock(&Modes.data_mutex);
         detectModeS(Modes.magnitude, MODES_ASYNC_BUF_SAMPLES);
-        Modes.timestampBlk += MODES_ASYNC_BUF_SAMPLES;
+        Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES*6);
         backgroundTasks();
         pthread_mutex_lock(&Modes.data_mutex);
         if (Modes.exit) break;
