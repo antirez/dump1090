@@ -1804,21 +1804,20 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 void interactiveShowData(void) {
     struct aircraft *a = Modes.aircrafts;
     time_t now = time(NULL);
-    char progress[4];
     int count = 0;
-
-    memset(progress,' ',3);
-    progress[time(NULL)%3] = '.';
-    progress[3] = '\0';
-
+    char progress;
+    char spinner[4] = "|/-\\";
+    
+    progress = spinner[time(NULL)%4];
+    
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex     Squawk  Flight   Altitude  Speed   Lat       Lon       Track  Messages  Seen %s\n"
-"----------------------------------------------------------------------------------------\n",
+"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n"
+"--------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
-        int altitude = a->altitude, speed = a->speed;
+        int altitude = a->altitude, speed = a->speed, msgs = a->messages;
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
@@ -1826,15 +1825,29 @@ void interactiveShowData(void) {
             speed *= 1.852;
         }
         
+        if (altitude > 99999) {
+            altitude = 99999;
+        } else if (altitude < -9999) {
+            altitude = -9999;
+        }
+        
         char squawk[5] = "0";
         if (a->squawk > 0 && a->squawk <= 7777) {
             sprintf(squawk, "%04d", a->squawk);
         }
+        
+        if (a->messages > 99999) {
+            msgs = 99999;
+        }
+        
+        char spacer = '\0';
+        if ((int)(now - a->seen) < 10) {
+            spacer = ' ';
+        }
 
-        printf("%-6s  %-4s    %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d    %-9ld %d sec\n",
+        printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
             a->hexaddr, squawk, a->flight, altitude, speed,
-            a->lat, a->lon, a->track, a->messages,
-            (int)(now - a->seen));
+            a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
         a = a->next;
         count++;
     }
