@@ -27,22 +27,26 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-#include <pthread.h>
-#include <stdint.h>
-#include <errno.h>
-#include <unistd.h>
-#include <math.h>
-#include <sys/time.h>
-#include <signal.h>
-#include <fcntl.h>
-#include <ctype.h>
-#include <sys/stat.h>
-#include "rtl-sdr.h"
-#include "anet.h"
+#ifndef _WIN32
+    #include <stdio.h>
+    #include <string.h>
+    #include <stdlib.h>
+    #include <pthread.h>
+    #include <stdint.h>
+    #include <errno.h>
+    #include <unistd.h>
+    #include <math.h>
+    #include <sys/time.h>
+    #include <signal.h>
+    #include <fcntl.h>
+    #include <ctype.h>
+    #include <sys/stat.h>
+    #include "rtl-sdr.h"
+    #include "anet.h"
+#else
+    #include "dump1090.h" //Put everything Windows specific in here
+    #include "rtl-sdr.h"
+#endif
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -122,7 +126,7 @@ struct aircraft {
     int even_cprlat;
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
-    long long odd_cprtime, even_cprtime;
+    uint64_t odd_cprtime, even_cprtime;
     int squawk;
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
@@ -135,7 +139,7 @@ struct {
     pthread_cond_t data_cond;       /* Conditional variable associated. */
     uint16_t *data;                 /* Raw IQ samples buffer */
     uint16_t *magnitude;            /* Magnitude vector */
-    long long timestampBlk;         /* Timestamp of the start of the current block */
+    uint64_t timestampBlk;          /* Timestamp of the start of the current block */
     int fd;                         /* --ifile option file descriptor. */
     int data_ready;                 /* Data ready to be processed. */
     uint32_t *icao_cache;           /* Recently seen ICAO addresses cache. */
@@ -183,19 +187,19 @@ struct {
 
     /* Interactive mode */
     struct aircraft *aircrafts;
-    long long interactive_last_update;  /* Last screen update in milliseconds */
+    uint64_t interactive_last_update;  /* Last screen update in milliseconds */
 
     /* Statistics */
-    long long stat_valid_preamble;
-    long long stat_demodulated;
-    long long stat_goodcrc;
-    long long stat_badcrc;
-    long long stat_fixed;
-    long long stat_single_bit_fix;
-    long long stat_two_bits_fix;
-    long long stat_http_requests;
-    long long stat_sbs_connections;
-    long long stat_out_of_phase;
+    uint64_t stat_valid_preamble;
+    uint64_t stat_demodulated;
+    uint64_t stat_goodcrc;
+    uint64_t stat_badcrc;
+    uint64_t stat_fixed;
+    uint64_t stat_single_bit_fix;
+    uint64_t stat_two_bits_fix;
+    uint64_t stat_http_requests;
+    uint64_t stat_sbs_connections;
+    uint64_t stat_out_of_phase;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -209,7 +213,7 @@ struct modesMessage {
     int errorbit;               /* Bit corrected. -1 if no bit corrected. */
     int aa1, aa2, aa3;          /* ICAO Address bytes 1 2 and 3 */
     int phase_corrected;        /* True if phase correction was applied. */
-    long long timestampMsg;     /* Timestamp of the message. */  
+    uint64_t timestampMsg;      /* Timestamp of the message. */  
     unsigned char signalLevel;  /* Signal Amplitude */
 
     /* DF 11 */
@@ -257,12 +261,12 @@ int modesMessageLenByType(int type);
 
 /* ============================= Utility functions ========================== */
 
-static long long mstime(void) {
+static uint64_t mstime(void) {
     struct timeval tv;
-    long long mst;
+    uint64_t mst;
 
     gettimeofday(&tv, NULL);
-    mst = ((long long)tv.tv_sec)*1000;
+    mst = ((uint64_t)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
 }
@@ -309,12 +313,12 @@ void modesInit(void) {
     Modes.timestampBlk = 0;
     /* Allocate the ICAO address cache. We use two uint32_t for every
      * entry because it's a addr / timestamp pair for every entry. */
-    Modes.icao_cache = malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
+    Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
     memset(Modes.icao_cache,0,sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
     Modes.aircrafts = NULL;
     Modes.interactive_last_update = 0;
-    if ((Modes.data = malloc(MODES_ASYNC_BUF_SIZE)) == NULL ||
-        (Modes.magnitude = malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE)) == NULL) {
+    if ((Modes.data = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE)) == NULL ||
+        (Modes.magnitude = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE)) == NULL) {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
     }
@@ -870,8 +874,8 @@ int decodeAC12Field(unsigned char *msg, int *unit) {
     if (q_bit) {
         /* N is the 11 bit integer resulting from the removal of bit
          * Q */
-        *unit = MODES_UNIT_FEET;
         int n = ((msg[5]>>1)<<4) | ((msg[6]&0xF0) >> 4);
+        *unit = MODES_UNIT_FEET;
         /* The final altitude is due to the resulting number multiplied
          * by 25, minus 1000. */
         return n*25-1000;
@@ -1091,8 +1095,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 mm->vert_rate = ((msg[8]&7) << 6) | ((msg[9]&0xfc) >> 2);
                 /* Compute velocity and angle from the two speed
                  * components. */
-                mm->velocity = sqrt(mm->ns_velocity*mm->ns_velocity+
-                                    mm->ew_velocity*mm->ew_velocity);
+                mm->velocity = (int) sqrt(mm->ns_velocity*mm->ns_velocity+
+                                          mm->ew_velocity*mm->ew_velocity);
                 if (mm->velocity) {
                     int ewv = mm->ew_velocity;
                     int nsv = mm->ns_velocity;
@@ -1103,7 +1107,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     heading = atan2(ewv,nsv);
 
                     /* Convert to degrees. */
-                    mm->heading = heading * 360 / (M_PI*2);
+                    mm->heading = (int) (heading * 360 / (M_PI*2));
                     /* We don't want negative values but a 0-360 scale. */
                     if (mm->heading < 0) mm->heading += 360;
                 } else {
@@ -1111,8 +1115,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 }
             } else if (mm->mesub == 3 || mm->mesub == 4) {
                 mm->heading_is_valid = msg[5] & (1<<2);
-                mm->heading = (360.0/128) * (((msg[5] & 3) << 5) |
-                                              (msg[6] >> 3));
+                mm->heading = (int) (360.0/128) * (((msg[5] & 3) << 5) |
+                                                    (msg[6] >> 3));
             }
         }
     }
@@ -1343,6 +1347,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
     for (j = 0; j < mlen; j++) {
         int low, high, delta, i, errors;
         int good_message = 0;
+        int msglen;
 
         if (use_correction) goto good_preamble; /* We already checked it. */
 
@@ -1454,8 +1459,7 @@ good_preamble:
                 bits[i+7];
         }
 
-        int msgtype = msg[0]>>3;
-        int msglen = modesMessageLenByType(msgtype)/8;
+        msglen = modesMessageLenByType(msg[0] >> 3) / 8;
 
         /* Last check, high and low bits are different enough in magnitude
          * to mark this as real message and not just noise? */
@@ -1577,7 +1581,7 @@ void useModesMessage(struct modesMessage *mm) {
 /* Return a new aircraft structure for the interactive mode linked list
  * of aircrafts. */
 struct aircraft *interactiveCreateAircraft(uint32_t addr) {
-    struct aircraft *a = malloc(sizeof(*a));
+    struct aircraft *a = (struct aircraft *) malloc(sizeof(*a));
 
     a->addr = addr;
     snprintf(a->hexaddr,sizeof(a->hexaddr),"%06x",(int)addr);
@@ -1711,7 +1715,7 @@ void decodeCPR(struct aircraft *a) {
     double lon1 = a->odd_cprlon;
 
     /* Compute the Latitude Index "j" */
-    int j = floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
+    int j = (int) floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
     double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
     double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
 
@@ -1725,15 +1729,15 @@ void decodeCPR(struct aircraft *a) {
     if (a->even_cprtime > a->odd_cprtime) {
         /* Use even packet. */
         int ni = cprNFunction(rlat0,0);
-        int m = floor((((lon0 * (cprNLFunction(rlat0)-1)) -
-                        (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
+        int m = (int) floor((((lon0 * (cprNLFunction(rlat0)-1)) -
+                              (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
         a->lon = cprDlonFunction(rlat0,0) * (cprModFunction(m,ni)+lon0/131072);
         a->lat = rlat0;
     } else {
         /* Use odd packet. */
         int ni = cprNFunction(rlat1,1);
-        int m = floor((((lon0 * (cprNLFunction(rlat1)-1)) -
-                        (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
+        int m = (int) floor((((lon0 * (cprNLFunction(rlat1)-1)) -
+                              (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
         a->lon = cprDlonFunction(rlat1,1) * (cprModFunction(m,ni)+lon1/131072);
         a->lat = rlat1;
     }
@@ -1796,7 +1800,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             }
             /* If the two data is less than 10 seconds apart, compute
              * the position. */
-            if (abs(a->even_cprtime - a->odd_cprtime) <= 10000) {
+            if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
                 decodeCPR(a);
             }
         } else if (mm->metype == 19) {
@@ -1828,11 +1832,12 @@ void interactiveShowData(void) {
     while(a && count < Modes.interactive_rows) {
         int altitude = a->altitude, speed = a->speed, msgs = a->messages;
         char squawk[5] = "0";
+        char spacer = '\0';
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
-            altitude /= 3.2828;
-            speed *= 1.852;
+            altitude = (int) (altitude / 3.2828);
+            speed    = (int) (speed * 1.852);
         }
         
         if (altitude > 99999) {
@@ -1849,7 +1854,6 @@ void interactiveShowData(void) {
             msgs = 99999;
         }
         
-        char spacer = '\0';
         if ((int)(now - a->seen) < 10) {
             spacer = ' ';
         }
@@ -1893,7 +1897,7 @@ void interactiveRemoveStaleAircrafts(void) {
  * for more than 256 samples in order to reduce example file size. */
 void snipMode(int level) {
     int i, q;
-    long long c = 0;
+    uint64_t c = 0;
 
     while ((i = getchar()) != EOF && (q = getchar()) != EOF) {
         if (abs(i-127) < level && abs(q-127) < level) {
@@ -1974,7 +1978,7 @@ void modesAcceptClients(void) {
         }
 
         anetNonBlock(Modes.aneterr, fd);
-        c = malloc(sizeof(*c));
+        c = (struct client *) malloc(sizeof(*c));
         c->service = services[j];
         c->fd = fd;
         c->buflen = 0;
@@ -2183,7 +2187,7 @@ int decodeHexMessage(struct client *c) {
 char *aircraftsToJson(int *len) {
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
-    char *buf = malloc(buflen), *p = buf;
+    char *buf = (char *) malloc(buflen), *p = buf;
     int l;
 
     l = snprintf(p,buflen,"[\n");
@@ -2193,8 +2197,8 @@ char *aircraftsToJson(int *len) {
 
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
-            altitude /= 3.2828;
-            speed *= 1.852;
+            altitude = (int) (altitude / 3.2828);
+            speed    = (int) (speed * 1.852);
         }
 
         if (a->lat != 0 && a->lon != 0) {
@@ -2209,7 +2213,7 @@ char *aircraftsToJson(int *len) {
             if (buflen < 256) {
                 int used = p-buf;
                 buflen += 1024; /* Our increment. */
-                buf = realloc(buf,used+buflen);
+                buf = (char *) realloc(buf,used+buflen);
                 p = buf+used;
             }
         }
@@ -2283,7 +2287,7 @@ int handleHTTPRequest(struct client *c) {
         if (stat("gmap.html",&sbuf) != -1 &&
             (fd = open("gmap.html",O_RDONLY)) != -1)
         {
-            content = malloc(sbuf.st_size);
+            content = (char *) malloc(sbuf.st_size);
             if (read(fd,content,sbuf.st_size) == -1) {
                 snprintf(content,sbuf.st_size,"Error reading from file: %s",
                     strerror(errno));
@@ -2486,11 +2490,11 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--gain") && more) {
-            Modes.gain = atof(argv[++j])*10; /* Gain is in tens of DBs */
+            Modes.gain = (int) atof(argv[++j])*10; /* Gain is in tens of DBs */
         } else if (!strcmp(argv[j],"--enable-agc")) {
             Modes.enable_agc++;
         } else if (!strcmp(argv[j],"--freq") && more) {
-            Modes.freq = strtoll(argv[++j],NULL,10);
+            Modes.freq = (int) strtoll(argv[++j],NULL,10);
         } else if (!strcmp(argv[j],"--ifile") && more) {
             Modes.filename = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--no-fix")) {
