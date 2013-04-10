@@ -334,13 +334,57 @@ void modesInit(void) {
      * We scale to 0-255 range multiplying by 1.4 in order to ensure that
      * every different I/Q pair will result in a different magnitude value,
      * not losing any resolution. */
+/*
     for (i = 0; i <= 255; i++) {
-        int mag_i = i - 127;
         for (q = 0; q <= 255; q++) {
+            int mag_i = i - 127;
             int mag_q = q - 127;
-            int mag   = 0;
+            int mag   = 0;           
             mag = (int) round(sqrt((mag_i*mag_i)+(mag_q*mag_q)) * 360);
             Modes.maglut[(i*256)+q] = (uint16_t) min(mag,65535);
+        }
+    }
+*/
+    // Each I and Q value varies from 0 to 255, which represents a range from -1 to +1. To get from the 
+    // unsigned (0-255) range you therefore subtract 127 (or 128 or 127.5) from each I and Q, giving you 
+    // a range from -127 to +128 (or -128 to +127, or -127.5 to +127.5)..
+    //
+    // To decode the AM signal, you need the magnitude of the waveform, which is given by sqrt((I^2)+(Q^2))
+    // The most this could be is if I&Q are both 128 (or 127 or 127.5), so you could end up with a magnitude 
+    // of 181.019 (or 179.605, or 180.312)
+    //
+    // However, in reality the magnitude of the signal should never exceed the range -1 to +1, becaure the 
+    // values are I = rCos(w) and Q = rSin(w). Therefore the integer computed magnitude should (can?) never 
+    // exceed 128 (or 127, or 127.5 or whatever)
+    //
+    // If we scale up the results so that they range from 0 to 65535 (16 bits) then we need to multiply 
+    // by 511.99, (or 516.02 or 514). antirez's original code multiplies by 360, presumably because he's 
+    // assuming the maximim calculated amplitude is 181.019, and (181.019 * 360) = 65166.
+    //
+    // So lets see if we can improve things by subtracting 127.5, Well in integer arithmatic we can't
+    // subtract half, so, we'll double everything up and subtract one, and then compensate for the doubling 
+    // in the multiplier at the end.
+    //
+    // If we do this we can never have I or Q equal to 0 - they can only be as small as +/- 1.
+    // This gives us a minimum magnitude of root 2 (0.707), so the dynamic range becomes (1.414-255). This 
+    // also affects our scaling value, which is now 65535/(255 - 1.414), or 258.433254
+    //
+    // The sums then become mag = 258.433254 * (sqrt((I*2-255)^2 + (Q*2-255)^2) - 1.414)
+    //                   or mag = (258.433254 * sqrt((I*2-255)^2 + (Q*2-255)^2)) - 365.4798
+    //
+    // We also need to clip mag just incaes any rogue I/Q values somehow do have a magnitude greater than 255.
+    //
+
+    for (i = 0; i <= 255; i++) {
+        for (q = 0; q <= 255; q++) {
+            int mag, mag_i, mag_q;
+
+            mag_i = (i * 2) - 255;
+            mag_q = (q * 2) - 255;
+
+            mag = (int) round((sqrt((mag_i*mag_i)+(mag_q*mag_q)) * 258.433254) - 365.4798);
+
+            Modes.maglut[(i*256)+q] = (uint16_t) ((mag < 65535) ? mag : 65535);
         }
     }
 
@@ -1472,7 +1516,8 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             /* Decode the received message and update statistics */
             mm.timestampMsg = Modes.timestampBlk + (j*6);
-            mm.signalLevel  = min(((sigStrength+0x7F) >> 8), 255);
+            sigStrength    = (sigStrength + 0x7F) >> 8;
+            mm.signalLevel = ((sigStrength < 255) ? sigStrength : 255);
             decodeModesMessage(&mm,msg);
 
             /* Update statistics. */
