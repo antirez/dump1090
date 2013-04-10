@@ -1349,67 +1349,68 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
 
-        if (use_correction) goto good_preamble; /* We already checked it. */
+        if (!use_correction)  // This is not a re-try with phase correction
+            {                 // so try to find a new preamble
+            /* First check of relations between the first 10 samples
+             * representing a valid preamble. We don't even investigate further
+             * if this simple test is not passed. */
+            if (!(pPreamble[0] > pPreamble[1] &&
+                  pPreamble[1] < pPreamble[2] &&
+                  pPreamble[2] > pPreamble[3] &&
+                  pPreamble[3] < pPreamble[0] &&
+                  pPreamble[4] < pPreamble[0] &&
+                  pPreamble[5] < pPreamble[0] &&
+                  pPreamble[6] < pPreamble[0] &&
+                  pPreamble[7] > pPreamble[8] &&
+                  pPreamble[8] < pPreamble[9] &&
+                  pPreamble[9] > pPreamble[6]))
+            {
+                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                    dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
+                continue;
+            }
 
-        /* First check of relations between the first 10 samples
-         * representing a valid preamble. We don't even investigate further
-         * if this simple test is not passed. */
-        if (!(pPreamble[0] > pPreamble[1] &&
-              pPreamble[1] < pPreamble[2] &&
-              pPreamble[2] > pPreamble[3] &&
-              pPreamble[3] < pPreamble[0] &&
-              pPreamble[4] < pPreamble[0] &&
-              pPreamble[5] < pPreamble[0] &&
-              pPreamble[6] < pPreamble[0] &&
-              pPreamble[7] > pPreamble[8] &&
-              pPreamble[8] < pPreamble[9] &&
-              pPreamble[9] > pPreamble[6]))
-        {
-            if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
-            continue;
-        }
+            /* The samples between the two spikes must be < than the average
+             * of the high spikes level. We don't test bits too near to
+             * the high levels as signals can be out of phase so part of the
+             * energy can be in the near samples. */
+            high = (pPreamble[0]+pPreamble[2]+pPreamble[7]+pPreamble[9])/6;
+            if (pPreamble[4] >= high ||
+                pPreamble[5] >= high)
+            {
+                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                    dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
+                continue;
+            }
 
-        /* The samples between the two spikes must be < than the average
-         * of the high spikes level. We don't test bits too near to
-         * the high levels as signals can be out of phase so part of the
-         * energy can be in the near samples. */
-        high = (pPreamble[0]+pPreamble[2]+pPreamble[7]+pPreamble[9])/6;
-        if (pPreamble[4] >= high ||
-            pPreamble[5] >= high)
-        {
-            if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
-            continue;
-        }
+            /* Similarly samples in the range 11-14 must be low, as it is the
+             * space between the preamble and real data. Again we don't test
+             * bits too near to high levels, see above. */
+            if (pPreamble[11] >= high ||
+                pPreamble[12] >= high ||
+                pPreamble[13] >= high ||
+                pPreamble[14] >= high)
+            {
+                if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
+                    *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                    dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
+                continue;
+            }
+            Modes.stat_valid_preamble++;
+        } 
 
-        /* Similarly samples in the range 11-14 must be low, as it is the
-         * space between the preamble and real data. Again we don't test
-         * bits too near to high levels, see above. */
-        if (pPreamble[11] >= high ||
-            pPreamble[12] >= high ||
-            pPreamble[13] >= high ||
-            pPreamble[14] >= high)
-        {
-            if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
-            continue;
-        }
-        Modes.stat_valid_preamble++;
-
-good_preamble:
-        /* If the previous attempt with this message failed, retry using
-         * magnitude correction. */
-        if (use_correction) {
+        else {
+            /* If the previous attempt with this message failed, retry using
+             * magnitude correction. */
+            // Make a copy of the Payload, and phase correct the copy
             memcpy(aux, pPayload, sizeof(aux));
             applyPhaseCorrection(aux);
             Modes.stat_out_of_phase++;
             pPayload = aux;
             /* TODO ... apply other kind of corrections. */
-        }
+            }
 
         /* Decode all the next 112 bits, regardless of the actual message
          * size. We'll check the actual message type later. */     
