@@ -1296,15 +1296,14 @@ int detectOutOfPhase(uint16_t *pPreamble) {
  * it will be more likely to detect a one because of the transformation.
  * In this way similar levels will be interpreted more likely in the
  * correct way. */
-void applyPhaseCorrection(uint16_t *m) {
+void applyPhaseCorrection(uint16_t *pPayload) {
     int j;
-    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2) {
-        if (m[j] > m[j+1]) {
-            /* One */
-            m[j+2] = (m[j+2] * 5) / 4;
-        } else {
-            /* Zero */
-            m[j+2] = (m[j+2] * 4) / 5;
+
+    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2, pPayload += 2) {
+        if (pPayload[0] > pPayload[1]) { /* One */
+            pPayload[2] = (pPayload[2] * 5) / 4;
+        } else {                           /* Zero */
+            pPayload[2] = (pPayload[2] * 4) / 5;
         }
     }
 }
@@ -1345,10 +1344,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
     for (j = 0; j < mlen; j++) {
         int low, high, delta, i, errors;
         int good_message = 0;
-        uint16_t *pPreamble;
+        uint16_t *pPreamble, *pPayload, *pPtr;
         int msglen;
 
         pPreamble = &m[j];
+        pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
+
         if (use_correction) goto good_preamble; /* We already checked it. */
 
         /* First check of relations between the first 10 samples
@@ -1404,41 +1405,38 @@ good_preamble:
         /* If the previous attempt with this message failed, retry using
          * magnitude correction. */
         if (use_correction) {
-            memcpy(aux,m+j+MODES_PREAMBLE_SAMPLES,sizeof(aux));
-            applyPhaseCorrection(m+j+MODES_PREAMBLE_SAMPLES);
+            memcpy(aux, pPayload, sizeof(aux));
+            applyPhaseCorrection(aux);
             Modes.stat_out_of_phase++;
-
+            pPayload = aux;
             /* TODO ... apply other kind of corrections. */
         }
 
         /* Decode all the next 112 bits, regardless of the actual message
          * size. We'll check the actual message type later. */
+        pPtr   = pPayload;
         errors = 0;
-        for (i = 0; i < MODES_LONG_MSG_SAMPLES; i += 2) {
-            low = m[j+i+MODES_PREAMBLE_SAMPLES];
-            high = m[j+i+MODES_PREAMBLE_SAMPLES+1];
+        for (i = 0; i < MODES_LONG_MSG_BITS; i++) {
+            low = *pPtr++;
+            high = *pPtr++;
             delta = low-high;
             if (delta < 0) delta = -delta;
 
             if (i > 0 && delta < 256) {
-                bits[i/2] = bits[i/2-1];
+                bits[i] = bits[i-1];
             } else if (low == high) {
                 /* Checking if two adiacent samples have the same magnitude
                  * is an effective way to detect if it's just random noise
                  * that was detected as a valid preamble. */
-                bits[i/2] = 2; /* error */
+                bits[i] = 2; /* error */
                 if (i < MODES_SHORT_MSG_SAMPLES) errors++;
             } else if (low > high) {
-                bits[i/2] = 1;
+                bits[i] = 1;
             } else {
                 /* (low < high) for exclusion  */
-                bits[i/2] = 0;
+                bits[i] = 0;
             }
         }
-
-        /* Restore the original message if we used magnitude correction. */
-        if (use_correction)
-            memcpy(m+j+MODES_PREAMBLE_SAMPLES,aux,sizeof(aux));
 
         /* Pack bits into bytes */
         for (i = 0; i < MODES_LONG_MSG_BITS; i += 8) {
@@ -1458,9 +1456,9 @@ good_preamble:
         /* Last check, high and low bits are different enough in magnitude
          * to mark this as real message and not just noise? */
         delta = 0;
-        for (i = 0; i < msglen*8*2; i += 2) {
-            delta += abs(m[j+i+MODES_PREAMBLE_SAMPLES]-
-                         m[j+i+MODES_PREAMBLE_SAMPLES+1]);
+        pPtr  = pPayload;
+        for (i = 0; i < msglen*8; i ++, pPtr += 2) {
+            delta += abs(pPtr[0] - pPtr[1]);
         }
         delta /= msglen*4;
 
