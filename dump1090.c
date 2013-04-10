@@ -304,26 +304,28 @@ void modesInit(void) {
 
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
-    /* We add a full message minus a final bit to the length, so that we
-     * can carry the remaining part of the buffer that we can't process
-     * in the message detection loop, back at the start of the next data
-     * to process. This way we are able to also detect messages crossing
-     * two reads. */
-    Modes.data_ready = 0;
-    Modes.timestampBlk = 0;
-    /* Allocate the ICAO address cache. We use two uint32_t for every
-     * entry because it's a addr / timestamp pair for every entry. */
-    Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
-    memset(Modes.icao_cache,0,sizeof(uint32_t)*MODES_ICAO_CACHE_LEN*2);
-    Modes.aircrafts = NULL;
-    Modes.interactive_last_update = 0;
-    if ((Modes.data = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE)) == NULL ||
-        (Modes.magnitude = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE)) == NULL) {
+
+    // Allocate the various buffers used by Modes
+    if ( ((Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2)                  ) == NULL) ||
+         ((Modes.data       = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE)                                         ) == NULL) ||
+         ((Modes.magnitude  = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE) ) == NULL) ||
+         ((Modes.maglut     = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) ) 
+    {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
     }
-    memset(Modes.data,127,MODES_ASYNC_BUF_SIZE);
-    memset(Modes.magnitude,0, MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
+
+    // Clear the buffers that have just been allocated, just in-case
+    memset(Modes.icao_cache, 0,   sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2);
+    memset(Modes.data,       127, MODES_ASYNC_BUF_SIZE);
+    memset(Modes.magnitude,  0,   MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
+
+    // The ICAO address cache. We use two uint32_t for every
+    // entry because it's a addr / timestamp pair for every entry.
+    Modes.timestampBlk            = 0;
+    Modes.data_ready              = 0;
+    Modes.aircrafts               = NULL;
+    Modes.interactive_last_update = 0;
 
     /* Populate the I/Q -> Magnitude lookup table. It is used because
      * sqrt or round may be expensive and may vary a lot depending on
@@ -332,12 +334,13 @@ void modesInit(void) {
      * We scale to 0-255 range multiplying by 1.4 in order to ensure that
      * every different I/Q pair will result in a different magnitude value,
      * not losing any resolution. */
-    Modes.maglut = malloc(256*256*2);
     for (i = 0; i <= 255; i++) {
-        int mag_i = i-127;
+        int mag_i = i - 127;
         for (q = 0; q <= 255; q++) {
             int mag_q = q - 127;
-            Modes.maglut[i*256+q] = round(sqrt((mag_i*mag_i)+(mag_q*mag_q))*360);
+            int mag   = 0;
+            mag = (int) round(sqrt((mag_i*mag_i)+(mag_q*mag_q)) * 360);
+            Modes.maglut[(i*256)+q] = (uint16_t) min(mag,65535);
         }
     }
 
