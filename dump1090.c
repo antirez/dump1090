@@ -945,7 +945,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
     /* Work on our local copy */
     memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
-    mm->signalLevel  = 0xA5;
     msg = mm->msg;
 
     /* Get the message type ASAP as other operations depend on this */
@@ -1312,8 +1311,7 @@ void applyPhaseCorrection(uint16_t *pPayload) {
  * size 'mlen' bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it. */
 void detectModeS(uint16_t *m, uint32_t mlen) {
-    unsigned char bits[MODES_LONG_MSG_BITS];
-    unsigned char msg[MODES_LONG_MSG_BYTES];
+    unsigned char msg[MODES_LONG_MSG_BYTES], *pMsg;
     uint16_t aux[MODES_LONG_MSG_SAMPLES];
     uint32_t j;
     int use_correction = 0;
@@ -1345,7 +1343,8 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         int low, high, delta, i, errors;
         int good_message = 0;
         uint16_t *pPreamble, *pPayload, *pPtr;
-        int msglen;
+        uint8_t theByte;
+        int msglen, sigStrength;
 
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
@@ -1413,9 +1412,13 @@ good_preamble:
         }
 
         /* Decode all the next 112 bits, regardless of the actual message
-         * size. We'll check the actual message type later. */
-        pPtr   = pPayload;
-        errors = 0;
+         * size. We'll check the actual message type later. */     
+        pMsg        = &msg[0];
+        pPtr        = pPayload;
+        theByte     = 0;
+        errors      = 0;
+        sigStrength = 0;
+        msglen      = MODES_LONG_MSG_BITS;
         for (i = 0; i < MODES_LONG_MSG_BITS; i++) {
             low = *pPtr++;
             high = *pPtr++;
@@ -1423,49 +1426,36 @@ good_preamble:
             if (delta < 0) delta = -delta;
 
             if (i > 0 && delta < 256) {
-                bits[i] = bits[i-1];
+                if (theByte & 2) 
+                  {theByte |= 1;}
             } else if (low == high) {
                 /* Checking if two adiacent samples have the same magnitude
                  * is an effective way to detect if it's just random noise
                  * that was detected as a valid preamble. */
-                bits[i] = 2; /* error */
-                if (i < MODES_SHORT_MSG_SAMPLES) errors++;
+                theByte |= 2; /* error */
+                if (i < MODES_SHORT_MSG_BITS) errors++;
             } else if (low > high) {
-                bits[i] = 1;
-            } else {
-                /* (low < high) for exclusion  */
-                bits[i] = 0;
+                theByte |= 1;
+            } 
+
+            if (i < msglen) {
+               sigStrength += delta;
             }
-        }
 
-        /* Pack bits into bytes */
-        for (i = 0; i < MODES_LONG_MSG_BITS; i += 8) {
-            msg[i/8] =
-                bits[i]<<7 | 
-                bits[i+1]<<6 | 
-                bits[i+2]<<5 | 
-                bits[i+3]<<4 | 
-                bits[i+4]<<3 | 
-                bits[i+5]<<2 | 
-                bits[i+6]<<1 | 
-                bits[i+7];
-        }
+            if (i == 4) {
+                msglen = modesMessageLenByType(theByte);
 
-        msglen = modesMessageLenByType(msg[0] >> 3) / 8;
-
-        /* Last check, high and low bits are different enough in magnitude
-         * to mark this as real message and not just noise? */
-        delta = 0;
-        pPtr  = pPayload;
-        for (i = 0; i < msglen*8; i ++, pPtr += 2) {
-            delta += abs(pPtr[0] - pPtr[1]);
+            } else if ((i & 7) == 7) {
+                *pMsg++ = theByte;
+            }
+            theByte = theByte << 1;
         }
-        delta /= msglen*4;
 
         /* Filter for an average delta of three is small enough to let almost
          * every kind of message to pass, but high enough to filter some
          * random noise. */
-        if (delta < 10*255) {
+        sigStrength /= msglen;
+        if (sigStrength < (5*255)) {
             use_correction = 0;
             continue;
         }
@@ -1478,6 +1468,7 @@ good_preamble:
 
             /* Decode the received message and update statistics */
             mm.timestampMsg = Modes.timestampBlk + (j*6);
+            mm.signalLevel  = min(((sigStrength+0x7F) >> 8), 255);
             decodeModesMessage(&mm,msg);
 
             /* Update statistics. */
@@ -1513,7 +1504,7 @@ good_preamble:
 
             /* Skip this message if we are sure it's fine. */
             if (mm.crcok) {
-                j += (MODES_PREAMBLE_US+(msglen*8))*2;
+                j += (MODES_PREAMBLE_US+msglen)*2;
                 good_message = 1;
                 if (use_correction)
                     mm.phase_corrected = 1;
@@ -2170,6 +2161,7 @@ int decodeHexMessage(struct client *c) {
         msg[j/2] = (high<<4) | low;
     }
     mm.timestampMsg = -1;
+    mm.signalLevel  = -1;
     decodeModesMessage(&mm,msg);
     useModesMessage(&mm);
     return 0;
