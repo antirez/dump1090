@@ -1258,13 +1258,13 @@ void computeMagnitudeVector(void) {
  * Return  1 if the message is out of fase right-size
  * Return  0 if the message is not particularly out of phase.
  *
- * Note: this function will access m[-1], so the caller should make sure to
+ * Note: this function will access pPreamble[-1], so the caller should make sure to
  * call it only if we are not at the start of the current buffer. */
-int detectOutOfPhase(uint16_t *m) {
-    if (m[3] > m[2]/3) return 1;
-    if (m[10] > m[9]/3) return 1;
-    if (m[6] > m[7]/3) return -1;
-    if (m[-1] > m[1]/3) return -1;
+int detectOutOfPhase(uint16_t *pPreamble) {
+    if (pPreamble[ 3] > pPreamble[2]/3) return  1;
+    if (pPreamble[10] > pPreamble[9]/3) return  1;
+    if (pPreamble[ 6] > pPreamble[7]/3) return -1;
+    if (pPreamble[-1] > pPreamble[1]/3) return -1;
     return 0;
 }
 
@@ -1298,8 +1298,6 @@ int detectOutOfPhase(uint16_t *m) {
  * correct way. */
 void applyPhaseCorrection(uint16_t *m) {
     int j;
-
-    m += MODES_PREAMBLE_SAMPLES; /* Skip preamble. */
     for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2) {
         if (m[j] > m[j+1]) {
             /* One */
@@ -1347,28 +1345,29 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
     for (j = 0; j < mlen; j++) {
         int low, high, delta, i, errors;
         int good_message = 0;
+        uint16_t *pPreamble;
         int msglen;
 
+        pPreamble = &m[j];
         if (use_correction) goto good_preamble; /* We already checked it. */
 
         /* First check of relations between the first 10 samples
          * representing a valid preamble. We don't even investigate further
          * if this simple test is not passed. */
-        if (!(m[j] > m[j+1] &&
-            m[j+1] < m[j+2] &&
-            m[j+2] > m[j+3] &&
-            m[j+3] < m[j] &&
-            m[j+4] < m[j] &&
-            m[j+5] < m[j] &&
-            m[j+6] < m[j] &&
-            m[j+7] > m[j+8] &&
-            m[j+8] < m[j+9] &&
-            m[j+9] > m[j+6]))
+        if (!(pPreamble[0] > pPreamble[1] &&
+              pPreamble[1] < pPreamble[2] &&
+              pPreamble[2] > pPreamble[3] &&
+              pPreamble[3] < pPreamble[0] &&
+              pPreamble[4] < pPreamble[0] &&
+              pPreamble[5] < pPreamble[0] &&
+              pPreamble[6] < pPreamble[0] &&
+              pPreamble[7] > pPreamble[8] &&
+              pPreamble[8] < pPreamble[9] &&
+              pPreamble[9] > pPreamble[6]))
         {
             if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage("Unexpected ratio among first 10 samples",
-                    msg, m, j);
+                *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                dumpRawMessage("Unexpected ratio among first 10 samples", msg, m, j);
             continue;
         }
 
@@ -1376,31 +1375,27 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
          * of the high spikes level. We don't test bits too near to
          * the high levels as signals can be out of phase so part of the
          * energy can be in the near samples. */
-        high = (m[j]+m[j+2]+m[j+7]+m[j+9])/6;
-        if (m[j+4] >= high ||
-            m[j+5] >= high)
+        high = (pPreamble[0]+pPreamble[2]+pPreamble[7]+pPreamble[9])/6;
+        if (pPreamble[4] >= high ||
+            pPreamble[5] >= high)
         {
             if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage(
-                    "Too high level in samples between 3 and 6",
-                    msg, m, j);
+                *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                dumpRawMessage("Too high level in samples between 3 and 6", msg, m, j);
             continue;
         }
 
         /* Similarly samples in the range 11-14 must be low, as it is the
          * space between the preamble and real data. Again we don't test
          * bits too near to high levels, see above. */
-        if (m[j+11] >= high ||
-            m[j+12] >= high ||
-            m[j+13] >= high ||
-            m[j+14] >= high)
+        if (pPreamble[11] >= high ||
+            pPreamble[12] >= high ||
+            pPreamble[13] >= high ||
+            pPreamble[14] >= high)
         {
             if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
-                m[j] > MODES_DEBUG_NOPREAMBLE_LEVEL)
-                dumpRawMessage(
-                    "Too high level in samples between 10 and 15",
-                    msg, m, j);
+                *pPreamble  > MODES_DEBUG_NOPREAMBLE_LEVEL)
+                dumpRawMessage("Too high level in samples between 10 and 15", msg, m, j);
             continue;
         }
         Modes.stat_valid_preamble++;
@@ -1410,10 +1405,9 @@ good_preamble:
          * magnitude correction. */
         if (use_correction) {
             memcpy(aux,m+j+MODES_PREAMBLE_SAMPLES,sizeof(aux));
-            if (j && detectOutOfPhase(m+j)) {
-                applyPhaseCorrection(m+j);
-                Modes.stat_out_of_phase++;
-            }
+            applyPhaseCorrection(m+j+MODES_PREAMBLE_SAMPLES);
+            Modes.stat_out_of_phase++;
+
             /* TODO ... apply other kind of corrections. */
         }
 
@@ -1537,7 +1531,7 @@ good_preamble:
         }
 
         /* Retry with phase correction if possible. */
-        if (!good_message && !use_correction) {
+        if (!good_message && !use_correction && j && detectOutOfPhase(pPreamble)) {
             j--;
             use_correction = 1;
         } else {
