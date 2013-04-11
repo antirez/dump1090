@@ -190,16 +190,16 @@ struct {
     uint64_t interactive_last_update;  /* Last screen update in milliseconds */
 
     /* Statistics */
-    uint64_t stat_valid_preamble;
-    uint64_t stat_demodulated;
-    uint64_t stat_goodcrc;
-    uint64_t stat_badcrc;
-    uint64_t stat_fixed;
-    uint64_t stat_single_bit_fix;
-    uint64_t stat_two_bits_fix;
-    uint64_t stat_http_requests;
-    uint64_t stat_sbs_connections;
-    uint64_t stat_out_of_phase;
+    int64_t stat_valid_preamble;
+    int64_t stat_demodulated;
+    int64_t stat_goodcrc;
+    int64_t stat_badcrc;
+    int64_t stat_fixed;
+    int64_t stat_single_bit_fix;
+    int64_t stat_two_bits_fix;
+    int64_t stat_http_requests;
+    int64_t stat_sbs_connections;
+    int64_t stat_out_of_phase;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
