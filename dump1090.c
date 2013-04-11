@@ -218,6 +218,7 @@ struct modesMessage {
 
     /* DF 11 */
     int ca;                     /* Responder capabilities. */
+    int iid;
 
     /* DF 17 */
     int metype;                 /* Extended squitter message type. */
@@ -696,20 +697,22 @@ uint32_t modes_checksum_table[112] = {
 };
 
 uint32_t modesChecksum(unsigned char *msg, int bits) {
-    uint32_t crc = 0;
-    int offset = (bits == 112) ? 0 : (112-56);
+    uint32_t   crc = 0;
+    int        offset = (bits == 112) ? 0 : (112-56);
+    uint8_t    theByte = *msg;
+    uint32_t * pCRCTable = &modes_checksum_table[offset];
     int j;
 
     for(j = 0; j < bits; j++) {
-        int byte = j/8;
-        int bit = j%8;
-        int bitmask = 1 << (7-bit);
+        if ((j & 7) == 0)
+            {theByte = *msg++;}
 
-        /* If bit is set, xor with corresponding table entry. */
-        if (msg[byte] & bitmask)
-            crc ^= modes_checksum_table[j+offset];
+        // If bit is set, xor with corresponding table entry.
+        if (theByte & 0x80) {crc ^= *pCRCTable;} 
+        pCRCTable++;
+        theByte = theByte << 1; 
     }
-    return crc; /* 24 bit checksum. */
+    return crc; // 24 bit checksum.
 }
 
 /* Given the Downlink Format (DF) of the message, return the message length
@@ -991,23 +994,27 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
     /* Work on our local copy */
-    memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
+    memcpy(mm->msg, msg, MODES_LONG_MSG_BYTES);
     msg = mm->msg;
 
     /* Get the message type ASAP as other operations depend on this */
-    mm->msgtype = msg[0]>>3;    /* Downlink Format */
+    mm->msgtype = msg[0] >> 3;  /* Downlink Format */
     mm->msgbits = modesMessageLenByType(mm->msgtype);
 
     /* CRC is always the last three bytes. */
     mm->crc = ((uint32_t)msg[(mm->msgbits/8)-3] << 16) |
               ((uint32_t)msg[(mm->msgbits/8)-2] << 8) |
                (uint32_t)msg[(mm->msgbits/8)-1];
-    crc2 = modesChecksum(msg,mm->msgbits);
+    crc2 = modesChecksum(msg, mm->msgbits);
+    mm->iid = (mm->crc ^ crc2);
 
     /* Check CRC and fix single bit errors using the CRC when
      * possible (DF 11 and 17). */
     mm->errorbit = -1;  /* No error */
-    mm->crcok = (mm->crc == crc2);
+    if (mm->msgtype == 11)
+        {mm->crcok = (mm->iid < 80);}
+    else
+        {mm->crcok = (mm->iid == 0);}
 
     if (!mm->crcok && Modes.fix_errors &&
         (mm->msgtype == 11 || mm->msgtype == 17))
@@ -1561,6 +1568,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             /* Pass data to the next layer */
             useModesMessage(&mm);
+
         } else {
             if (Modes.debug & MODES_DEBUG_DEMODERR && use_correction) {
                 printf("The following message has %d demod errors\n", errors);
@@ -1568,12 +1576,11 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             }
         }
 
-        /* Retry with phase correction if possible. */
+        // Retry with phase correction if possible.
         if (!good_message && !use_correction && j && detectOutOfPhase(pPreamble)) {
-            j--;
-            use_correction = 1;
+            use_correction = 1; j--;
         } else {
-            use_correction = 0;
+            use_correction = 0; 
         }
     }
 }
@@ -2655,18 +2662,15 @@ int main(int argc, char **argv) {
 
     /* If --ifile and --stats were given, print statistics. */
     if (Modes.stats && Modes.filename) {
-        printf("%lld valid preambles\n", Modes.stat_valid_preamble);
-        printf("%lld demodulated again after phase correction\n",
-            Modes.stat_out_of_phase);
-        printf("%lld demodulated with zero errors\n",
-            Modes.stat_demodulated);
-        printf("%lld with good crc\n", Modes.stat_goodcrc);
-        printf("%lld with bad crc\n", Modes.stat_badcrc);
-        printf("%lld errors corrected\n", Modes.stat_fixed);
-        printf("%lld single bit errors\n", Modes.stat_single_bit_fix);
-        printf("%lld two bits errors\n", Modes.stat_two_bits_fix);
-        printf("%lld total usable messages\n",
-            Modes.stat_goodcrc + Modes.stat_fixed);
+        printf("%lld valid preambles\n",                          Modes.stat_valid_preamble);
+        printf("%lld demodulated again after phase correction\n", Modes.stat_out_of_phase);
+        printf("%lld demodulated with zero errors\n",             Modes.stat_demodulated);
+        printf("%lld with good crc\n",                            Modes.stat_goodcrc);
+        printf("%lld with bad crc\n",                             Modes.stat_badcrc);
+        printf("%lld errors corrected\n",                         Modes.stat_fixed);
+        printf("%lld single bit errors\n",                        Modes.stat_single_bit_fix);
+        printf("%lld two bits errors\n",                          Modes.stat_two_bits_fix);
+        printf("%lld total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
     rtlsdr_close(Modes.dev);
