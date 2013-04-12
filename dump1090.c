@@ -184,7 +184,8 @@ struct {
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
     int aggressive;                 /* Aggressive detection algorithm. */
-    int mlat;                 /* Use mlat format for raw data output, i.e. @...; iso *...; */  //&&&
+    int mlat;                       /* Use Beast ascii format for raw data output, i.e. @...; iso *...; */  //&&&
+    int interactive_rtl1090;        /* flight table in interactive mode is formatted like RTL1090 */  //&&&
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -298,7 +299,8 @@ void modesInitConfig(void) {
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.quiet = 0;
     Modes.aggressive = 0;
-Modes.mlat = 0; //&&&
+    Modes.mlat = 0; //&&&
+    Modes.interactive_rtl1090 = 0; //&&&
 }
 
 void modesInit(void) {
@@ -1184,14 +1186,14 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 
     /* Show the raw message. */
-    if (Modes.mlat){ //&&&
+    if (Modes.mlat) { //&&&
 	printf("@"); //&&&
 	pTimeStamp = (char *) &mm->timestampMsg;
 	for (j=5; j>=0;j--) {
 		printf("%02X",pTimeStamp[j]);
 		} 
-	} else
- 		printf("*");
+    } else
+ 	printf("*");
 
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
     printf(";\n");
@@ -1628,7 +1630,11 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     struct aircraft *a = (struct aircraft *) malloc(sizeof(*a));
 
     a->addr = addr;
-    snprintf(a->hexaddr,sizeof(a->hexaddr),"%06x",(int)addr);
+    if (Modes.interactive_rtl1090 == 0) {
+    	snprintf(a->hexaddr,sizeof(a->hexaddr),"%06x",(int)addr);
+    } else {
+    	snprintf(a->hexaddr,sizeof(a->hexaddr),"%06X",(int)addr);  //&&&
+    }
     a->flight[0] = '\0';
     a->altitude = 0;
     a->speed = 0;
@@ -1868,17 +1874,23 @@ void interactiveShowData(void) {
     progress = spinner[time(NULL)%4];
     
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
-    printf(
+ 
 //&&&
-//"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n"
-///123456 EZS789VA F222>290 +23 356 191 1373
-  "Hex    Flight   Alt      V/S GS  TT  SSR  G*456^ Msgs    Seen %c\n"
-"--------------------------------------------------------------------------------\n",
-        progress);
+    if (Modes.interactive_rtl1090 ==0) {
+    printf (
+    "Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n",progress);
+    } else {
+    printf (
+    "Hex    Flight   Alt      V/S GS  TT  SSR  G*456^ Msgs    Seen %c\n",progress);
+    }
+    printf("--------------------------------------------------------------------------------\n");
 
     while(a && count < Modes.interactive_rows) {
         int altitude = a->altitude, speed = a->speed, msgs = a->messages;
         char squawk[5] = "    ";
+        char fl[5] = "    ";
+        char tt[5] = "   ";
+        char gs[5] = "   ";
         char spacer = '\0';
 
         /* Convert units to metric if --metric was specified. */
@@ -1893,9 +1905,6 @@ void interactiveShowData(void) {
             altitude = -9999;
         }
         
-altitude=altitude/100; //&&&
-if (altitude<0) altitude=0;
-
         if (a->squawk > 0 && a->squawk <= 7777) {
             sprintf(squawk, "%04d", a->squawk);
         }
@@ -1908,14 +1917,26 @@ if (altitude<0) altitude=0;
             spacer = ' ';
         }
 
-printf("%-6s %-8s F%3d         %3d %3d %4s        %6d  %d %c \n", //&&&
-    a->hexaddr, a->flight, altitude, speed,
-    a->track, squawk, msgs, (int)(now - a->seen), spacer);
-
-//       printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
-//            a->hexaddr, squawk, a->flight, altitude, speed,
-//            a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
-        a = a->next;
+//&&&
+        if (Modes.interactive_rtl1090 != 0) {
+		if (altitude>0) {
+			altitude=altitude/100; 
+			sprintf(fl,"F%03d",altitude);
+		}
+		if (speed > 0) {
+			sprintf (gs,"%3d",speed);
+		}
+		if (a->track > 0) {
+			sprintf (tt,"%03d",a->track);
+		}
+		printf("%-6s %-8s %-4s         %-3s %-3s %4s        %6d  %d %c \n", 
+    		a->hexaddr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen), spacer);
+	} else {
+	        printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
+            	a->hexaddr, squawk, a->flight, altitude, speed,
+	        a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
+	}        
+	a = a->next;
         count++;
     }
 }
@@ -2491,6 +2512,7 @@ void showHelp(void) {
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
+"--interactive-rtl1090    Display flight table in RTL1090 format.\n" //&&&
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-beast              TCP raw output in Beast binary format.\n"
@@ -2628,6 +2650,9 @@ int main(int argc, char **argv) {
             Modes.quiet = 1;
         } else if (!strcmp(argv[j],"--mlat")) {
             Modes.mlat = 1;  //&&&
+        } else if (!strcmp(argv[j],"--interactive-rtl1090")) {
+            Modes.interactive = 1;  //&&&
+            Modes.interactive_rtl1090 = 1;  //&&&
         } else {
             fprintf(stderr,
                 "Unknown or not enough arguments for option '%s'.\n\n",
@@ -2669,26 +2694,6 @@ int main(int argc, char **argv) {
             pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
             continue;
         }
-        computeMagnitudeVector();
-
-        /* Signal to the other thread that we processed the available data
-         * and we want more (useful for --ifile). */
-        Modes.data_ready = 0;
-        pthread_cond_signal(&Modes.data_cond);
-
-        /* Process data after releasing the lock, so that the capturing
-         * thread can read data while we perform computationally expensive
-         * stuff * at the same time. (This should only be useful with very
-         * slow processors). */
-        pthread_mutex_unlock(&Modes.data_mutex);
-        detectModeS(Modes.magnitude, MODES_ASYNC_BUF_SAMPLES);
-        Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES*6);
-        backgroundTasks();
-        pthread_mutex_lock(&Modes.data_mutex);
-        if (Modes.exit) break;
-    }
-
-    /* If --ifile and --stats were given, print statistics. */  }
         computeMagnitudeVector();
 
         /* Signal to the other thread that we processed the available data
