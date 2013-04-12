@@ -57,6 +57,8 @@
 #define MODES_ASYNC_BUF_SAMPLES    (MODES_ASYNC_BUF_SIZE / 2) /* Each sample is 2 bytes */
 #define MODES_AUTO_GAIN            -100         /* Use automatic gain. */
 #define MODES_MAX_GAIN             999999       /* Use max available gain. */
+#define MODES_MSG_SQUELCH_LEVEL    0x02FF       /* Average signal strength limit */
+#define MODES_MSG_ENCODER_ERRS     3            /* Maximum number of encoding errors */
 
 #define MODES_PREAMBLE_US        8              /* microseconds = bits */
 #define MODES_PREAMBLE_SAMPLES  (MODES_PREAMBLE_US       * 2)
@@ -1394,10 +1396,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      * 9   -------------------
      */
     for (j = 0; j < mlen; j++) {
-        int low, high, delta, i, errors;
+        int high, i, errors; 
         int good_message = 0;
         uint16_t *pPreamble, *pPayload, *pPtr;
-        uint8_t theByte;
+        uint8_t  theByte;
         int msglen, sigStrength;
 
         pPreamble = &m[j];
@@ -1405,6 +1407,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
         if (!use_correction)  // This is not a re-try with phase correction
             {                 // so try to find a new preamble
+
             /* First check of relations between the first 10 samples
              * representing a valid preamble. We don't even investigate further
              * if this simple test is not passed. */
@@ -1429,7 +1432,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
              * of the high spikes level. We don't test bits too near to
              * the high levels as signals can be out of phase so part of the
              * energy can be in the near samples. */
-            high = (pPreamble[0]+pPreamble[2]+pPreamble[7]+pPreamble[9])/6;
+            high = (pPreamble[0] + pPreamble[2] + pPreamble[7] + pPreamble[9]) / 6;
             if (pPreamble[4] >= high ||
                 pPreamble[5] >= high)
             {
@@ -1473,52 +1476,40 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         theByte     = 0;
         errors      = 0;
         sigStrength = 0;
-        msglen      = MODES_LONG_MSG_BITS;
-        for (i = 0; i < MODES_LONG_MSG_BITS; i++) {
-            low = *pPtr++;
-            high = *pPtr++;
-            delta = low-high;
-            if (delta < 0) delta = -delta;
 
-            if (i > 0 && delta < 256) {
-                if (theByte & 2) 
-                  {theByte |= 1;}
-            } else if (low == high) {
-                /* Checking if two adiacent samples have the same magnitude
-                 * is an effective way to detect if it's just random noise
-                 * that was detected as a valid preamble. */
-                theByte |= 2; /* error */
-                if (i < MODES_SHORT_MSG_BITS) errors++;
-            } else if (low > high) {
-                theByte |= 1;
-            } 
+        msglen = MODES_LONG_MSG_BITS;
+        for (i = 0; i < msglen; i++) {
+            uint32_t a = *pPtr++;
+            uint32_t b = *pPtr++;
 
-            if (i < msglen) {
-               sigStrength += delta;
-            }
+            if      (a > b) 
+                {sigStrength += (a-b); theByte |= 1;} 
+            else if (a < b) 
+                {sigStrength += (b-a); /*theByte |= 0;*/} 
+            else   //a == b,            
+                {errors++;             /*theByte |= 0;*/} 
 
-            if (i == 4) {
-                msglen = modesMessageLenByType(theByte);
+            if ((i & 7) == 7) 
+              {*pMsg++ = theByte;}
+            else if ((i == 4) /*&& (errors == 0) */)
+              {msglen  = modesMessageLenByType(theByte);}
 
-            } else if ((i & 7) == 7) {
-                *pMsg++ = theByte;
-            }
             theByte = theByte << 1;
+
+            if (errors > MODES_MSG_ENCODER_ERRS)
+                {break;}
         }
 
         /* Filter for an average delta of three is small enough to let almost
          * every kind of message to pass, but high enough to filter some
          * random noise. */
         sigStrength /= msglen;
-        if (sigStrength < (5*255)) {
-            use_correction = 0;
-            continue;
-        }
 
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
          * and CRC may not be correct. This is handled by the next layer. */
-        if (errors == 0 || (Modes.aggressive && errors < 3)) {
+        if ( (sigStrength > MODES_MSG_SQUELCH_LEVEL) && (errors <= MODES_MSG_ENCODER_ERRS) )
+            {
             struct modesMessage mm;
 
             /* Decode the received message and update statistics */
