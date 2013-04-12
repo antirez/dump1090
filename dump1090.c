@@ -73,6 +73,9 @@
 #define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
 #define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
+#define MODES_RAWOUT_BUF_SIZE   (1500)           
+#define MODES_RAWOUT_BUF_FLUSH  (MODES_RAWOUT_BUF_SIZE - 200)
+
 #define MODES_ICAO_CACHE_LEN 1024 /* Power of two required. */
 #define MODES_ICAO_CACHE_TTL 60   /* Time to live of cached addresses. */
 #define MODES_UNIT_FEET 0
@@ -167,6 +170,8 @@ struct {
     int ros;                        /* Raw output listening socket. */
     int ris;                        /* Raw input listening socket. */
     int https;                      /* HTTP listening socket. */
+    char * rawOut;                  /* Buffer for building raw output data */
+    int rawOutUsed;                 /* How much if the buffer is currently used */
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
@@ -258,6 +263,7 @@ struct modesMessage {
 
 void interactiveShowData(void);
 struct aircraft* interactiveReceiveData(struct modesMessage *mm);
+void modesSendAllClients(int service, void *msg, int len);
 void modesSendRawOutput(struct modesMessage *mm);
 void modesSendBeastOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
@@ -316,7 +322,8 @@ void modesInit(void) {
     if ( ((Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2)                  ) == NULL) ||
          ((Modes.data       = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE)                                         ) == NULL) ||
          ((Modes.magnitude  = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE) ) == NULL) ||
-         ((Modes.maglut     = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) ) 
+         ((Modes.maglut     = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) ||
+         ((Modes.rawOut     = (char     *) malloc(MODES_RAWOUT_BUF_SIZE)                                        ) == NULL) ) 
     {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
@@ -333,6 +340,7 @@ void modesInit(void) {
     Modes.data_ready              = 0;
     Modes.aircrafts               = NULL;
     Modes.interactive_last_update = 0;
+    Modes.rawOutUsed              = 0;
     ftime(&Modes.stSystemTimeRTL);
     Modes.stSystemTimeBlk         = Modes.stSystemTimeRTL;
 
@@ -1619,6 +1627,13 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             use_correction = 0; 
         }
     }
+
+    //Send any remaining partial raw buffers now
+    if (Modes.rawOutUsed)
+      {
+      modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
+      Modes.rawOutUsed = 0;
+      }
 }
 
 /* When a new message is available, because it was decoded from the
@@ -2107,9 +2122,9 @@ void modesSendAllClients(int service, void *msg, int len) {
     }
 }
 
-/* Write raw output in Beast Binary format with MLAT Counter to TCP clients */
+/* Write raw output in Beast Binary format with Timestamp to TCP clients */
 void modesSendBeastOutput(struct modesMessage *mm) {
-    char msg[64], *p = msg;
+    char *p = &Modes.rawOut[Modes.rawOutUsed];
     int  msgLen = mm->msgbits / 8;
     char * pTimeStamp;
     int  j;
@@ -2130,22 +2145,35 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     }
 
     memcpy(p, mm->msg, msgLen);
-    modesSendAllClients(Modes.ros, msg, (msgLen + 9));
+
+    Modes.rawOutUsed += (msgLen + 9);
+    if (Modes.rawOutUsed >= MODES_RAWOUT_BUF_FLUSH)
+      {
+      modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
+      Modes.rawOutUsed = 0;
+      }
 }
 
 /* Write raw output to TCP clients. */
 void modesSendRawOutput(struct modesMessage *mm) {
-    char msg[128], *p = msg;
+    char *p = &Modes.rawOut[Modes.rawOutUsed];
+    int  msgLen = mm->msgbits / 8;
     int j;
 
     *p++ = '*';
-    for (j = 0; j < mm->msgbits/8; j++) {
+    for (j = 0; j < msgLen; j++) {
         sprintf(p, "%02X", mm->msg[j]);
         p += 2;
     }
     *p++ = ';';
     *p++ = '\n';
-    modesSendAllClients(Modes.ros, msg, p-msg);
+
+    Modes.rawOutUsed += ((msgLen*2) + 3);
+    if (Modes.rawOutUsed >= MODES_RAWOUT_BUF_FLUSH)
+      {
+      modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
+      Modes.rawOutUsed = 0;
+      }
 }
 
 
