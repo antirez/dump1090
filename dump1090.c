@@ -192,17 +192,17 @@ struct {
     uint64_t interactive_last_update;  /* Last screen update in milliseconds */
 
     /* Statistics */
-    int64_t stat_valid_preamble;
-    int64_t stat_demodulated;
-    int64_t stat_goodcrc;
-    int64_t stat_badcrc;
-    int64_t stat_fixed;
-    int64_t stat_single_bit_fix;
-    int64_t stat_two_bits_fix;
-    int64_t stat_http_requests;
-    int64_t stat_sbs_connections;
-    int64_t stat_out_of_phase;
-    int64_t stat_DF_Corrected;
+    unsigned int stat_valid_preamble;
+    unsigned int stat_demodulated;
+    unsigned int stat_goodcrc;
+    unsigned int stat_badcrc;
+    unsigned int stat_fixed;
+    unsigned int stat_single_bit_fix;
+    unsigned int stat_two_bits_fix;
+    unsigned int stat_http_requests;
+    unsigned int stat_sbs_connections;
+    unsigned int stat_out_of_phase;
+    unsigned int stat_DF_Corrected;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -2692,16 +2692,16 @@ int main(int argc, char **argv) {
 
     /* If --ifile and --stats were given, print statistics. */
     if (Modes.stats && Modes.filename) {
-        printf("%lld valid preambles\n",                          Modes.stat_valid_preamble);
-        printf("%lld DF-?? fields corrected for length\n",        Modes.stat_DF_Corrected);
-        printf("%lld demodulated again after phase correction\n", Modes.stat_out_of_phase);
-        printf("%lld demodulated with zero errors\n",             Modes.stat_demodulated);
-        printf("%lld with good crc\n",                            Modes.stat_goodcrc);
-        printf("%lld with bad crc\n",                             Modes.stat_badcrc);
-        printf("%lld errors corrected\n",                         Modes.stat_fixed);
-        printf("%lld single bit errors\n",                        Modes.stat_single_bit_fix);
-        printf("%lld two bits errors\n",                          Modes.stat_two_bits_fix);
-        printf("%lld total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
+        printf("%d valid preambles\n",                          Modes.stat_valid_preamble);
+        printf("%d DF-?? fields corrected for length\n",        Modes.stat_DF_Corrected);
+        printf("%d demodulated again after phase correction\n", Modes.stat_out_of_phase);
+        printf("%d demodulated with zero errors\n",             Modes.stat_demodulated);
+        printf("%d with good crc\n",                            Modes.stat_goodcrc);
+        printf("%d with bad crc\n",                             Modes.stat_badcrc);
+        printf("%d errors corrected\n",                         Modes.stat_fixed);
+        printf("%d single bit errors\n",                        Modes.stat_single_bit_fix);
+        printf("%d two bits errors\n",                          Modes.stat_two_bits_fix);
+        printf("%d total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
     rtlsdr_close(Modes.dev);
