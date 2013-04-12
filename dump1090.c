@@ -184,22 +184,23 @@ struct {
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
     int aggressive;                 /* Aggressive detection algorithm. */
+    int mlat;                 /* Use mlat format for raw data output, i.e. @...; iso *...; */  //&&&
 
     /* Interactive mode */
     struct aircraft *aircrafts;
     uint64_t interactive_last_update;  /* Last screen update in milliseconds */
 
     /* Statistics */
-    int64_t stat_valid_preamble;
-    int64_t stat_demodulated;
-    int64_t stat_goodcrc;
-    int64_t stat_badcrc;
-    int64_t stat_fixed;
-    int64_t stat_single_bit_fix;
-    int64_t stat_two_bits_fix;
-    int64_t stat_http_requests;
-    int64_t stat_sbs_connections;
-    int64_t stat_out_of_phase;
+    uint64_t stat_valid_preamble;
+    uint64_t stat_demodulated;
+    uint64_t stat_goodcrc;
+    uint64_t stat_badcrc;
+    uint64_t stat_fixed;
+    uint64_t stat_single_bit_fix;
+    uint64_t stat_two_bits_fix;
+    uint64_t stat_http_requests;
+    uint64_t stat_sbs_connections;
+    uint64_t stat_out_of_phase;
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -218,7 +219,6 @@ struct modesMessage {
 
     /* DF 11 */
     int ca;                     /* Responder capabilities. */
-    int iid;
 
     /* DF 17 */
     int metype;                 /* Extended squitter message type. */
@@ -298,6 +298,7 @@ void modesInitConfig(void) {
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.quiet = 0;
     Modes.aggressive = 0;
+Modes.mlat = 0; //&&&
 }
 
 void modesInit(void) {
@@ -697,22 +698,20 @@ uint32_t modes_checksum_table[112] = {
 };
 
 uint32_t modesChecksum(unsigned char *msg, int bits) {
-    uint32_t   crc = 0;
-    int        offset = (bits == 112) ? 0 : (112-56);
-    uint8_t    theByte = *msg;
-    uint32_t * pCRCTable = &modes_checksum_table[offset];
+    uint32_t crc = 0;
+    int offset = (bits == 112) ? 0 : (112-56);
     int j;
 
     for(j = 0; j < bits; j++) {
-        if ((j & 7) == 0)
-            {theByte = *msg++;}
+        int byte = j/8;
+        int bit = j%8;
+        int bitmask = 1 << (7-bit);
 
-        // If bit is set, xor with corresponding table entry.
-        if (theByte & 0x80) {crc ^= *pCRCTable;} 
-        pCRCTable++;
-        theByte = theByte << 1; 
+        /* If bit is set, xor with corresponding table entry. */
+        if (msg[byte] & bitmask)
+            crc ^= modes_checksum_table[j+offset];
     }
-    return crc; // 24 bit checksum.
+    return crc; /* 24 bit checksum. */
 }
 
 /* Given the Downlink Format (DF) of the message, return the message length
@@ -994,27 +993,23 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
     /* Work on our local copy */
-    memcpy(mm->msg, msg, MODES_LONG_MSG_BYTES);
+    memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
     msg = mm->msg;
 
     /* Get the message type ASAP as other operations depend on this */
-    mm->msgtype = msg[0] >> 3;  /* Downlink Format */
+    mm->msgtype = msg[0]>>3;    /* Downlink Format */
     mm->msgbits = modesMessageLenByType(mm->msgtype);
 
     /* CRC is always the last three bytes. */
     mm->crc = ((uint32_t)msg[(mm->msgbits/8)-3] << 16) |
               ((uint32_t)msg[(mm->msgbits/8)-2] << 8) |
                (uint32_t)msg[(mm->msgbits/8)-1];
-    crc2 = modesChecksum(msg, mm->msgbits);
-    mm->iid = (mm->crc ^ crc2);
+    crc2 = modesChecksum(msg,mm->msgbits);
 
     /* Check CRC and fix single bit errors using the CRC when
      * possible (DF 11 and 17). */
     mm->errorbit = -1;  /* No error */
-    if (mm->msgtype == 11)
-        {mm->crcok = (mm->iid < 80);}
-    else
-        {mm->crcok = (mm->iid == 0);}
+    mm->crcok = (mm->crc == crc2);
 
     if (!mm->crcok && Modes.fix_errors &&
         (mm->msgtype == 11 || mm->msgtype == 17))
@@ -1180,6 +1175,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
  * in a human readable format. */
 void displayModesMessage(struct modesMessage *mm) {
     int j;
+    char * pTimeStamp;  //&&&
 
     /* Handle only addresses mode first. */
     if (Modes.onlyaddr) {
@@ -1188,9 +1184,18 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 
     /* Show the raw message. */
-    printf("*");
+    if (Modes.mlat){ //&&&
+	printf("@"); //&&&
+	pTimeStamp = (char *) &mm->timestampMsg;
+	for (j=5; j>=0;j--) {
+		printf("%02X",pTimeStamp[j]);
+		} 
+	} else
+ 		printf("*");
+
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
     printf(";\n");
+
 
     if (Modes.raw) {
         fflush(stdout); /* Provide data to the reader ASAP. */
@@ -1568,7 +1573,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             /* Pass data to the next layer */
             useModesMessage(&mm);
-
         } else {
             if (Modes.debug & MODES_DEBUG_DEMODERR && use_correction) {
                 printf("The following message has %d demod errors\n", errors);
@@ -1576,11 +1580,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             }
         }
 
-        // Retry with phase correction if possible.
+        /* Retry with phase correction if possible. */
         if (!good_message && !use_correction && j && detectOutOfPhase(pPreamble)) {
-            use_correction = 1; j--;
+            j--;
+            use_correction = 1;
         } else {
-            use_correction = 0; 
+            use_correction = 0;
         }
     }
 }
@@ -1864,13 +1869,16 @@ void interactiveShowData(void) {
     
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n"
+//&&&
+//"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n"
+///123456 EZS789VA F222>290 +23 356 191 1373
+  "Hex    Flight   Alt      V/S GS  TT  SSR  G*456^ Msgs    Seen %c\n"
 "--------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
         int altitude = a->altitude, speed = a->speed, msgs = a->messages;
-        char squawk[5] = "0";
+        char squawk[5] = "    ";
         char spacer = '\0';
 
         /* Convert units to metric if --metric was specified. */
@@ -1885,6 +1893,9 @@ void interactiveShowData(void) {
             altitude = -9999;
         }
         
+altitude=altitude/100; //&&&
+if (altitude<0) altitude=0;
+
         if (a->squawk > 0 && a->squawk <= 7777) {
             sprintf(squawk, "%04d", a->squawk);
         }
@@ -1897,9 +1908,13 @@ void interactiveShowData(void) {
             spacer = ' ';
         }
 
-        printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
-            a->hexaddr, squawk, a->flight, altitude, speed,
-            a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
+printf("%-6s %-8s F%3d         %3d %3d %4s        %6d  %d %c \n", //&&&
+    a->hexaddr, a->flight, altitude, speed,
+    a->track, squawk, msgs, (int)(now - a->seen), spacer);
+
+//       printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
+//            a->hexaddr, squawk, a->flight, altitude, speed,
+//            a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
         a = a->next;
         count++;
     }
@@ -2101,17 +2116,27 @@ void modesSendBeastOutput(struct modesMessage *mm) {
 void modesSendRawOutput(struct modesMessage *mm) {
     char msg[128], *p = msg;
     int j;
+    char * pTimeStamp;
 
-    *p++ = '*';
+    if (Modes.mlat) { //&&&
+    	*p++ = '@';
+    	pTimeStamp = (char *) &mm->timestampMsg;
+    	for (j = 5; j >= 0; j--) {
+        	sprintf(p, "%02X", pTimeStamp[j]);
+        	p += 2;
+		}
+    } else
+	*p++ = '*';
+
     for (j = 0; j < mm->msgbits/8; j++) {
         sprintf(p, "%02X", mm->msg[j]);
         p += 2;
     }
+
     *p++ = ';';
     *p++ = '\n';
     modesSendAllClients(Modes.ros, msg, p-msg);
 }
-
 
 /* Write SBS output to TCP clients. */
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
@@ -2477,6 +2502,7 @@ void showHelp(void) {
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...).\n"
+"--mlat                   display raw messages in Beast ascii mode.\n" //&&&
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
@@ -2600,6 +2626,8 @@ int main(int argc, char **argv) {
             Modes.ppm_error = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--quiet")) {
             Modes.quiet = 1;
+        } else if (!strcmp(argv[j],"--mlat")) {
+            Modes.mlat = 1;  //&&&
         } else {
             fprintf(stderr,
                 "Unknown or not enough arguments for option '%s'.\n\n",
@@ -2660,17 +2688,40 @@ int main(int argc, char **argv) {
         if (Modes.exit) break;
     }
 
+    /* If --ifile and --stats were given, print statistics. */  }
+        computeMagnitudeVector();
+
+        /* Signal to the other thread that we processed the available data
+         * and we want more (useful for --ifile). */
+        Modes.data_ready = 0;
+        pthread_cond_signal(&Modes.data_cond);
+
+        /* Process data after releasing the lock, so that the capturing
+         * thread can read data while we perform computationally expensive
+         * stuff * at the same time. (This should only be useful with very
+         * slow processors). */
+        pthread_mutex_unlock(&Modes.data_mutex);
+        detectModeS(Modes.magnitude, MODES_ASYNC_BUF_SAMPLES);
+        Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES*6);
+        backgroundTasks();
+        pthread_mutex_lock(&Modes.data_mutex);
+        if (Modes.exit) break;
+    }
+
     /* If --ifile and --stats were given, print statistics. */
     if (Modes.stats && Modes.filename) {
-        printf("%lld valid preambles\n",                          Modes.stat_valid_preamble);
-        printf("%lld demodulated again after phase correction\n", Modes.stat_out_of_phase);
-        printf("%lld demodulated with zero errors\n",             Modes.stat_demodulated);
-        printf("%lld with good crc\n",                            Modes.stat_goodcrc);
-        printf("%lld with bad crc\n",                             Modes.stat_badcrc);
-        printf("%lld errors corrected\n",                         Modes.stat_fixed);
-        printf("%lld single bit errors\n",                        Modes.stat_single_bit_fix);
-        printf("%lld two bits errors\n",                          Modes.stat_two_bits_fix);
-        printf("%lld total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
+        printf("%lld valid preambles\n", Modes.stat_valid_preamble);
+        printf("%lld demodulated again after phase correction\n",
+            Modes.stat_out_of_phase);
+        printf("%lld demodulated with zero errors\n",
+            Modes.stat_demodulated);
+        printf("%lld with good crc\n", Modes.stat_goodcrc);
+        printf("%lld with bad crc\n", Modes.stat_badcrc);
+        printf("%lld errors corrected\n", Modes.stat_fixed);
+        printf("%lld single bit errors\n", Modes.stat_single_bit_fix);
+        printf("%lld two bits errors\n", Modes.stat_two_bits_fix);
+        printf("%lld total usable messages\n",
+            Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
     rtlsdr_close(Modes.dev);
