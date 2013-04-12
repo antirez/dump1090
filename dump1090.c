@@ -37,6 +37,7 @@
     #include <unistd.h>
     #include <math.h>
     #include <sys/time.h>
+    #include <sys/timeb.h>
     #include <signal.h>
     #include <fcntl.h>
     #include <ctype.h>
@@ -141,7 +142,9 @@ struct {
     pthread_cond_t data_cond;       /* Conditional variable associated. */
     uint16_t *data;                 /* Raw IQ samples buffer */
     uint16_t *magnitude;            /* Magnitude vector */
+    struct timeb stSystemTimeRTL;   /* System time when RTL passed us the Latest block */
     uint64_t timestampBlk;          /* Timestamp of the start of the current block */
+    struct timeb stSystemTimeBlk;   /* System time when RTL passed us currently processing this block */
     int fd;                         /* --ifile option file descriptor. */
     int data_ready;                 /* Data ready to be processed. */
     uint32_t *icao_cache;           /* Recently seen ICAO addresses cache. */
@@ -330,6 +333,8 @@ void modesInit(void) {
     Modes.data_ready              = 0;
     Modes.aircrafts               = NULL;
     Modes.interactive_last_update = 0;
+    ftime(&Modes.stSystemTimeRTL);
+    Modes.stSystemTimeBlk         = Modes.stSystemTimeRTL;
 
     /* Populate the I/Q -> Magnitude lookup table. It is used because
      * sqrt or round may be expensive and may vary a lot depending on
@@ -469,6 +474,7 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     MODES_NOTUSED(ctx);
 
     pthread_mutex_lock(&Modes.data_mutex);
+    ftime(&Modes.stSystemTimeRTL);
     if (len > MODES_ASYNC_BUF_SIZE) len = MODES_ASYNC_BUF_SIZE;
     /* Read the new data. */
     memcpy(Modes.data, buf, len);
@@ -2146,7 +2152,11 @@ void modesSendRawOutput(struct modesMessage *mm) {
 /* Write SBS output to TCP clients. */
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     char msg[256], *p = msg;
+    char strCommon[64], *pCommon = strCommon;
     int emergency = 0, ground = 0, alert = 0, spi = 0;
+    uint32_t offset;
+    struct timeb epocTime;
+    struct tm stTime;
 
     if (mm->msgtype == 4 || mm->msgtype == 5 || mm->msgtype == 21) {
         /* Node: identity is calculated/kept in base10 but is actually
@@ -2158,37 +2168,55 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         if (mm->fs == 4 || mm->fs == 5) spi = -1;
     }
 
+    // ICAO address of the aircraft
+    pCommon += sprintf(pCommon, "%02X%02X%02X,,", mm->aa1, mm->aa2, mm->aa3); 
+
+    // Do the records' time and date now
+    epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
+    offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
+    offset   = offset / 12000;                                // convert to milliseconds
+    epocTime.millitm += offset;                               // add on the offset time to the Block start time
+    if (epocTime.millitm > 999)                               // if we've caused an overflow into the next second...
+      {epocTime.millitm -= 1000; epocTime.time ++;}           //    ..correct the overflow
+    stTime   = *localtime(&epocTime.time);                    // convert the time to year, month  day, hours, min, sec
+    pCommon += sprintf(pCommon, "%04d\\%02d\\%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
+    pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d,", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+
+    // Do the current time and date now
+    ftime(&epocTime);                                         // get the current system time & date
+    stTime = *localtime(&epocTime.time);                      // convert the time to year, month  day, hours, min, sec
+    pCommon += sprintf(pCommon, "%04d\\%02d\\%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
+    pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+
     if (mm->msgtype == 0) {
-        p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,,,,",
-        mm->aa1, mm->aa2, mm->aa3, mm->altitude);
+        p += sprintf(p, "MSG,5,,,%s,,%d,,,,,,,,,,",               strCommon, mm->altitude);
+
     } else if (mm->msgtype == 4) {
-        p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,%d,%d,%d,%d",
-        mm->aa1, mm->aa2, mm->aa3, mm->altitude, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,5,,,%s,,%d,,,,,,,%d,%d,%d,%d",       strCommon, mm->altitude, alert, emergency, spi, ground);
+
     } else if (mm->msgtype == 5) {
-        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
-        mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,6,,,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
+
     } else if (mm->msgtype == 11) {
-        p += sprintf(p, "MSG,8,,,%02X%02X%02X,,,,,,,,,,,,,,,,,",
-        mm->aa1, mm->aa2, mm->aa3);
+        p += sprintf(p, "MSG,8,,,%s,,,,,,,,,,,,",                 strCommon);
+
     } else if (mm->msgtype == 17 && mm->metype == 4) {
-        p += sprintf(p, "MSG,1,,,%02X%02X%02X,,,,,,%s,,,,,,,,0,0,0,0",
-        mm->aa1, mm->aa2, mm->aa3, mm->flight);
+        p += sprintf(p, "MSG,1,,,%s,%s,,,,,,,,0,0,0,0",           strCommon, mm->flight);
+
     } else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
-        if (a->lat == 0 && a->lon == 0)
-            p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
-            mm->aa1, mm->aa2, mm->aa3, mm->altitude);
-        else
-            p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,"
-                            "0,0,0,0",
-            mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
+      if (a->lat == 0 && a->lon == 0)
+        p += sprintf(p, "MSG,3,,,%s,,%d,,,,,,,0,0,0,0",           strCommon, mm->altitude);
+      else
+        p += sprintf(p, "MSG,3,,,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0", strCommon, mm->altitude, a->lat, a->lon);
+
     } else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1) {
         int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
 
-        p += sprintf(p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
-        mm->aa1, mm->aa2, mm->aa3, a->speed, a->track, vr);
+        p += sprintf(p, "MSG,4,,,%s,,,%d,%d,,,%i,,0,0,0,0",       strCommon, a->speed, a->track, vr);
+
     } else if (mm->msgtype == 21) {
-        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
-        mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,6,,,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
+
     } else {
         return;
     }
@@ -2672,6 +2700,7 @@ int main(int argc, char **argv) {
             continue;
         }
         computeMagnitudeVector();
+        Modes.stSystemTimeBlk = Modes.stSystemTimeRTL;
 
         /* Signal to the other thread that we processed the available data
          * and we want more (useful for --ifile). */
