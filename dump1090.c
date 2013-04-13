@@ -194,6 +194,8 @@ struct {
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
     int aggressive;                 /* Aggressive detection algorithm. */
+    int mlat;                       /* Use Beast ascii format for raw data output, i.e. @...; iso *...; */
+    int interactive_rtl1090;        /* flight table in interactive mode is formatted like RTL1090 */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -310,6 +312,8 @@ void modesInitConfig(void) {
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.quiet = 0;
     Modes.aggressive = 0;
+    Modes.mlat = 0;
+    Modes.interactive_rtl1090 = 0;
 }
 
 void modesInit(void) {
@@ -1197,6 +1201,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
  * in a human readable format. */
 void displayModesMessage(struct modesMessage *mm) {
     int j;
+    char * pTimeStamp;
 
     /* Handle only addresses mode first. */
     if (Modes.onlyaddr) {
@@ -1205,7 +1210,15 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 
     /* Show the raw message. */
-    printf("*");
+    if (Modes.mlat) {
+        printf("@"); //&&&
+        pTimeStamp = (char *) &mm->timestampMsg;
+        for (j=5; j>=0;j--) {
+            printf("%02X",pTimeStamp[j]);
+        } 
+    } else
+        printf("*");
+
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
     printf(";\n");
 
@@ -1912,16 +1925,25 @@ void interactiveShowData(void) {
     char spinner[4] = "|/-\\";
     
     progress = spinner[time(NULL)%4];
-    
+
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
+ 
+    if (Modes.interactive_rtl1090 ==0) {
+        printf (
+"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n", progress);
+    } else {
+        printf (
+"Hex    Flight   Alt      V/S GS  TT  SSR  G*456^ Msgs    Seen %c\n", progress);
+    }
     printf(
-"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n"
-"--------------------------------------------------------------------------------\n",
-        progress);
+"--------------------------------------------------------------------------------\n");
 
     while(a && count < Modes.interactive_rows) {
         int altitude = a->altitude, speed = a->speed, msgs = a->messages;
-        char squawk[5] = "0";
+        char squawk[5] = "    ";
+        char fl[5] = "    ";
+        char tt[5] = "   ";
+        char gs[5] = "   ";
         char spacer = '\0';
 
         /* Convert units to metric if --metric was specified. */
@@ -1948,9 +1970,24 @@ void interactiveShowData(void) {
             spacer = ' ';
         }
 
-        printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
+        if (Modes.interactive_rtl1090 != 0) {
+            if (altitude>0) {
+                altitude=altitude/100; 
+                sprintf(fl,"F%03d",altitude);
+            }
+            if (speed > 0) {
+                sprintf (gs,"%3d",speed);
+            }
+            if (a->track > 0) {
+                sprintf (tt,"%03d",a->track);
+            }
+            printf("%-6s %-8s %-4s         %-3s %-3s %4s        %-6d  %d %c \n", 
+            a->hexaddr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen), spacer);
+        } else {
+            printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
             a->hexaddr, squawk, a->flight, altitude, speed,
             a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
+        }        
         a = a->next;
         count++;
     }
@@ -2159,12 +2196,23 @@ void modesSendRawOutput(struct modesMessage *mm) {
     char *p = &Modes.rawOut[Modes.rawOutUsed];
     int  msgLen = mm->msgbits / 8;
     int j;
+    char * pTimeStamp;
 
-    *p++ = '*';
+    if (Modes.mlat) {
+        *p++ = '@';
+        pTimeStamp = (char *) &mm->timestampMsg;
+        for (j = 5; j >= 0; j--) {
+            sprintf(p, "%02X", pTimeStamp[j]);
+            p += 2;
+        }
+    } else
+        *p++ = '*';
+
     for (j = 0; j < msgLen; j++) {
         sprintf(p, "%02X", mm->msg[j]);
         p += 2;
     }
+
     *p++ = ';';
     *p++ = '\n';
 
@@ -2175,7 +2223,6 @@ void modesSendRawOutput(struct modesMessage *mm) {
       Modes.rawOutUsed = 0;
       }
 }
-
 
 /* Write SBS output to TCP clients. */
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
@@ -2552,6 +2599,7 @@ void showHelp(void) {
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
+"--interactive-rtl1090    Display flight table in RTL1090 format.\n"
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-beast              TCP raw output in Beast binary format.\n"
@@ -2563,6 +2611,7 @@ void showHelp(void) {
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...).\n"
+"--mlat                   display raw messages in Beast ascii mode.\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
@@ -2686,6 +2735,11 @@ int main(int argc, char **argv) {
             Modes.ppm_error = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--quiet")) {
             Modes.quiet = 1;
+        } else if (!strcmp(argv[j],"--mlat")) {
+            Modes.mlat = 1;
+        } else if (!strcmp(argv[j],"--interactive-rtl1090")) {
+            Modes.interactive = 1;
+            Modes.interactive_rtl1090 = 1;
         } else {
             fprintf(stderr,
                 "Unknown or not enough arguments for option '%s'.\n\n",
