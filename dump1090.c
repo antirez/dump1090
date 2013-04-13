@@ -2254,13 +2254,13 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     if (epocTime.millitm > 999)                               // if we've caused an overflow into the next second...
       {epocTime.millitm -= 1000; epocTime.time ++;}           //    ..correct the overflow
     stTime   = *localtime(&epocTime.time);                    // convert the time to year, month  day, hours, min, sec
-    pCommon += sprintf(pCommon, "%04d\\%02d\\%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
+    pCommon += sprintf(pCommon, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
     pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d,", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
 
     // Do the current time and date now
     ftime(&epocTime);                                         // get the current system time & date
     stTime = *localtime(&epocTime.time);                      // convert the time to year, month  day, hours, min, sec
-    pCommon += sprintf(pCommon, "%04d\\%02d\\%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
+    pCommon += sprintf(pCommon, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
     pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
 
     if (mm->msgtype == 0) {
