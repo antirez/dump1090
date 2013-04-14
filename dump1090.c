@@ -49,6 +49,15 @@
     #include "rtl-sdr.h"
 #endif
 
+// File Version number 
+// ====================
+// Format is : MajorVer.MinorVer.DayMonth.Year"
+// MajorVer chances only with significant changes
+// MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
+// DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
+//
+#define MODES_DUMP1090_VERSION     "1.00.1404.13"
+
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -2591,35 +2600,38 @@ void modesReadFromClients(void) {
 
 void showHelp(void) {
     printf(
-"--device-index <index>   Select RTL device (default: 0).\n"
-"--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
-"--enable-agc             Enable the Automatic Gain Control (default: off).\n"
-"--freq <hz>              Set frequency (default: 1090 Mhz).\n"
-"--ifile <filename>       Read data from file (use '-' for stdin).\n"
-"--interactive            Interactive mode refreshing data on screen.\n"
-"--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
-"--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
-"--interactive-rtl1090    Display flight table in RTL1090 format.\n"
-"--raw                    Show only messages hex values.\n"
-"--net                    Enable networking.\n"
-"--net-beast              TCP raw output in Beast binary format.\n"
-"--net-only               Enable just networking, no RTL device or file used.\n"
-"--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
-"--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
-"--net-http-port <port>   HTTP server port (default: 8080).\n"
-"--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003).\n"
-"--no-fix                 Disable single-bits error correction using CRC.\n"
-"--no-crc-check           Disable messages with broken CRC (discouraged).\n"
-"--aggressive             More CPU for more messages (two bits fixes, ...).\n"
-"--mlat                   display raw messages in Beast ascii mode.\n"
-"--stats                  With --ifile print stats at exit. No other output.\n"
-"--onlyaddr               Show only ICAO addresses (testing purposes).\n"
-"--metric                 Use metric units (meters, km/h, ...).\n"
-"--snip <level>           Strip IQ file removing samples < level.\n"
-"--debug <flags>          Debug mode (verbose), see README for details.\n"
-"--quiet                  Disable output to stdout. Use for daemon applications.\n"
-"--ppm <error>            Set the receiver error on parts per million (default 0).\n"
-"--help                   Show this help.\n"
+"-----------------------------------------------------------------------------\n"
+"|                        dump1090 ModeS Receiver         Ver : " MODES_DUMP1090_VERSION " |\n"
+"-----------------------------------------------------------------------------\n"
+"--device-index <index>   Select RTL device (default: 0)\n"
+"--gain <db>              Set gain (default: max gain. Use -100 for auto-gain)\n"
+"--enable-agc             Enable the Automatic Gain Control (default: off)\n"
+"--freq <hz>              Set frequency (default: 1090 Mhz)\n"
+"--ifile <filename>       Read data from file (use '-' for stdin)\n"
+"--interactive            Interactive mode refreshing data on screen\n"
+"--interactive-rows <num> Max number of rows in interactive mode (default: 15)\n"
+"--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60)\n"
+"--interactive-rtl1090    Display flight table in RTL1090 format\n"
+"--raw                    Show only messages hex values\n"
+"--net                    Enable networking\n"
+"--net-beast              TCP raw output in Beast binary format\n"
+"--net-only               Enable just networking, no RTL device or file used\n"
+"--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
+"--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
+"--net-http-port <port>   HTTP server port (default: 8080)\n"
+"--net-sbs-port <port>    TCP BaseStation output listen port (default: 30003)\n"
+"--no-fix                 Disable single-bits error correction using CRC\n"
+"--no-crc-check           Disable messages with broken CRC (discouraged)\n"
+"--aggressive             More CPU for more messages (two bits fixes, ...)\n"
+"--mlat                   display raw messages in Beast ascii mode\n"
+"--stats                  With --ifile print stats at exit. No other output\n"
+"--onlyaddr               Show only ICAO addresses (testing purposes)\n"
+"--metric                 Use metric units (meters, km/h, ...)\n"
+"--snip <level>           Strip IQ file removing samples < level\n"
+"--debug <flags>          Debug mode (verbose), see README for details\n"
+"--quiet                  Disable output to stdout. Use for daemon applications\n"
+"--ppm <error>            Set receiver error in parts per million (default 0)\n"
+"--help                   Show this help\n"
 "\n"
 "Debug mode flags: d = Log frames decoded with errors\n"
 "                  D = Log frames decoded with zero errors\n"
@@ -2627,7 +2639,7 @@ void showHelp(void) {
 "                  C = Log frames with good CRC\n"
 "                  p = Log frames with bad preamble\n"
 "                  n = Log network debugging info\n"
-"                  j = Log frames to frames.js, loadable by debug.html.\n"
+"                  j = Log frames to frames.js, loadable by debug.html\n"
     );
 }
 
