@@ -192,6 +192,7 @@ struct {
     int net;                        /* Enable networking. */
     int net_only;                   /* Enable just networking. */
     int net_output_sbs_port;        /* SBS output TCP port. */
+    int net_output_raw_size;        /* Minimum Size of the output raw data */     
     int net_output_raw_port;        /* Raw output TCP port. */
     int net_input_raw_port;         /* Raw input TCP port. */
     int net_http_port;              /* HTTP port. */
@@ -311,6 +312,7 @@ void modesInitConfig(void) {
     Modes.net = 0;
     Modes.net_only = 0;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
+    Modes.net_output_raw_size = 0;
     Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
     Modes.net_input_raw_port = MODES_NET_INPUT_RAW_PORT;
     Modes.net_http_port = MODES_NET_HTTP_PORT;
@@ -341,6 +343,10 @@ void modesInit(void) {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
         exit(1);
     }
+
+    // Limit the maximum requested raw output size to less than one Ethernet Block 
+    if (Modes.net_output_raw_size > (MODES_RAWOUT_BUF_FLUSH))
+      {Modes.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH;}
 
     // Clear the buffers that have just been allocated, just in-case
     memset(Modes.icao_cache, 0,   sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2);
@@ -2193,7 +2199,7 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     memcpy(p, mm->msg, msgLen);
 
     Modes.rawOutUsed += (msgLen + 9);
-    if (Modes.rawOutUsed >= MODES_RAWOUT_BUF_FLUSH)
+    if (Modes.rawOutUsed >= Modes.net_output_raw_size)
       {
       modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
       Modes.rawOutUsed = 0;
@@ -2226,7 +2232,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
     *p++ = '\n';
 
     Modes.rawOutUsed += ((msgLen*2) + 3);
-    if (Modes.rawOutUsed >= MODES_RAWOUT_BUF_FLUSH)
+    if (Modes.rawOutUsed >= Modes.net_output_raw_size)
       {
       modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
       Modes.rawOutUsed = 0;
@@ -2616,6 +2622,7 @@ void showHelp(void) {
 "--net                    Enable networking\n"
 "--net-beast              TCP raw output in Beast binary format\n"
 "--net-only               Enable just networking, no RTL device or file used\n"
+"--net-ro-size <size>     TCP raw output minimum size (default: 0)\n"
 "--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
 "--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
 "--net-http-port <port>   HTTP server port (default: 8080)\n"
@@ -2697,6 +2704,8 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--net-only")) {
             Modes.net = 1;
             Modes.net_only = 1;
+        } else if (!strcmp(argv[j],"--net-ro-size") && more) {
+            Modes.net_output_raw_size = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
             Modes.net_output_raw_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
