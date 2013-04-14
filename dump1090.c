@@ -2242,7 +2242,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
 /* Write SBS output to TCP clients. */
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     char msg[256], *p = msg;
-    char strCommon[64], *pCommon = strCommon;
+    char strCommon[128], *pCommon = strCommon;
     int emergency = 0, ground = 0, alert = 0, spi = 0;
     uint32_t offset;
     struct timeb epocTime;
@@ -2259,7 +2259,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     }
 
     // ICAO address of the aircraft
-    pCommon += sprintf(pCommon, "%02X%02X%02X,,", mm->aa1, mm->aa2, mm->aa3); 
+    pCommon += sprintf(pCommon, "111,11111,%02X%02X%02X,111111,", mm->aa1, mm->aa2, mm->aa3); 
 
     // Do the records' time and date now
     epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
@@ -2279,39 +2279,39 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
 
     if (mm->msgtype == 0) {
-        p += sprintf(p, "MSG,5,,,%s,,%d,,,,,,,,,,",               strCommon, mm->altitude);
+        p += sprintf(p, "MSG,5,%s,,%d,,,,,,,,,,",               strCommon, mm->altitude);
 
     } else if (mm->msgtype == 4) {
-        p += sprintf(p, "MSG,5,,,%s,,%d,,,,,,,%d,%d,%d,%d",       strCommon, mm->altitude, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,5,%s,,%d,,,,,,,%d,%d,%d,%d",       strCommon, mm->altitude, alert, emergency, spi, ground);
 
     } else if (mm->msgtype == 5) {
-        p += sprintf(p, "MSG,6,,,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,6,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
 
     } else if (mm->msgtype == 11) {
-        p += sprintf(p, "MSG,8,,,%s,,,,,,,,,,,,",                 strCommon);
+        p += sprintf(p, "MSG,8,%s,,,,,,,,,,,,",                 strCommon);
 
     } else if (mm->msgtype == 17 && mm->metype == 4) {
-        p += sprintf(p, "MSG,1,,,%s,%s,,,,,,,,0,0,0,0",           strCommon, mm->flight);
+        p += sprintf(p, "MSG,1,%s,%s,,,,,,,,0,0,0,0",           strCommon, mm->flight);
 
     } else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
       if (a->lat == 0 && a->lon == 0)
-        p += sprintf(p, "MSG,3,,,%s,,%d,,,,,,,0,0,0,0",           strCommon, mm->altitude);
+        p += sprintf(p, "MSG,3,%s,,%d,,,,,,,0,0,0,0",           strCommon, mm->altitude);
       else
-        p += sprintf(p, "MSG,3,,,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0", strCommon, mm->altitude, a->lat, a->lon);
+        p += sprintf(p, "MSG,3,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0", strCommon, mm->altitude, a->lat, a->lon);
 
     } else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1) {
         int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
 
-        p += sprintf(p, "MSG,4,,,%s,,,%d,%d,,,%i,,0,0,0,0",       strCommon, a->speed, a->track, vr);
+        p += sprintf(p, "MSG,4,%s,,,%d,%d,,,%i,,0,0,0,0",       strCommon, a->speed, a->track, vr);
 
     } else if (mm->msgtype == 21) {
-        p += sprintf(p, "MSG,6,,,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,6,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
 
     } else {
         return;
     }
 
-    *p++ = '\n';
+    *p++ = '\n'; *p++ = '\r';
     modesSendAllClients(Modes.sbsos, msg, p-msg);
 }
 
