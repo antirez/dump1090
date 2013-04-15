@@ -84,6 +84,7 @@
 
 #define MODES_RAWOUT_BUF_SIZE   (1500)           
 #define MODES_RAWOUT_BUF_FLUSH  (MODES_RAWOUT_BUF_SIZE - 200)
+#define MODES_RAWOUT_BUF_RATE   (1000)            // 1000 * 64mS = 1 Min approx
 
 #define MODES_ICAO_CACHE_LEN 1024 /* Power of two required. */
 #define MODES_ICAO_CACHE_TTL 60   /* Time to live of cached addresses. */
@@ -193,6 +194,8 @@ struct {
     int net_only;                   /* Enable just networking. */
     int net_output_sbs_port;        /* SBS output TCP port. */
     int net_output_raw_size;        /* Minimum Size of the output raw data */     
+    int net_output_raw_rate;        /* Rate (in 64mS increments) of output raw data */     
+    int net_output_raw_rate_count;  /* Rate (in 64mS increments) of output raw data */     
     int net_output_raw_port;        /* Raw output TCP port. */
     int net_input_raw_port;         /* Raw input TCP port. */
     int net_http_port;              /* HTTP port. */
@@ -313,6 +316,7 @@ void modesInitConfig(void) {
     Modes.net_only = 0;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
     Modes.net_output_raw_size = 0;
+    Modes.net_output_raw_rate = 0;
     Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
     Modes.net_input_raw_port = MODES_NET_INPUT_RAW_PORT;
     Modes.net_http_port = MODES_NET_HTTP_PORT;
@@ -345,8 +349,11 @@ void modesInit(void) {
     }
 
     // Limit the maximum requested raw output size to less than one Ethernet Block 
+    Modes.net_output_raw_rate_count = 0;
     if (Modes.net_output_raw_size > (MODES_RAWOUT_BUF_FLUSH))
       {Modes.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH;}
+    if (Modes.net_output_raw_rate > (MODES_RAWOUT_BUF_RATE))
+      {Modes.net_output_raw_rate = MODES_RAWOUT_BUF_RATE;}
 
     // Clear the buffers that have just been allocated, just in-case
     memset(Modes.icao_cache, 0,   sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2);
@@ -1680,8 +1687,13 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
     //Send any remaining partial raw buffers now
     if (Modes.rawOutUsed)
       {
-      modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
-      Modes.rawOutUsed = 0;
+      Modes.net_output_raw_rate_count++;
+      if (Modes.net_output_raw_rate_count > Modes.net_output_raw_rate)
+        {
+        modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
+        Modes.rawOutUsed = 0;
+        Modes.net_output_raw_rate_count = 0;
+        }
       }
 }
 
@@ -2224,6 +2236,7 @@ void modesSendBeastOutput(struct modesMessage *mm) {
       {
       modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
       Modes.rawOutUsed = 0;
+      Modes.net_output_raw_rate_count = 0;
       }
 }
 
@@ -2257,6 +2270,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
       {
       modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
       Modes.rawOutUsed = 0;
+      Modes.net_output_raw_rate_count = 0;
       }
 }
 
@@ -2644,6 +2658,7 @@ void showHelp(void) {
 "--net-beast              TCP raw output in Beast binary format\n"
 "--net-only               Enable just networking, no RTL device or file used\n"
 "--net-ro-size <size>     TCP raw output minimum size (default: 0)\n"
+"--net-ro-rate <rate>     TCP raw output memory flush rate (default: 0)\n"
 "--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
 "--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
 "--net-http-port <port>   HTTP server port (default: 8080)\n"
@@ -2727,6 +2742,8 @@ int main(int argc, char **argv) {
             Modes.net_only = 1;
         } else if (!strcmp(argv[j],"--net-ro-size") && more) {
             Modes.net_output_raw_size = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-ro-rate") && more) {
+            Modes.net_output_raw_rate = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
             Modes.net_output_raw_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
