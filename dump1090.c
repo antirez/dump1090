@@ -2332,7 +2332,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         return;
     }
 
-    *p++ = '\n'; *p++ = '\r';
+    *p++ = '\r'; *p++ = '\n'; // <CRLF> or just <LF> ??
     modesSendAllClients(Modes.sbsos, msg, p-msg);
 }
 
