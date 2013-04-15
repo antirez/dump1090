@@ -52,11 +52,11 @@
 // File Version number 
 // ====================
 // Format is : MajorVer.MinorVer.DayMonth.Year"
-// MajorVer chances only with significant changes
+// MajorVer changes only with significant changes
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.00.1404.13"
+#define MODES_DUMP1090_VERSION     "1.00.1504.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -389,7 +389,7 @@ void modesInit(void) {
     // The most this could be is if I&Q are both 128 (or 127 or 127.5), so you could end up with a magnitude 
     // of 181.019 (or 179.605, or 180.312)
     //
-    // However, in reality the magnitude of the signal should never exceed the range -1 to +1, becaure the 
+    // However, in reality the magnitude of the signal should never exceed the range -1 to +1, because the 
     // values are I = rCos(w) and Q = rSin(w). Therefore the integer computed magnitude should (can?) never 
     // exceed 128 (or 127, or 127.5 or whatever)
     //
@@ -1052,13 +1052,12 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     else
         {mm->crcok = (mm->iid == 0);}
 
-    if (!mm->crcok && Modes.fix_errors &&
-        (mm->msgtype == 11 || mm->msgtype == 17))
+    if (!mm->crcok && Modes.fix_errors && (mm->msgtype == 17))
     {
         if ((mm->errorbit = fixSingleBitErrors(msg,mm->msgbits)) != -1) {
             mm->crc = modesChecksum(msg,mm->msgbits);
             mm->crcok = 1;
-        } else if (Modes.aggressive && mm->msgtype == 17 &&
+        } else if (Modes.aggressive &&
                    (mm->errorbit = fixTwoBitsErrors(msg,mm->msgbits)) != -1)
         {
             mm->crc = modesChecksum(msg,mm->msgbits);
