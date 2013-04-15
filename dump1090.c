@@ -1112,21 +1112,26 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
      *
      * For more info: http://en.wikipedia.org/wiki/Gillham_code */
     {
-        int a,b,c,d;
+        int           decIdentity = 0;
+        unsigned char rawIdentity;
 
-        a = ((msg[3] & 0x80) >> 5) |
-            ((msg[2] & 0x02) >> 0) |
-            ((msg[2] & 0x08) >> 3);
-        b = ((msg[3] & 0x02) << 1) |
-            ((msg[3] & 0x08) >> 2) |
-            ((msg[3] & 0x20) >> 5);
-        c = ((msg[2] & 0x01) << 2) |
-            ((msg[2] & 0x04) >> 1) |
-            ((msg[2] & 0x10) >> 4);
-        d = ((msg[3] & 0x01) << 2) |
-            ((msg[3] & 0x04) >> 1) |
-            ((msg[3] & 0x10) >> 4);
-        mm->identity = a*1000 + b*100 + c*10 + d;
+        rawIdentity = msg[2];
+        if (rawIdentity & 0x01) {decIdentity +=   40;} // C4
+        if (rawIdentity & 0x02) {decIdentity += 2000;} // A2
+        if (rawIdentity & 0x04) {decIdentity +=   20;} // C2
+        if (rawIdentity & 0x08) {decIdentity += 1000;} // A1
+        if (rawIdentity & 0x10) {decIdentity +=   10;} // C1
+
+        rawIdentity = msg[3];
+        if (rawIdentity & 0x01) {decIdentity +=    4;} // D4
+        if (rawIdentity & 0x02) {decIdentity +=  400;} // B4
+        if (rawIdentity & 0x04) {decIdentity +=    2;} // D2
+        if (rawIdentity & 0x08) {decIdentity +=  200;} // B2
+        if (rawIdentity & 0x10) {decIdentity +=    1;} // D1
+        if (rawIdentity & 0x20) {decIdentity +=  100;} // B1 
+        if (rawIdentity & 0x80) {decIdentity += 4000;} // A4
+
+        mm->identity = decIdentity;
     }
 
     /* DF 11 & 17: try to populate our ICAO addresses whitelist.
