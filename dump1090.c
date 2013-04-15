@@ -1299,6 +1299,10 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("DF 11: All Call Reply.\n");
         printf("  Capability  : %s\n", ca_str[mm->ca]);
         printf("  ICAO Address: %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        if (mm->iid > 16)
+            {printf("  IID         : SI-%02d\n", mm->iid-16);}
+        else
+            {printf("  IID         : II-%02d\n", mm->iid);}
     } else if (mm->msgtype == 17) {
         /* DF 17 */
         printf("DF 17: ADS-B message.\n");
