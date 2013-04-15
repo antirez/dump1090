@@ -280,8 +280,8 @@ void modesSendRawOutput(struct modesMessage *mm);
 void modesSendBeastOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
-int fixSingleBitErrors(unsigned char *msg, int bits);
-int fixTwoBitsErrors(unsigned char *msg, int bits);
+int fixSingleBitErrors(unsigned char *msg, int bits, struct modesMessage *mm);
+int fixTwoBitsErrors(unsigned char *msg, int bits, struct modesMessage *mm);
 int modesMessageLenByType(int type);
 
 /* ============================= Utility functions ========================== */
@@ -675,9 +675,9 @@ void dumpRawMessage(char *descr, unsigned char *msg,
     if (msgtype == 11 || msgtype == 17) {
         int msgbits = (msgtype == 11) ? MODES_SHORT_MSG_BITS :
                                         MODES_LONG_MSG_BITS;
-        fixable = fixSingleBitErrors(msg,msgbits);
+        fixable = fixSingleBitErrors(msg, msgbits, NULL);
         if (fixable == -1)
-            fixable = fixTwoBitsErrors(msg,msgbits);
+            fixable = fixTwoBitsErrors(msg, msgbits, NULL);
     }
 
     if (Modes.debug & MODES_DEBUG_JS) {
@@ -765,16 +765,17 @@ int modesMessageLenByType(int type) {
 /* Try to fix single bit errors using the checksum. On success modifies
  * the original buffer with the fixed version, and returns the position
  * of the error bit. Otherwise if fixing failed -1 is returned. */
-int fixSingleBitErrors(unsigned char *msg, int bits) {
+int fixSingleBitErrors(unsigned char *msg, int bits, struct modesMessage *mm) {
     int j;
     unsigned char aux[MODES_LONG_MSG_BYTES];
+
+    memcpy(aux, msg,bits/8);
 
     for (j = 0; j < bits; j++) {
         int byte = j/8;
         int bitmask = 1 << (7-(j%8));
         uint32_t crc1, crc2;
 
-        memcpy(aux,msg,bits/8);
         aux[byte] ^= bitmask; /* Flip j-th bit. */
 
         crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
@@ -787,8 +788,16 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
              * the corrected sequence, and returns the error bit
              * position. */
             memcpy(msg,aux,bits/8);
+            if (mm)
+               {
+               mm->crc   = crc2;
+               mm->iid   = 0;
+               mm->crcok = 1;
+               }
             return j;
         }
+
+        aux[byte] ^= bitmask; /* Flip j-th bit back again. */
     }
     return -1;
 }
@@ -796,13 +805,16 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 /* Similar to fixSingleBitErrors() but try every possible two bit combination.
  * This is very slow and should be tried only against DF17 messages that
  * don't pass the checksum, and only in Aggressive Mode. */
-int fixTwoBitsErrors(unsigned char *msg, int bits) {
+int fixTwoBitsErrors(unsigned char *msg, int bits, struct modesMessage *mm) {
     int j, i;
     unsigned char aux[MODES_LONG_MSG_BYTES];
+
+    memcpy(aux,msg, bits/8);
 
     for (j = 0; j < bits; j++) {
         int byte1 = j/8;
         int bitmask1 = 1 << (7-(j%8));
+        aux[byte1] ^= bitmask1; /* Flip j-th bit. */
 
         /* Don't check the same pairs multiple times, so i starts from j+1 */
         for (i = j+1; i < bits; i++) {
@@ -810,9 +822,6 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
             int bitmask2 = 1 << (7-(i%8));
             uint32_t crc1, crc2;
 
-            memcpy(aux,msg,bits/8);
-
-            aux[byte1] ^= bitmask1; /* Flip j-th bit. */
             aux[byte2] ^= bitmask2; /* Flip i-th bit. */
 
             crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
@@ -825,11 +834,21 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
                  * the corrected sequence, and returns the error bit
                  * position. */
                 memcpy(msg,aux,bits/8);
+                if (mm)
+                   {
+                   mm->crc   = crc2;
+                   mm->iid   = 0;
+                   mm->crcok = 1;
+                   }
                 /* We return the two bits as a 16 bit integer by shifting
                  * 'i' on the left. This is possible since 'i' will always
                  * be non-zero because i starts from j+1. */
                 return j | (i<<8);
+
+            aux[byte2] ^= bitmask2; /* Flip i-th bit back. */
             }
+
+        aux[byte1] ^= bitmask1; /* Flip j-th bit back. */
         }
     }
     return -1;
@@ -1052,16 +1071,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     else
         {mm->crcok = (mm->iid == 0);}
 
-    if (!mm->crcok && Modes.fix_errors && (mm->msgtype == 17))
-    {
-        if ((mm->errorbit = fixSingleBitErrors(msg,mm->msgbits)) != -1) {
-            mm->crc = modesChecksum(msg,mm->msgbits);
-            mm->crcok = 1;
-        } else if (Modes.aggressive &&
-                   (mm->errorbit = fixTwoBitsErrors(msg,mm->msgbits)) != -1)
-        {
-            mm->crc = modesChecksum(msg,mm->msgbits);
-            mm->crcok = 1;
+    if (!mm->crcok && Modes.fix_errors && (mm->msgtype == 17)){
+        mm->errorbit = fixSingleBitErrors(msg, mm->msgbits, mm);
+        if ((mm->errorbit == -1) && (Modes.aggressive)) {
+            mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits, mm);
         }
     }
 
