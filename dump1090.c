@@ -91,6 +91,8 @@
 #define MODES_UNIT_FEET 0
 #define MODES_UNIT_METERS 1
 
+#define MODES_SBS_LAT_LONG_FRESH (1<<0)
+
 #define MODES_DEBUG_DEMOD (1<<0)
 #define MODES_DEBUG_DEMODERR (1<<1)
 #define MODES_DEBUG_BADCRC (1<<2)
@@ -142,6 +144,7 @@ struct aircraft {
     int even_cprlat;
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
+    int sbsflags;
     uint64_t odd_cprtime, even_cprtime;
     int squawk;
     struct aircraft *next; /* Next aircraft in our linked list. */
@@ -1749,6 +1752,7 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->even_cprtime = 0;
     a->lat = 0;
     a->lon = 0;
+    a->sbsflags = 0;
     a->seen = time(NULL);
     a->messages = 0;
     a->squawk = 0;
@@ -1895,6 +1899,7 @@ void decodeCPR(struct aircraft *a) {
         a->lat = rlat1;
     }
     if (a->lon > 180) a->lon -= 360;
+    a->sbsflags |= MODES_SBS_LAT_LONG_FRESH;
 }
 
 /* Receive new messages and populate the interactive mode with more info. */
@@ -2331,15 +2336,17 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         p += sprintf(p, "MSG,1,%s,%s,,,,,,,,0,0,0,0",           strCommon, mm->flight);
 
     } else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
-      if (a->lat == 0 && a->lon == 0)
+      if ( ((a->lat == 0) && (a->lon == 0)) || ((a->sbsflags & MODES_SBS_LAT_LONG_FRESH) == 0) ){
         p += sprintf(p, "MSG,3,%s,,%d,,,,,,,0,0,0,0",           strCommon, mm->altitude);
-      else
+      } else {
         p += sprintf(p, "MSG,3,%s,,%d,,,%1.5f,%1.5f,,,0,0,0,0", strCommon, mm->altitude, a->lat, a->lon);
+        a->sbsflags &= ~MODES_SBS_LAT_LONG_FRESH;
+      }
 
     } else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1) {
         int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
 
-        p += sprintf(p, "MSG,4,%s,,,%d,%d,,,%i,,0,0,0,0",       strCommon, a->speed, a->track, vr);
+        p += sprintf(p, "MSG,4,%s,,,%d,%d,,,%i,,0,0,0,0",       strCommon, mm->velocity, mm->heading, vr);
 
     } else if (mm->msgtype == 21) {
         p += sprintf(p, "MSG,6,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
