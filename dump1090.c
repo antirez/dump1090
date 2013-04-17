@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.01.1504.13"
+#define MODES_DUMP1090_VERSION     "1.01.1704.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -442,6 +442,7 @@ void modesInit(void) {
     Modes.stat_http_requests = 0;
     Modes.stat_sbs_connections = 0;
     Modes.stat_out_of_phase = 0;
+    Modes.stat_DF_Corrected = 0;
     Modes.exit = 0;
 }
 
@@ -1776,6 +1777,7 @@ int cprModFunction(int a, int b) {
 
 /* The NL function uses the precomputed table from 1090-WP-9-14 */
 int cprNLFunction(double lat) {
+    if (lat < 0) lat = -lat; /* Table is simmetric about the equator. */
     if (lat < 10.47047130) return 59;
     if (lat < 14.82817437) return 58;
     if (lat < 18.18626357) return 57;
