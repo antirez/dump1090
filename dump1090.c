@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.01.1904.13"
+#define MODES_DUMP1090_VERSION     "1.01.1924.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -69,6 +69,8 @@
 #define MODES_MAX_GAIN             999999       /* Use max available gain. */
 #define MODES_MSG_SQUELCH_LEVEL    0x02FF       /* Average signal strength limit */
 #define MODES_MSG_ENCODER_ERRS     3            /* Maximum number of encoding errors */
+
+#define MODEA_MSG_BYTES          2
 
 #define MODES_PREAMBLE_US        8              /* microseconds = bits */
 #define MODES_PREAMBLE_SAMPLES  (MODES_PREAMBLE_US       * 2)
@@ -2226,15 +2228,17 @@ void modesSendBeastOutput(struct modesMessage *mm) {
       {*p++ = '2';}
     else if (msgLen == MODES_LONG_MSG_BYTES)
       {*p++ = '3';}
+    else if (msgLen == MODEA_MSG_BYTES)
+      {*p++ = '1';}
     else
       {return;}
-
-    *p++ = mm->signalLevel;
 
     pTimeStamp = (char *) &mm->timestampMsg;
     for (j = 5; j >= 0; j--) {
         *p++ = pTimeStamp[j];
     }
+
+    *p++ = mm->signalLevel;
 
     memcpy(p, mm->msg, msgLen);
 
