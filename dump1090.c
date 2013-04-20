@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.01.1924.13"
+#define MODES_DUMP1090_VERSION     "1.01.2004.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -2265,6 +2265,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
             sprintf(p, "%02X", pTimeStamp[j]);
             p += 2;
         }
+    Modes.rawOutUsed += 12; // additional 12 characters for timestamp
     } else
         *p++ = '*';
 
@@ -2307,16 +2308,21 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     // ICAO address of the aircraft
     pCommon += sprintf(pCommon, "111,11111,%02X%02X%02X,111111,", mm->aa1, mm->aa2, mm->aa3); 
 
-    // Do the records' time and date now
-    epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
-    offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
-    offset   = offset / 12000;                                // convert to milliseconds
-    epocTime.millitm += offset;                               // add on the offset time to the Block start time
-    if (epocTime.millitm > 999)                               // if we've caused an overflow into the next second...
-      {epocTime.millitm -= 1000; epocTime.time ++;}           //    ..correct the overflow
-    stTime   = *localtime(&epocTime.time);                    // convert the time to year, month  day, hours, min, sec
-    pCommon += sprintf(pCommon, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
-    pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d,", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+    // Make sure the records' timestamp is valid before outputing it
+    if (mm->timestampMsg != (uint64_t)(-1)) {
+        // Do the records' time and date now
+        epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
+        offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
+        offset   = offset / 12000;                                // convert to milliseconds
+        epocTime.millitm += offset;                               // add on the offset time to the Block start time
+        if (epocTime.millitm > 999)                               // if we've caused an overflow into the next second...
+            {epocTime.millitm -= 1000; epocTime.time ++;}         //    ..correct the overflow
+        stTime   = *localtime(&epocTime.time);                    // convert the time to year, month  day, hours, min, sec
+        pCommon += sprintf(pCommon, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
+        pCommon += sprintf(pCommon, "%02d:%02d:%02d.%03d,", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+    } else {
+        pCommon += sprintf(pCommon, ",,");
+    }  
 
     // Do the current time and date now
     ftime(&epocTime);                                         // get the current system time & date
@@ -2402,8 +2408,12 @@ int decodeHexMessage(struct client *c) {
     }
 
     /* Turn the message into binary. */
-    if (l < 2 || hex[0] != '*' || hex[l-1] != ';') return 0;
-    hex++; l-=2; /* Skip * and ; */
+    if (l < 2 || (hex[0] != '*' && hex[0] != '@') || hex[l-1] != ';') return 0;
+    if (hex[0] == '@') {
+        hex += 13; l -= 15; // Skip @, and timestamp, and ;
+    } else {
+        hex++; l-=2; // Skip * and ;
+    }
     if (l > MODES_LONG_MSG_BYTES*2) return 0; /* Too long message... broken. */
     for (j = 0; j < l; j += 2) {
         int high = hexDigitVal(hex[j]);
@@ -2412,6 +2422,10 @@ int decodeHexMessage(struct client *c) {
         if (high == -1 || low == -1) return 0;
         msg[j/2] = (high<<4) | low;
     }
+    // Always mark the timestamp as invalid for packets received over the internet
+    // Mixing of data from two or more different receivers and publishing
+    // as coming from one would lead to corrupt mlat data
+    // Non timemarked internet data has indeterminate delay
     mm.timestampMsg = -1;
     mm.signalLevel  = -1;
     decodeModesMessage(&mm,msg);
