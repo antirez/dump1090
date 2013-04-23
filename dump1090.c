@@ -1,20 +1,20 @@
-/* Mode1090, a Mode S messages decoder for RTLSDR devices.
+/* dump1090, a Mode S messages decoder for RTLSDR devices.
  *
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *  *  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
  *  *  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -1456,6 +1456,17 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         {mm->crcok = (mm->iid == 0);}
 
     if (!mm->crcok && Modes.fix_errors && (mm->msgtype == 17)){
+//    if (!mm->crcok && Modes.fix_errors && ((mm->msgtype == 11) || (mm->msgtype == 17))){
+        //
+        // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to 
+        // know for sure if the crc is supposed to be 0 or not - it could be any value 
+        // less than 80. Therefore, attempting to fix DF-11 errors can result in a 
+        // multitude of possible crc solutions, only one of which is correct.
+        // 
+        // We should probably perform some sanity checks on corrected DF-11's before 
+        // using the results. Perhaps check the ICAO against known aircraft, and check
+        // IID against known good IID's. That's a TODO.
+        //
         mm->errorbit = fixSingleBitErrors(msg, mm->msgbits, mm);
         if ((mm->errorbit == -1) && (Modes.aggressive)) {
             mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits, mm);
@@ -1880,11 +1891,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     {
                     mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
 
-                    // Decode the received message and update statistics
+                    // Decode the received message
                     decodeModeAMessage(ModeA, &mm);
 
                     // Pass data to the next layer
                     useModesMessage(&mm);
+
                     j += MODEAC_MSG_SAMPLES;
                     Modes.stat_ModeAC++;
                     continue;
@@ -2127,7 +2139,8 @@ void useModesMessage(struct modesMessage *mm) {
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  // Feed SBS output clients
         }
 
-        // In non-interactive mode, display messages on standard output
+        // In non-interactive mode, and non-quiet mode, display messages on 
+        // standard output as they occur.
         if (!Modes.interactive && !Modes.quiet) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
