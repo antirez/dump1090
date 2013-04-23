@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.02.2204.13"
+#define MODES_DUMP1090_VERSION     "1.02.2304.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -287,8 +287,11 @@ struct modesMessage {
     int um;                     /* Request extraction of downlink request. */
     int identity;               /* 13 bits identity (Squawk). */
 
+    // DF32 ModeA & Mode C
+    int modeC;
+
     /* Fields used by multiple message types. */
-    int altitude, unit, modeC;
+    int altitude, unit; 
 };
 
 void interactiveShowData(void);
@@ -1008,9 +1011,8 @@ int ModeAToModeC(unsigned int ModeA )
   unsigned int FiveHundreds = 0;
   unsigned int OneHundreds  = 0;
 
-  if (  (ModeA & 0xFFFF888B)          // D1 set is illegal. D2 set is > 62700ft which is unlikely
-    || ((ModeA & 0x000000F0) == 0)    // C1,,C4 cannot be Zero
-    || ((ModeA & 0xFFFFFB0F) == 0) )  // Whilst legal, indicates an altitude less than -200 feet
+  if (  (ModeA & 0xFFFF888B)         // D1 set is illegal. D2 set is > 62700ft which is unlikely
+    || ((ModeA & 0x000000F0) == 0) ) // C1,,C4 cannot be Zero
     {return -9999;}
 
   if (ModeA & 0x0010) {OneHundreds ^= 0x007;} // C1
@@ -1067,11 +1069,7 @@ void decodeModeAMessage(unsigned int ModeA, struct modesMessage *mm)
 
   // Convert ModeA to ModeC and use as an altitude
   mm->modeC    = ModeAToModeC(ModeA);
-  mm->altitude = 0;
-
-  // Limit the altitude to sensible values
-  if ( (mm->modeC < 460) && (mm->modeC >= 0))
-    {mm->altitude = mm->modeC * 100;}
+  mm->altitude = mm->modeC * 100;
 
   // Not much else we can tell from a Mode A/C reply.
   // Just fudge up a few bits to keep other code happy
@@ -2136,7 +2134,10 @@ void useModesMessage(struct modesMessage *mm) {
           || (Modes.stat_sbs_connections > 0) // or if sbs connections are established 
           || (Modes.mode_ac) ) {              // or if mode A/C decoding is enabled
             struct aircraft *a = interactiveReceiveData(mm);
-            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  // Feed SBS output clients
+            if ( (a) 
+              && (mm->msgtype < 32)           // don't even try to send ModesA/C to SBS clients
+              && (Modes.stat_sbs_connections > 0) ) 
+                {modesSendSBSOutput(mm, a);}  // Feed SBS output clients
         }
 
         // In non-interactive mode, and non-quiet mode, display messages on 
@@ -2228,11 +2229,11 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
 
             if (a->squawk == b->squawk) { // If a 'real' Mode S ICAO exists using this Squawk
                 b->modeAcount++;
-                if ((b->modeAcount > 0) && (b->modeCcount > 1))
+                if ( (b->modeAcount > 0) && 
+                    ((b->modeCcount > 1) || (a->modeC < -12)) )
                     {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag that this ModeA/C probably belongs to a known Mode S                    
 
-            } else if (  (a->altitude)            // If this ModeC altitude is valid and...
-                      && (a->modeC == b->modeC) ) // ...a 'real' Mode S ICAO exists at this Altitude
+            } else if (a->modeC == b->modeC) // If a 'real' Mode S ICAO exists at this Altitude
                 { 
                 b->modeCcount++;
                 if ((b->modeAcount > 0) && (b->modeCcount > 1))
@@ -2410,6 +2411,11 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     a->messages++;
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
+        if ( (a->modeCcount)                   // if we've a modeCcount already
+          && (a->modeC     != mm->modeC    )   // and Altitude has changed
+          && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
+          && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
+            {a->modeCcount = 0;}               //....zero the hit count
         a->altitude = mm->altitude;
         a->modeC    = mm->modeC;
     } else if(mm->msgtype == 5 || mm->msgtype == 21) {
@@ -2421,9 +2427,11 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
         } else if (mm->metype >= 9 && mm->metype <= 18) {
-            if (a->modeC != mm->modeC) {
-                a->modeCcount = 0; // Altitude has changed, so zero the hit count
-            }
+            if ( (a->modeCcount)                   // if we've a modeCcount already
+              && (a->modeC     != mm->modeC    )   // and Altitude has changed
+              && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
+              && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
+                {a->modeCcount = 0;}               //....zero the hit count
             a->altitude = mm->altitude;
             a->modeC    = mm->modeC;
             if (mm->fflag) {
@@ -2450,9 +2458,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         a->modeACflags = MODEAC_MSG_FLAG;
         a->squawk      = mm->identity;
         a->modeC       = mm->modeC;
-        if (mm->altitude > -1300) {
-            a->altitude = mm->altitude;
-        }
+        a->altitude    = mm->altitude;
         interactiveUpdateAircraftModeA(a);
     }
     return a;
