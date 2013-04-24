@@ -288,7 +288,7 @@ struct modesMessage {
     int identity;               /* 13 bits identity (Squawk). */
 
     // DF32 ModeA & Mode C
-    int modeC;
+    int modeC;                  /* Decoded Mode C */
 
     /* Fields used by multiple message types. */
     int altitude, unit; 
@@ -1044,7 +1044,7 @@ int ModeAToModeC(unsigned int ModeA )
   return ((FiveHundreds * 5) + OneHundreds - 13); 
   } 
 
-void decodeModeAMessage(unsigned int ModeA, struct modesMessage *mm)
+void decodeModeAMessage(struct modesMessage *mm, int ModeA)
   {
   mm->msgtype = 32; // Valid Mode S DF's are DF-00 to DF-31.
                     // so use 32 to indicate Mode A/C
@@ -1890,7 +1890,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
 
                     // Decode the received message
-                    decodeModeAMessage(ModeA, &mm);
+                    decodeModeAMessage(&mm, ModeA);
 
                     // Pass data to the next layer
                     useModesMessage(&mm);
@@ -2241,6 +2241,18 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
             }
         }
         b = b->next;
+    }
+}
+
+void interactiveUpdateAircraftModeS() {
+    struct aircraft *a = Modes.aircrafts;
+
+    while(a) {
+        if (a->modeACflags & MODEAC_MSG_FLAG) {      // find any fudged ICAO records 
+            a->modeACflags &= ~MODEAC_MSG_MODES_HIT; // clear the hit bit
+            interactiveUpdateAircraftModeA(a);       // and attempt to match them with Mode-S
+        }
+        a = a->next;
     }
 }
 
@@ -3011,10 +3023,10 @@ int decodeHexMessage(struct client *c) {
         int low  = hexDigitVal(hex[j+1]);
 
         if (high == -1 || low == -1) return 0;
-        msg[j/2] = (high<<4) | low;
+        msg[j/2] = (high << 4) | low;
     }
 
-    if (l < 5) {decodeModeAMessage((uint)((msg[0]<<8) + msg[1]), &mm);} // ModeA or ModeC
+    if (l < 5) {decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));} // ModeA or ModeC
     else       {decodeModesMessage(&mm, msg);}
 
     useModesMessage(&mm);
@@ -3309,14 +3321,25 @@ void backgroundTasks(void) {
     if (Modes.net) {
         modesAcceptClients();
         modesReadFromClients();
-    }
+    }    
 
-    if ( (Modes.aircrafts) && ((mstime() - Modes.interactive_last_update) > MODES_INTERACTIVE_REFRESH_TIME)) {
-        interactiveRemoveStaleAircrafts();
-        Modes.interactive_last_update = mstime();
-        // Refresh screen when in interactive mode
-        if (Modes.interactive)
-            {interactiveShowData();}
+   // If Modes.aircrafts is not NULL, remove any stale aircraft
+   if (Modes.aircrafts)
+        {interactiveRemoveStaleAircrafts();}
+
+    // Refresh screen when in interactive mode
+    if ((Modes.interactive) && 
+        ((mstime() - Modes.interactive_last_update) > MODES_INTERACTIVE_REFRESH_TIME) ) {
+
+        // Attempt to reconsile any ModeA/C with known Mode-S
+        // We can't condition on Modes.modeac because ModeA/C could be comming 
+        // in from a raw input port which we can't turn off.
+        interactiveUpdateAircraftModeS();
+
+        // Now display Mode-S and any non-reconsiled Modes-A/C  
+        interactiveShowData();
+
+        Modes.interactive_last_update = mstime();    
     }
 }
 
