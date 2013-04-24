@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.02.2304.13"
+#define MODES_DUMP1090_VERSION     "1.02.2404.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -2321,13 +2321,12 @@ int cprNFunction(double lat, int isodd) {
     return nl;
 }
 
-double cprDlonFunction(double lat, int isodd) {
-    return 360.0 / cprNFunction(lat, isodd);
+double cprDlonFunction(double lat, int isodd, int surface) {
+    return (surface ? 90.0 : 360.0) / cprNFunction(lat, isodd);
 }
 
 /* This algorithm comes from:
  * http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
- *
  *
  * A few remarks:
  * 1) 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
@@ -2335,43 +2334,110 @@ double cprDlonFunction(double lat, int isodd) {
  *    simplicity. This may provide a position that is less fresh of a few
  *    seconds.
  */
-void decodeCPR(struct aircraft *a) {
-    const double AirDlat0 = 360.0 / 60;
-    const double AirDlat1 = 360.0 / 59;
+void decodeCPR(struct aircraft *a, int fflag, int surface) {
+    double AirDlat0 = (surface ? 90.0 : 360.0) / 60.0;
+    double AirDlat1 = (surface ? 90.0 : 360.0) / 59.0;
     double lat0 = a->even_cprlat;
     double lat1 = a->odd_cprlat;
     double lon0 = a->even_cprlon;
     double lon1 = a->odd_cprlon;
 
-    /* Compute the Latitude Index "j" */
-    int j = (int) floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
+    // Compute the Latitude Index "j"
+    int    j     = (int) floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
     double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
     double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
 
     if (rlat0 >= 270) rlat0 -= 360;
     if (rlat1 >= 270) rlat1 -= 360;
 
-    /* Check that both are in the same latitude zone, or abort. */
+    // Check that both are in the same latitude zone, or abort.
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
 
-    /* Compute ni and the longitude index m */
-    if (a->even_cprtime > a->odd_cprtime) {
-        /* Use even packet. */
-        int ni = cprNFunction(rlat0,0);
-        int m = (int) floor((((lon0 * (cprNLFunction(rlat0)-1)) -
-                              (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
-        a->lon = cprDlonFunction(rlat0,0) * (cprModFunction(m,ni)+lon0/131072);
-        a->lat = rlat0;
-    } else {
-        /* Use odd packet. */
+    // Compute ni and the Longitude Index "m"
+    if (fflag) { // Use odd packet.
         int ni = cprNFunction(rlat1,1);
         int m = (int) floor((((lon0 * (cprNLFunction(rlat1)-1)) -
                               (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
-        a->lon = cprDlonFunction(rlat1,1) * (cprModFunction(m,ni)+lon1/131072);
+        a->lon = cprDlonFunction(rlat1,1,surface) * (cprModFunction(m,ni)+lon1/131072);
         a->lat = rlat1;
+    } else {     // Use even packet.
+        int ni = cprNFunction(rlat0,0);
+        int m = (int) floor((((lon0 * (cprNLFunction(rlat0)-1)) -
+                              (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
+        a->lon = cprDlonFunction(rlat0, 0, surface) * (cprModFunction(m, ni)+lon0/131072);
+        a->lat = rlat0;
     }
     if (a->lon > 180) a->lon -= 360;
+
     a->sbsflags |= MODES_SBS_LAT_LONG_FRESH;
+}
+
+/* This algorithm comes from:
+ * 1090-WP29-07-Draft_CPR101 (which also defines decodeCPR() )
+ *
+ * There is an error in this document related to CPR relative decode.
+ * Should use trunc() rather than the floor() function in Eq 38 and related for deltaZI.
+ * floor() returns integer less than argument
+ * trunc() returns integer closer to zero than argument.
+ * Note:   text of document describes trunc() functionality for deltaZI calculation
+ *         but the formulae use floor().
+ */
+int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, double lonr) {
+    double AirDlat;
+    double AirDlon;
+    double lat;
+    double lon;
+    double rlon, rlat;
+    int j,m;
+
+    // If not passed a lat/long, we must be using aircraft relative
+    if ( (latr == 0) && (lonr == 0) ) {
+        latr = a->lat;
+        lonr = a->lon;
+    }
+    if ( (latr == 0) && (lonr == 0) )
+        return (-1); // Exit with error - can't do relative if we don't have ref.
+
+    if (fflag) { // odd
+        AirDlat = (surface ? 90.0 : 360.0) / 59.0;
+        lat = a->odd_cprlat;
+        lon = a->odd_cprlon;
+    } else {    // even
+        AirDlat = (surface ? 90.0 : 360.0) / 60.0;
+        lat = a->even_cprlat;
+        lon = a->even_cprlon;
+    }
+
+    // Compute the Latitude Index "j"
+    j = (int) (floor(latr/AirDlat) +
+               trunc(0.5 + cprModFunction((int)latr, (int)AirDlat)/AirDlat - lat/131072));
+    rlat = AirDlat * (j + lat/131072);
+    if (rlat >= 270) rlat -= 360;
+
+    // Check to see that answer is reasonable - ie no more than 1/2 cell away 
+    if (fabs(rlat - a->lat) > (AirDlat/2)) {
+        a->lat = a->lon = 0; // This will cause a quick exit next time if no global has been done
+        return (-1);         // Time to give up - Latitude error 
+    }
+
+    // Compute the Longitude Index "m"
+    AirDlon = cprDlonFunction(rlat, fflag, 0);
+    m = (int) (floor(lonr/AirDlon) +
+               trunc(0.5 + cprModFunction((int)lonr, (int)AirDlon)/AirDlon - lon/131072));
+    rlon = AirDlon * (m + lon/131072);
+    if (rlon > 180) rlon -= 360;
+
+    // Check to see that answer is reasonable - ie no more than 1/2 cell away
+    if (fabs(rlon - a->lon) > (AirDlon/2)) {
+        a->lat = a->lon = 0; // This will cause a quick exit next time if no global has been done
+        return (-1);         // Time to give up - Longitude error
+    }
+
+    a->lat = rlat;
+    a->lon = rlon;
+    a->sbsflags |= MODES_SBS_LAT_LONG_FRESH;
+
+    return (0);
 }
 
 /* Receive new messages and populate the interactive mode with more info. */
@@ -2443,10 +2509,13 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
                 a->even_cprlon = mm->raw_longitude;
                 a->even_cprtime = mstime();
             }
-            /* If the two data is less than 10 seconds apart, compute
-             * the position. */
-            if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
-                decodeCPR(a);
+            // Try relative CPR first
+            if (decodeCPRrelative(a, mm->fflag, 0, 0, 0)) {
+                // If it fails then try global if the two data are less than 10 seconds apart, compute
+                // the position.
+                if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
+                      decodeCPR(a, mm->fflag, 0);
+                }
             }
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
