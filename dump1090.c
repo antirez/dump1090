@@ -2962,40 +2962,63 @@ int decodeHexMessage(struct client *c) {
     unsigned char msg[MODES_LONG_MSG_BYTES];
     struct modesMessage mm;
 
-    /* Remove spaces on the left and on the right. */
-    while(l && isspace(hex[l-1])) {
-        hex[l-1] = '\0';
-        l--;
-    }
-    while(isspace(*hex)) {
-        hex++;
-        l--;
-    }
-
-    /* Turn the message into binary. */
-    if (l < 2 || (hex[0] != '*' && hex[0] != '@') || hex[l-1] != ';') return 0;
-    if (hex[0] == '@') {
-        hex += 13; l -= 15; // Skip @, and timestamp, and ;
-    } else {
-        hex++; l-=2; // Skip * and ;
-    }
-    if (l > MODES_LONG_MSG_BYTES*2) return 0; /* Too long message... broken. */
-    for (j = 0; j < l; j += 2) {
-        int high = hexDigitVal(hex[j]);
-        int low = hexDigitVal(hex[j+1]);
-
-        if (high == -1 || low == -1) return 0;
-        msg[j/2] = (high<<4) | low;
-    }
     // Always mark the timestamp as invalid for packets received over the internet
     // Mixing of data from two or more different receivers and publishing
     // as coming from one would lead to corrupt mlat data
     // Non timemarked internet data has indeterminate delay
     mm.timestampMsg = -1;
     mm.signalLevel  = -1;
-    decodeModesMessage(&mm,msg);
+
+    // Remove spaces on the left and on the right
+    while(l && isspace(hex[l-1])) {
+        hex[l-1] = '\0'; l--;
+    }
+    while(isspace(*hex)) {
+        hex++; l--;
+    }
+
+    // Turn the message into binary.
+    // Accept *-AVR raw @-AVR/BEAST timeS+raw %-AVR timeS+raw (CRC good) <-BEAST timeS+sigL+raw
+    // and some AVR recorer that we can understand
+    if (hex[l-1] != ';') {return (0);} // not complete - abort
+
+    switch(hex[0]) {
+        case '<': {
+            mm.signalLevel = (hexDigitVal(hex[13])<<4) | hexDigitVal(hex[14]);
+            hex += 15; l -= 16; // Skip <, timestamp and siglevel, and ;
+            break;}
+
+        case '@':
+        case '%':
+        case '#':
+        case '$': {
+            hex += 13; l -= 14; // Skip @,%,#,$, and timestamp, and ;
+            break;}
+
+        case '*':
+        case ':': {
+            hex++; l-=2; // Skip * and ;
+            break;}
+
+        default: {
+            return (0); // We don't know what this is, so abort
+            break;}
+    }
+
+    if ( (l < 4) || (l > MODES_LONG_MSG_BYTES*2) ) return (0); // Too short or long message... broken
+    for (j = 0; j < l; j += 2) {
+        int high = hexDigitVal(hex[j]);
+        int low  = hexDigitVal(hex[j+1]);
+
+        if (high == -1 || low == -1) return 0;
+        msg[j/2] = (high<<4) | low;
+    }
+
+    if (l < 5) {decodeModeAMessage((uint)((msg[0]<<8) + msg[1]), &mm);} // ModeA or ModeC
+    else       {decodeModesMessage(&mm, msg);}
+
     useModesMessage(&mm);
-    return 0;
+    return (0);
 }
 
 /* Return a description of planes in json. */
