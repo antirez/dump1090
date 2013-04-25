@@ -142,6 +142,7 @@ struct aircraft {
     int track;          /* Angle of flight. */
     time_t seen;        /* Time at which the last packet was received. */
     long messages;      /* Number of Mode S messages received. */
+    int  modeA;         /* Squawk */
     int  modeC;         /* Altitude */
     long modeAcount;    /* Mode A Squawk hit Count */
     long modeCcount;    /* Mode C Altitude hit Count */
@@ -155,7 +156,6 @@ struct aircraft {
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     int sbsflags;
     uint64_t odd_cprtime, even_cprtime;
-    int squawk;
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
 
@@ -284,7 +284,7 @@ struct modesMessage {
     int fs;                     /* Flight status for DF4,5,20,21 */
     int dr;                     /* Request extraction of downlink request. */
     int um;                     /* Request extraction of downlink request. */
-    int identity;               /* 13 bits identity (Squawk). */
+    int modeA;                  /* 13 bits identity (Squawk). */
 
     // DF32 ModeA & Mode C
     int modeC;                  /* Decoded Mode C */
@@ -1056,11 +1056,8 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA)
   // Use an upper address byte of FF, since this is ICAO unallocated
   mm->addr = 0x00FF0000 | (ModeA & 0x0000FF7F);
 
-  // Set the Identity field to decimal ModeA
-  mm->identity =   (ModeA        & 7)
-               + (((ModeA >>  4) & 7) * 10)
-               + (((ModeA >>  8) & 7) * 100)
-               + (((ModeA >> 12) & 7) * 1000);
+  // Set the Identity field to ModeA
+  mm->modeA =  ModeA & 0x7777;
 
   // Flag ident in flight status
   mm->fs = ModeA & 0x0080;
@@ -1494,31 +1491,31 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
      * from 0 to 7.
      *
      * The actual meaning is just 4 octal numbers, but we convert it
-     * into a base ten number tha happens to represent the four
+     * into a hex number tha happens to represent the four
      * octal numbers.
      *
      * For more info: http://en.wikipedia.org/wiki/Gillham_code */
     {
-        int           decIdentity = 0;
-        unsigned char rawIdentity;
+        int           hexSquawk = 0;
+        unsigned char rawSquawk;
 
-        rawIdentity = msg[2];
-        if (rawIdentity & 0x01) {decIdentity +=   40;} // C4
-        if (rawIdentity & 0x02) {decIdentity += 2000;} // A2
-        if (rawIdentity & 0x04) {decIdentity +=   20;} // C2
-        if (rawIdentity & 0x08) {decIdentity += 1000;} // A1
-        if (rawIdentity & 0x10) {decIdentity +=   10;} // C1
+        rawSquawk = msg[2];
+        if (rawSquawk & 0x01) {hexSquawk |= 0x0040;} // C4
+        if (rawSquawk & 0x02) {hexSquawk |= 0x2000;} // A2
+        if (rawSquawk & 0x04) {hexSquawk |= 0x0020;} // C2
+        if (rawSquawk & 0x08) {hexSquawk |= 0x1000;} // A1
+        if (rawSquawk & 0x10) {hexSquawk |= 0x0010;} // C1
 
-        rawIdentity = msg[3];
-        if (rawIdentity & 0x01) {decIdentity +=    4;} // D4
-        if (rawIdentity & 0x02) {decIdentity +=  400;} // B4
-        if (rawIdentity & 0x04) {decIdentity +=    2;} // D2
-        if (rawIdentity & 0x08) {decIdentity +=  200;} // B2
-        if (rawIdentity & 0x10) {decIdentity +=    1;} // D1
-        if (rawIdentity & 0x20) {decIdentity +=  100;} // B1 
-        if (rawIdentity & 0x80) {decIdentity += 4000;} // A4
+        rawSquawk = msg[3];
+        if (rawSquawk & 0x01) {hexSquawk |= 0x0004;} // D4
+        if (rawSquawk & 0x02) {hexSquawk |= 0x0400;} // B4
+        if (rawSquawk & 0x04) {hexSquawk |= 0x0002;} // D2
+        if (rawSquawk & 0x08) {hexSquawk |= 0x0200;} // B2
+        if (rawSquawk & 0x10) {hexSquawk |= 0x0001;} // D1
+        if (rawSquawk & 0x20) {hexSquawk |= 0x0100;} // B1 
+        if (rawSquawk & 0x80) {hexSquawk |= 0x4000;} // A4
 
-        mm->identity = decIdentity;
+        mm->modeA = hexSquawk;
     }
 
     /* DF 11 & 17: try to populate our ICAO addresses whitelist.
@@ -1678,7 +1675,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  Flight Status  : %s\n", fs_str[mm->fs]);
         printf("  DR             : %d\n", mm->dr);
         printf("  UM             : %d\n", mm->um);
-        printf("  Squawk         : %d\n", mm->identity);
+        printf("  Squawk         : %x\n", mm->modeA);
         printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 21) {
@@ -1688,7 +1685,7 @@ void displayModesMessage(struct modesMessage *mm) {
         /* DF 11 */
         printf("DF 11: All Call Reply.\n");
         printf("  Capability  : %s\n", ca_str[mm->ca]);
-        printf("  ICAO Address  %06x\n", mm->addr);
+        printf("  ICAO Address: %06x\n", mm->addr);
         if (mm->iid > 16)
             {printf("  IID         : SI-%02d\n", mm->iid-16);}
         else
@@ -1743,11 +1740,11 @@ void displayModesMessage(struct modesMessage *mm) {
         // DF 32 is special code we use for Mode A/C
         printf("SSR : Mode A/C Reply.\n");
         if (mm->fs & 0x0080) {
-            printf("  Mode A : %04d IDENT\n", mm->identity);
+            printf("  Mode A : %04x IDENT\n", mm->modeA);
         } else {
-            printf("  Mode A : %04d\n",   mm->identity);
+            printf("  Mode A : %04x\n", mm->modeA);
             if (mm->altitude >= -1300)
-                {printf("  Mode C : %d feet\n",mm->altitude);}
+                {printf("  Mode C : %d feet\n", mm->altitude);}
         }
 
     } else {
@@ -2160,7 +2157,6 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
 
     a->addr         = mm->addr;
     a->flight[0]    = '\0';
-    a->altitude     = 0;
     a->speed        = 0;
     a->track        = 0;
     a->odd_cprlat   = 0;
@@ -2174,11 +2170,12 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     a->sbsflags     = 0;
     a->seen         = time(NULL);
     a->messages     = 0;
-    a->squawk      = 0;
-    a->modeACflags = 0;
+    a->modeACflags  = 0;
+    a->modeA        = 0;
+    a->modeC        = 0;
+    a->altitude     = 0;
     a->modeAcount   = 0;
     a->modeCcount   = 0;
-    a->modeC        = 0;
     a->next         = NULL;
     return (a);
 }
@@ -2225,16 +2222,15 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
         if ((b->modeACflags & MODEAC_MSG_FLAG) == 0) {// skip any fudged ICAO records 
 
             // First check for Mode-A <=> Mode-S Squawk matches
-            if (a->squawk == b->squawk) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
+            if (a->modeA == b->modeA) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
                 b->modeAcount++;
                 if ( (b->modeAcount > 0) && 
                     ((b->modeCcount > 1) || (a->modeC < -12)) )
-                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
+                     {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
             }
 
             // Next check for Mode-C <=> Mode-S Altitude matches
-            if (a->modeC == b->modeC) // If a 'real' Mode S ICAO exists at this Mode-C Altitude
-                { 
+            if (a->modeC == b->modeC) { // If a 'real' Mode S ICAO exists at this Mode-C Altitude
                 b->modeCcount++;
                 if ((b->modeAcount > 0) && (b->modeCcount > 1))
                     {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
@@ -2499,10 +2495,10 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         a->altitude = mm->altitude;
         a->modeC    = mm->modeC;
     } else if(mm->msgtype == 5 || mm->msgtype == 21) {
-        if (a->squawk != mm->identity) {
+        if (a->modeA != mm->modeA) {
             a->modeAcount = 0; // Squawk has changed, so zero the hit count
         }
-        a->squawk = mm->identity;
+        a->modeA = mm->modeA;
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
@@ -2539,7 +2535,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         }
     } else if(mm->msgtype == 32) {
         a->modeACflags = MODEAC_MSG_FLAG;
-        a->squawk      = mm->identity;
+        a->modeA       = mm->modeA;
         a->modeC       = mm->modeC;
         a->altitude    = mm->altitude;
         interactiveUpdateAircraftModeA(a);
@@ -2593,8 +2589,8 @@ void interactiveShowData(void) {
                 altitude = -9999;
             }
         
-            if (a->squawk > 0 && a->squawk <= 7777) {
-                sprintf(squawk, "%04d", a->squawk);
+            if (a->modeA) {
+                sprintf(squawk, "%04x", a->modeA);
             }
         
             if (msgs > 99999) {
@@ -2875,10 +2871,8 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     struct tm stTime;
 
     if (mm->msgtype == 4 || mm->msgtype == 5 || mm->msgtype == 21) {
-        /* Node: identity is calculated/kept in base10 but is actually
-         * octal (07500 is represented as 7500) */
-        if (mm->identity == 7500 || mm->identity == 7600 ||
-            mm->identity == 7700) emergency = -1;
+        if (mm->modeA == 0x7500 || mm->modeA == 0x7600 ||
+            mm->modeA == 0x7700) emergency = -1;
         if (mm->fs == 1 || mm->fs == 3) ground = -1;
         if (mm->fs == 2 || mm->fs == 3 || mm->fs == 4) alert = -1;
         if (mm->fs == 4 || mm->fs == 5) spi = -1;
@@ -2916,7 +2910,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         p += sprintf(p, "MSG,5,%s,,%d,,,,,,,%d,%d,%d,%d",       strCommon, mm->altitude, alert, emergency, spi, ground);
 
     } else if (mm->msgtype == 5) {
-        p += sprintf(p, "MSG,6,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,6,%s,,,,,,,,%x,%d,%d,%d,%d",       strCommon, mm->modeA, alert, emergency, spi, ground);
 
     } else if (mm->msgtype == 11) {
         p += sprintf(p, "MSG,8,%s,,,,,,,,,,,,",                 strCommon);
@@ -2938,7 +2932,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         p += sprintf(p, "MSG,4,%s,,,%d,%d,,,%i,,0,0,0,0",       strCommon, mm->velocity, mm->heading, vr);
 
     } else if (mm->msgtype == 21) {
-        p += sprintf(p, "MSG,6,%s,,,,,,,,%d,%d,%d,%d,%d",       strCommon, mm->identity, alert, emergency, spi, ground);
+        p += sprintf(p, "MSG,6,%s,,,,,,,,%x,%d,%d,%d,%d",       strCommon, mm->modeA, alert, emergency, spi, ground);
 
     } else {
         return;
