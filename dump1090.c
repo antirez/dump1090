@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.02.2404.13"
+#define MODES_DUMP1090_VERSION     "1.02.2504.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -136,7 +136,6 @@ struct client {
 /* Structure used to describe an aircraft in iteractive mode. */
 struct aircraft {
     uint32_t addr;      /* ICAO address */
-    char hexaddr[7];    /* Printable ICAO address */
     char flight[9];     /* Flight number */
     int altitude;       /* Altitude */
     int speed;          /* Velocity computed from EW and NS components. */
@@ -252,7 +251,7 @@ struct modesMessage {
     int crcok;                  /* True if CRC was valid */
     uint32_t crc;               /* Message CRC */
     int errorbit;               /* Bit corrected. -1 if no bit corrected. */
-    int aa1, aa2, aa3;          /* ICAO Address bytes 1 2 and 3 */
+    uint32_t addr;              /* ICAO Address from bytes 1 2 and 3 */
     int phase_corrected;        /* True if phase correction was applied. */
     uint64_t timestampMsg;      /* Timestamp of the message. */  
     unsigned char signalLevel;  /* Signal Amplitude */
@@ -1053,10 +1052,9 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA)
   mm->msg[0] = (ModeA >> 8);
   mm->msg[1] = (ModeA);
 
-  // Fudge an ICAO address based on Mode A
-  mm->aa1 = 0xFF;           // Use an upper address byte of FF, since this is ICAO unallocated
-  mm->aa2 = (ModeA >> 8);
-  mm->aa3 = (ModeA & 0x7F); // remove the Ident bit
+  // Fudge an ICAO address based on Mode A (remove the Ident bit)
+  // Use an upper address byte of FF, since this is ICAO unallocated
+  mm->addr = 0x00FF0000 | (ModeA & 0x0000FF7F);
 
   // Set the Identity field to decimal ModeA
   mm->identity =   (ModeA        & 7)
@@ -1278,7 +1276,7 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
  * populated by the caller.
  *
  * On success the correct ICAO address is stored in the modesMessage
- * structure in the aa3, aa2, and aa1 fiedls.
+ * structure in the addr field.
  *
  * If the function successfully recovers a message with a correct checksum
  * it returns 1. Otherwise 0 is returned. */
@@ -1307,21 +1305,19 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
          *
          * (ADDR xor CRC) xor CRC = ADDR. */
         crc = modesChecksum(aux,msgbits);
-        aux[lastbyte] ^= crc & 0xff;
-        aux[lastbyte-1] ^= (crc >> 8) & 0xff;
+        aux[lastbyte]   ^=  crc        & 0xff;
+        aux[lastbyte-1] ^= (crc >> 8)  & 0xff;
         aux[lastbyte-2] ^= (crc >> 16) & 0xff;
         
         /* If the obtained address exists in our cache we consider
          * the message valid. */
         addr = aux[lastbyte] | (aux[lastbyte-1] << 8) | (aux[lastbyte-2] << 16);
         if (ICAOAddressWasRecentlySeen(addr)) {
-            mm->aa1 = aux[lastbyte-2];
-            mm->aa2 = aux[lastbyte-1];
-            mm->aa3 = aux[lastbyte];
-            return 1;
+            mm->addr = addr;
+            return (1);
         }
     }
-    return 0;
+    return (0);
 }
 
 /* Decode the 13 bit AC altitude field (in DF 20 and others).
@@ -1476,10 +1472,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
      * fields again. */
     mm->ca = msg[0] & 7;        /* Responder capabilities. */
 
-    /* ICAO address */
-    mm->aa1 = msg[1];
-    mm->aa2 = msg[2];
-    mm->aa3 = msg[3];
+    // ICAO address
+    mm->addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
 
     /* DF 17 type (assuming this is a DF17, otherwise not used) */
     mm->metype = msg[4] >> 3;   /* Extended squitter message type. */
@@ -1544,8 +1538,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
          * we can add this address to the list of recently seen
          * addresses. */
         if (mm->crcok && mm->errorbit == -1) {
-            uint32_t addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
-            addRecentlySeenICAOAddr(addr);
+            addRecentlySeenICAOAddr(mm->addr);
         }
     }
 
@@ -1632,7 +1625,7 @@ void displayModesMessage(struct modesMessage *mm) {
 
     /* Handle only addresses mode first. */
     if (Modes.onlyaddr) {
-        printf("%02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("%06x\n", mm->addr);
         return;
     }
 
@@ -1665,7 +1658,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("DF 0: Short Air-Air Surveillance.\n");
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
-        printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("  ICAO Address   : %06x\n", mm->addr);
     } else if (mm->msgtype == 4 || mm->msgtype == 20) {
         printf("DF %d: %s, Altitude Reply.\n", mm->msgtype,
             (mm->msgtype == 4) ? "Surveillance" : "Comm-B");
@@ -1674,7 +1667,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  UM             : %d\n", mm->um);
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
-        printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 20) {
             /* TODO: 56 bits DF20 MB additional field. */
@@ -1686,7 +1679,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  DR             : %d\n", mm->dr);
         printf("  UM             : %d\n", mm->um);
         printf("  Squawk         : %d\n", mm->identity);
-        printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 21) {
             /* TODO: 56 bits DF21 MB additional field. */
@@ -1695,7 +1688,7 @@ void displayModesMessage(struct modesMessage *mm) {
         /* DF 11 */
         printf("DF 11: All Call Reply.\n");
         printf("  Capability  : %s\n", ca_str[mm->ca]);
-        printf("  ICAO Address: %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("  ICAO Address  %06x\n", mm->addr);
         if (mm->iid > 16)
             {printf("  IID         : SI-%02d\n", mm->iid-16);}
         else
@@ -1704,7 +1697,7 @@ void displayModesMessage(struct modesMessage *mm) {
         /* DF 17 */
         printf("DF 17: ADS-B message.\n");
         printf("  Capability     : %d (%s)\n", mm->ca, ca_str[mm->ca]);
-        printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("  ICAO Address   : %06x\n", mm->addr);
         printf("  Extended Squitter  Type: %d\n", mm->metype);
         printf("  Extended Squitter  Sub : %d\n", mm->mesub);
         printf("  Extended Squitter  Name: %s\n",
@@ -2158,57 +2151,58 @@ void useModesMessage(struct modesMessage *mm) {
 }
 
 /* ========================= Interactive mode =============================== */
-
-/* Return a new aircraft structure for the interactive mode linked list
- * of aircrafts. */
-struct aircraft *interactiveCreateAircraft(uint32_t addr) {
+//
+// Return a new aircraft structure for the interactive mode linked list
+// of aircraft
+//
+struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     struct aircraft *a = (struct aircraft *) malloc(sizeof(*a));
 
-    a->addr = addr;
-    snprintf(a->hexaddr,sizeof(a->hexaddr),"%06x",(int)addr);
-    a->flight[0] = '\0';
-    a->altitude = 0;
-    a->speed = 0;
-    a->track = 0;
-    a->odd_cprlat = 0;
-    a->odd_cprlon = 0;
-    a->odd_cprtime = 0;
-    a->even_cprlat = 0;
-    a->even_cprlon = 0;
+    a->addr         = mm->addr;
+    a->flight[0]    = '\0';
+    a->altitude     = 0;
+    a->speed        = 0;
+    a->track        = 0;
+    a->odd_cprlat   = 0;
+    a->odd_cprlon   = 0;
+    a->odd_cprtime  = 0;
+    a->even_cprlat  = 0;
+    a->even_cprlon  = 0;
     a->even_cprtime = 0;
-    a->lat = 0;
-    a->lon = 0;
-    a->sbsflags = 0;
-    a->seen = time(NULL);
-    a->messages = 0;
-    a->squawk = 0;
+    a->lat          = 0;
+    a->lon          = 0;
+    a->sbsflags     = 0;
+    a->seen         = time(NULL);
+    a->messages     = 0;
+    a->squawk      = 0;
     a->modeACflags = 0;
-    a->modeAcount = 0;
-    a->modeCcount = 0;
-    a->modeC = 0;
-    a->next = NULL;
-    return a;
+    a->modeAcount   = 0;
+    a->modeCcount   = 0;
+    a->modeC        = 0;
+    a->next         = NULL;
+    return (a);
 }
-
-/* Return the aircraft with the specified address, or NULL if no aircraft
- * exists with this address. */
+//
+// Return the aircraft with the specified address, or NULL if no aircraft
+// exists with this address.
+//
 struct aircraft *interactiveFindAircraft(uint32_t addr) {
     struct aircraft *a = Modes.aircrafts;
 
     while(a) {
-        if (a->addr == addr) return a;
+        if (a->addr == addr) return (a);
         a = a->next;
     }
-    return NULL;
+    return (NULL);
 }
 //
 // We have received a Mode A or C response. 
 //
-// Search through the list of known aircraft and tag them if this Mode A/C matches any 
-// known Mode S Squawks or Altitudes(+/- 50feet).
+// Search through the list of known Mode-S aircraft and tag them if this Mode A/C 
+// matches their known Mode S Squawks or Altitudes(+/- 50feet).
 //
 // A Mode S equipped aircraft may also respond to Mode A and Mode C SSR interrogations.
-// We can't tell if this is a mode A or C, so scan through the entire aircraft list
+// We can't tell if this is a Mode A or C, so scan through the entire aircraft list
 // looking for matches on Mode A (squawk) and Mode C (altitude). Flag in the Mode S
 // records that we have had a potential Mode A or Mode C response from this aircraft. 
 //
@@ -2220,24 +2214,30 @@ struct aircraft *interactiveFindAircraft(uint32_t addr) {
 // Mode C's are more likely to clash than Mode A's; There could be several aircraft 
 // cruising at FL370, but it's less likely (though not impossible) that there are two 
 // aircraft on the same squawk. Therefore, give precidence to Mode A record matches
-// 
+//
+// Note : It's theoretically possible for an aircraft to have the same value for Mode A 
+// and Mode C. Therefore we have to check BOTH A AND C for EVERY S.
+//  
 void interactiveUpdateAircraftModeA(struct aircraft *a) {
     struct aircraft *b = Modes.aircrafts;
 
     while(b) {
         if ((b->modeACflags & MODEAC_MSG_FLAG) == 0) {// skip any fudged ICAO records 
 
-            if (a->squawk == b->squawk) { // If a 'real' Mode S ICAO exists using this Squawk
+            // First check for Mode-A <=> Mode-S Squawk matches
+            if (a->squawk == b->squawk) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
                 b->modeAcount++;
                 if ( (b->modeAcount > 0) && 
                     ((b->modeCcount > 1) || (a->modeC < -12)) )
-                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag that this ModeA/C probably belongs to a known Mode S                    
+                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
+            }
 
-            } else if (a->modeC == b->modeC) // If a 'real' Mode S ICAO exists at this Altitude
+            // Next check for Mode-C <=> Mode-S Altitude matches
+            if (a->modeC == b->modeC) // If a 'real' Mode S ICAO exists at this Mode-C Altitude
                 { 
                 b->modeCcount++;
                 if ((b->modeAcount > 0) && (b->modeCcount > 1))
-                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag that this ModeA/C probably belongs to a known Mode S                    
+                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
             }
         }
         b = b->next;
@@ -2248,9 +2248,13 @@ void interactiveUpdateAircraftModeS() {
     struct aircraft *a = Modes.aircrafts;
 
     while(a) {
-        if (a->modeACflags & MODEAC_MSG_FLAG) {      // find any fudged ICAO records 
-            a->modeACflags &= ~MODEAC_MSG_MODES_HIT; // clear the hit bit
-            interactiveUpdateAircraftModeA(a);       // and attempt to match them with Mode-S
+        int flags = a->modeACflags;
+        if (flags & MODEAC_MSG_FLAG) { // find any fudged ICAO records 
+
+            // clear the hit bit
+            a->modeACflags = flags & ~MODEAC_MSG_MODES_HIT;
+
+            interactiveUpdateAircraftModeA(a);  // and attempt to match them with Mode-S
         }
         a = a->next;
     }
@@ -2454,17 +2458,15 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
 
 /* Receive new messages and populate the interactive mode with more info. */
 struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
-    uint32_t addr;
     struct aircraft *a, *aux;
 
     if (Modes.check_crc && mm->crcok == 0) return NULL;
-    addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
 
     // Loookup our aircraft or create a new one
-    a = interactiveFindAircraft(addr);
-    if (!a) {                                // If it's a currently unknown aircraft....
-        a = interactiveCreateAircraft(addr); // ., create a new record for it,
-        a->next = Modes.aircrafts;           // .. and put it at the head of the list
+    a = interactiveFindAircraft(mm->addr);
+    if (!a) {                              // If it's a currently unknown aircraft....
+        a = interactiveCreateAircraft(mm); // ., create a new record for it,
+        a->next = Modes.aircrafts;         // .. and put it at the head of the list
         Modes.aircrafts = a;
     } else {
         /* If it is an already known aircraft, move it on head
@@ -2557,7 +2559,7 @@ void interactiveShowData(void) {
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
  
-    if (Modes.interactive_rtl1090 ==0) {
+    if (Modes.interactive_rtl1090 == 0) {
         printf (
 "Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n", progress);
     } else {
@@ -2614,11 +2616,11 @@ void interactiveShowData(void) {
                 if (a->track > 0) {
                     sprintf (tt,"%03d",a->track);
                 }
-                printf("%-6s %-8s %-4s         %-3s %-3s %4s        %-6d  %d %c \n", 
-                a->hexaddr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen), spacer);
+                printf("%06x %-8s %-4s         %-3s %-3s %4s        %-6d  %d %c \n", 
+                a->addr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen), spacer);
             } else {
-            printf("%-6s  %-4s   %-8s %-7d %-7d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
-                a->hexaddr, squawk, a->flight, altitude, speed,
+                printf("%06x  %-4s   %-8s %-7d %-6d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
+                a->addr, squawk, a->flight, altitude, speed,
                 a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
             }
             count++;
@@ -2883,7 +2885,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     }
 
     // ICAO address of the aircraft
-    pCommon += sprintf(pCommon, "111,11111,%02X%02X%02X,111111,", mm->aa1, mm->aa2, mm->aa3); 
+    pCommon += sprintf(pCommon, "111,11111,%06X,111111,", mm->addr); 
 
     // Make sure the records' timestamp is valid before outputing it
     if (mm->timestampMsg != (uint64_t)(-1)) {
@@ -3053,10 +3055,10 @@ char *aircraftsToJson(int *len) {
 
         if (a->lat != 0 && a->lon != 0) {
             l = snprintf(p,buflen,
-                "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
+                "{\"hex\":\"%06x\", \"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
                 "\"speed\":%d},\n",
-                a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
+                a->addr, a->flight, a->lat, a->lon, a->altitude, a->track,
                 a->speed);
             p += l; buflen -= l;
             /* Resize if needed. */
