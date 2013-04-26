@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.02.2604.13"
+#define MODES_DUMP1090_VERSION     "1.03.2604.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -141,6 +141,7 @@ struct client {
 struct aircraft {
     uint32_t addr;      /* ICAO address */
     char flight[9];     /* Flight number */
+    char signalLevel;   /* Signal Amplitude */
     int altitude;       /* Altitude */
     int speed;          /* Velocity computed from EW and NS components. */
     int track;          /* Angle of flight. */
@@ -2229,6 +2230,7 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
             // First check for Mode-A <=> Mode-S Squawk matches
             if (a->modeA == b->modeA) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
                 b->modeAcount   = a->messages;
+                b->modeACflags |= MODEAC_MSG_MODEA_HIT;
                 a->modeACflags |= MODEAC_MSG_MODEA_HIT;
                 if ( (b->modeAcount > 0) && 
                    ( (b->modeCcount > 1) 
@@ -2241,6 +2243,7 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
                || (a->modeC     == b->modeC + 1)     //          or this Mode-C - 100 ft
                || (a->modeC + 1 == b->modeC    ) ) { //          or this Mode-C + 100 ft
                 b->modeCcount   = a->messages;
+                b->modeACflags |= MODEAC_MSG_MODEC_HIT;
                 a->modeACflags |= MODEAC_MSG_MODEC_HIT;
                 if ( (b->modeAcount > 0) && 
                      (b->modeCcount > 1) )
@@ -2496,18 +2499,23 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     a->seen = time(NULL);
     a->messages++;
+    a->signalLevel = mm->signalLevel;
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         if ( (a->modeCcount)                   // if we've a modeCcount already
           && (a->altitude  != mm->altitude ) ) // and Altitude has changed
 //        && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
 //        && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
-            {a->modeCcount = 0;}               //....zero the hit count
+            {
+            a->modeCcount   = 0;               //....zero the hit count
+            a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
+            }
         a->altitude =  mm->altitude;
         a->modeC    = (mm->altitude + 49) / 100;
     } else if(mm->msgtype == 5 || mm->msgtype == 21) {
         if (a->modeA != mm->modeA) {
-            a->modeAcount = 0; // Squawk has changed, so zero the hit count
+            a->modeAcount   = 0; // Squawk has changed, so zero the hit count
+            a->modeACflags &= ~MODEAC_MSG_MODEA_HIT;
         }
         a->modeA = mm->modeA;
 
@@ -2519,7 +2527,10 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
               && (a->altitude  != mm->altitude ) ) // and Altitude has changed
 //            && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
 //            && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
-                {a->modeCcount = 0;}               //....zero the hit count
+                {
+                a->modeCcount   = 0;               //....zero the hit count
+                a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
+                }
             a->altitude =  mm->altitude;
             a->modeC    = (mm->altitude + 49) / 100;
             if (mm->fflag) {
@@ -2582,28 +2593,26 @@ void interactiveShowData(void) {
  
     if (Modes.interactive_rtl1090 == 0) {
         printf (
-"Hex     ModeA  Flight   Alt     Speed   Lat       Lon       Track  Msgs   Seen %c\n", progress);
+"Hex     Mode  Sqwk  Flight   Alt     Spd  Hdg   Lat     Long    Sig   Msgs  Ti%c\n", progress);
     } else {
         printf (
 "Hex    Flight   Alt      V/S GS  TT  SSR  G*456^ Msgs    Seen %c\n", progress);
     }
     printf(
-"--------------------------------------------------------------------------------\n");
+"-------------------------------------------------------------------------------\n");
 
     while(a && count < Modes.interactive_rows) {
-        int altitude = a->altitude, speed = a->speed, msgs = a->messages;
-        char squawk[5] = "    ";
-        char fl[5] = "    ";
-        char tt[5] = "   ";
-        char gs[5] = "   ";
-        char spacer = '\0';
+        int msgs  = a->messages;
+        int flags = a->modeACflags;
 
-        if ( (((a->modeACflags & (MODEAC_MSG_FLAG                             )) == 0                    )                 )
-          || (((a->modeACflags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY) && (msgs > 4  ) ) 
-          || (((a->modeACflags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD )) == 0                    ) && (msgs > 127) ) 
+        if ( (((flags & (MODEAC_MSG_FLAG                             )) == 0                    )                 )
+          || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY) && (msgs > 4  ) ) 
+          || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD )) == 0                    ) && (msgs > 127) ) 
            ) {
+            int altitude = a->altitude, speed = a->speed;
+            char squawk[5] = "    ";
 
-            /* Convert units to metric if --metric was specified. */
+            // Convert units to metric if --metric was specified
             if (Modes.metric) {
                 altitude = (int) (altitude / 3.2828);
                 speed    = (int) (speed * 1.852);
@@ -2611,7 +2620,9 @@ void interactiveShowData(void) {
         
             if (altitude > 99999) {
                 altitude = 99999;
-            } else if (altitude < -9999) {
+            } else if (altitude == -999900) {
+                altitude = 0;
+            } else if (altitude  < -9999) {
                 altitude = -9999;
             }
         
@@ -2623,14 +2634,13 @@ void interactiveShowData(void) {
                 msgs = 99999;
             }
         
-            if ((int)(now - a->seen) < 10) {
-                spacer = ' ';
-            }
-
             if (Modes.interactive_rtl1090 != 0) {
-                if (altitude>0) {
-                    altitude=altitude/100; 
-                    sprintf(fl,"F%03d",altitude);
+                char fl[5] = "    ";
+                char tt[5] = "   ";
+                char gs[5] = "   ";
+
+                if (altitude > 0) {
+                    sprintf(fl,"F%03d",(altitude/100));
                 }
                 if (speed > 0) {
                     sprintf (gs,"%3d",speed);
@@ -2638,12 +2648,22 @@ void interactiveShowData(void) {
                 if (a->track > 0) {
                     sprintf (tt,"%03d",a->track);
                 }
-                printf("%06x %-8s %-4s         %-3s %-3s %4s        %-6d  %d %c \n", 
-                a->addr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen), spacer);
+                printf("%06x %-8s %-4s         %-3s %-3s %4s        %-6d  %-2d\n", 
+                a->addr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen));
+
             } else {
-                printf("%06x  %-4s   %-8s %-7d %-6d %-7.03f   %-7.03f   %-3d    %-6d %d%c sec\n",
-                a->addr, squawk, a->flight, altitude, speed,
-                a->lat, a->lon, a->track, msgs, (int)(now - a->seen), spacer);
+                char mode[5] = "    \0";
+                if ((flags & MODEAC_MSG_FLAG) == 0) {
+                    mode[0] = 'S';
+                } else if (flags & MODEAC_MSG_MODEA_ONLY) {
+                    mode[0] = 'A';
+                }
+                if (flags & MODEAC_MSG_MODEA_HIT) {mode[2] = 'a';}
+                if (flags & MODEAC_MSG_MODEC_HIT) {mode[3] = 'c';}
+
+                printf("%06x  %-4s  %-4s  %-8s %5d  %4d  %3d   %-7.03f %-7.03f %3d %6d  %2d\n",
+                a->addr, mode, squawk, a->flight, altitude, speed, a->track,
+                a->lat, a->lon, a->signalLevel, msgs, (int)(now - a->seen));
             }
             count++;
         }        
