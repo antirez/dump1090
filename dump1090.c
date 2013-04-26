@@ -2338,14 +2338,14 @@ int cprNLFunction(double lat) {
     else return 1;
 }
 
-int cprNFunction(double lat, int isodd) {
-    int nl = cprNLFunction(lat) - isodd;
+int cprNFunction(double lat, int fflag) {
+    int nl = cprNLFunction(lat) - (fflag ? 1 : 0);
     if (nl < 1) nl = 1;
     return nl;
 }
 
-double cprDlonFunction(double lat, int isodd, int surface) {
-    return (surface ? 90.0 : 360.0) / cprNFunction(lat, isodd);
+double cprDlonFunction(double lat, int fflag, int surface) {
+    return (surface ? 90.0 : 360.0) / cprNFunction(lat, fflag);
 }
 
 /* This algorithm comes from:
@@ -2381,7 +2381,7 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
         int ni = cprNFunction(rlat1,1);
         int m = (int) floor((((lon0 * (cprNLFunction(rlat1)-1)) -
                               (lon1 * cprNLFunction(rlat1))) / 131072.0) + 0.5);
-        a->lon = cprDlonFunction(rlat1,1,surface) * (cprModFunction(m,ni)+lon1/131072);
+        a->lon = cprDlonFunction(rlat1, 1, surface) * (cprModFunction(m, ni)+lon1/131072);
         a->lat = rlat1;
     } else {     // Use even packet.
         int ni = cprNFunction(rlat0,0);
@@ -2444,7 +2444,7 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
     }
 
     // Compute the Longitude Index "m"
-    AirDlon = cprDlonFunction(rlat, fflag, 0);
+    AirDlon = cprDlonFunction(rlat, fflag, surface);
     m = (int) (floor(lonr/AirDlon) +
                trunc(0.5 + cprModFunction((int)lonr, (int)AirDlon)/AirDlon - lon/131072));
     rlon = AirDlon * (m + lon/131072);
