@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.02.2504.13"
+#define MODES_DUMP1090_VERSION     "1.02.2604.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -326,7 +326,7 @@ void modesInitConfig(void) {
     Modes.ppm_error = 0;
     Modes.freq = MODES_DEFAULT_FREQ;
     Modes.filename = NULL;
-    Modes.fix_errors = 1;
+    Modes.fix_errors = 0;
     Modes.check_crc = 1;
     Modes.raw = 0;
     Modes.beast = 0;
@@ -3313,6 +3313,7 @@ void showHelp(void) {
 "--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
 "--net-http-port <port>   HTTP server port (default: 8080)\n"
 "--net-sbs-port <port>    TCP BaseStation output listen port (default: 30003)\n"
+"--fix                    Enable single-bits error correction using CRC\n"
 "--no-fix                 Disable single-bits error correction using CRC\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged)\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...)\n"
@@ -3385,6 +3386,8 @@ int main(int argc, char **argv) {
             Modes.freq = (int) strtoll(argv[++j],NULL,10);
         } else if (!strcmp(argv[j],"--ifile") && more) {
             Modes.filename = strdup(argv[++j]);
+        } else if (!strcmp(argv[j],"--fix")) {
+            Modes.fix_errors = 1;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.fix_errors = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
