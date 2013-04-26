@@ -75,6 +75,10 @@
 #define MODEAC_MSG_SQUELCH_LEVEL  0x07FF         /* Average signal strength limit */
 #define MODEAC_MSG_FLAG          (1<<0)
 #define MODEAC_MSG_MODES_HIT     (1<<1)
+#define MODEAC_MSG_MODEA_HIT     (1<<2)
+#define MODEAC_MSG_MODEC_HIT     (1<<3)
+#define MODEAC_MSG_MODEA_ONLY    (1<<4)
+#define MODEAC_MSG_MODEC_OLD     (1<<5)
 
 #define MODES_PREAMBLE_US        8              /* microseconds = bits */
 #define MODES_PREAMBLE_SAMPLES  (MODES_PREAMBLE_US       * 2)
@@ -285,9 +289,6 @@ struct modesMessage {
     int dr;                     /* Request extraction of downlink request. */
     int um;                     /* Request extraction of downlink request. */
     int modeA;                  /* 13 bits identity (Squawk). */
-
-    // DF32 ModeA & Mode C
-    int modeC;                  /* Decoded Mode C */
 
     /* Fields used by multiple message types. */
     int altitude, unit; 
@@ -1005,7 +1006,7 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
   }
 
 // Input format is : 00:A4:A2:A1:00:B4:B2:B1:00:C4:C2:C1:00:D4:D2:D1
-int ModeAToModeC(unsigned int ModeA ) 
+int ModeAToModeC(unsigned int ModeA) 
   { 
   unsigned int FiveHundreds = 0;
   unsigned int OneHundreds  = 0;
@@ -1061,10 +1062,6 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA)
 
   // Flag ident in flight status
   mm->fs = ModeA & 0x0080;
-
-  // Convert ModeA to ModeC and use as an altitude
-  mm->modeC    = ModeAToModeC(ModeA);
-  mm->altitude = mm->modeC * 100;
 
   // Not much else we can tell from a Mode A/C reply.
   // Just fudge up a few bits to keep other code happy
@@ -1543,7 +1540,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     if (mm->msgtype == 0 || mm->msgtype == 4 ||
         mm->msgtype == 16 || mm->msgtype == 20) {
         mm->altitude = decodeAC13Field(msg, &mm->unit);
-        mm->modeC    = (mm->altitude + 49) / 100;
     }
 
     /* Decode extended squitter specific stuff. */
@@ -1567,7 +1563,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
             mm->altitude = decodeAC12Field(msg,&mm->unit);
-            mm->modeC    = (mm->altitude + 49) / 100;
             mm->raw_latitude = ((msg[6] & 3) << 15) |
                                 (msg[7] << 7) |
                                 (msg[8] >> 1);
@@ -1742,9 +1737,10 @@ void displayModesMessage(struct modesMessage *mm) {
         if (mm->fs & 0x0080) {
             printf("  Mode A : %04x IDENT\n", mm->modeA);
         } else {
+            int modeC = ModeAToModeC(mm->modeA);
             printf("  Mode A : %04x\n", mm->modeA);
-            if (mm->altitude >= -1300)
-                {printf("  Mode C : %d feet\n", mm->altitude);}
+            if (modeC >= -13)
+                {printf("  Mode C : %d feet\n", (modeC * 100));}
         }
 
     } else {
@@ -2170,10 +2166,19 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     a->sbsflags     = 0;
     a->seen         = time(NULL);
     a->messages     = 0;
-    a->modeACflags  = 0;
-    a->modeA        = 0;
-    a->modeC        = 0;
-    a->altitude     = 0;
+    if (mm->msgtype == 32) {
+        a->modeACflags = MODEAC_MSG_FLAG;
+        a->modeA       = mm->modeA;
+        a->modeC       = ModeAToModeC(mm->modeA | mm->fs);
+        a->altitude    = a->modeC * 100;
+        if (a->modeC < -12)
+            {a->modeACflags |= MODEAC_MSG_MODEA_ONLY;}  
+    } else {
+        a->modeACflags = 0;
+        a->modeA       = 0;
+        a->modeC       = 0;
+        a->altitude    = 0;
+    }
     a->modeAcount   = 0;
     a->modeCcount   = 0;
     a->next         = NULL;
@@ -2223,17 +2228,23 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
 
             // First check for Mode-A <=> Mode-S Squawk matches
             if (a->modeA == b->modeA) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
-                b->modeAcount++;
+                b->modeAcount   = a->messages;
+                a->modeACflags |= MODEAC_MSG_MODEA_HIT;
                 if ( (b->modeAcount > 0) && 
-                    ((b->modeCcount > 1) || (a->modeC < -12)) )
-                     {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
-            }
+                   ( (b->modeCcount > 1) 
+                  || (a->modeACflags & MODEAC_MSG_MODEA_ONLY)) ) // Allow Mode-A only matches if this Mode-A is invalid Mode-C
+                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;}    // flag this ModeA/C probably belongs to a known Mode S                    
+            } 
 
             // Next check for Mode-C <=> Mode-S Altitude matches
-            if (a->modeC == b->modeC) { // If a 'real' Mode S ICAO exists at this Mode-C Altitude
-                b->modeCcount++;
-                if ((b->modeAcount > 0) && (b->modeCcount > 1))
-                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;} // flag this ModeA/C probably belongs to a known Mode S                    
+            if (  (a->modeC     == b->modeC    )     // If a 'real' Mode-S ICAO exists at this Mode-C Altitude
+               || (a->modeC     == b->modeC + 1)     //          or this Mode-C - 100 ft
+               || (a->modeC + 1 == b->modeC    ) ) { //          or this Mode-C + 100 ft
+                b->modeCcount   = a->messages;
+                a->modeACflags |= MODEAC_MSG_MODEC_HIT;
+                if ( (b->modeAcount > 0) && 
+                     (b->modeCcount > 1) )
+                    {a->modeACflags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD);} // flag this ModeA/C probably belongs to a known Mode S                    
             }
         }
         b = b->next;
@@ -2247,8 +2258,8 @@ void interactiveUpdateAircraftModeS() {
         int flags = a->modeACflags;
         if (flags & MODEAC_MSG_FLAG) { // find any fudged ICAO records 
 
-            // clear the hit bit
-            a->modeACflags = flags & ~MODEAC_MSG_MODES_HIT;
+            // clear the current A,C and S hit bits ready for this attempt
+            a->modeACflags = flags & ~(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT);
 
             interactiveUpdateAircraftModeA(a);  // and attempt to match them with Mode-S
         }
@@ -2488,28 +2499,29 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         if ( (a->modeCcount)                   // if we've a modeCcount already
-          && (a->modeC     != mm->modeC    )   // and Altitude has changed
-          && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
-          && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
+          && (a->altitude  != mm->altitude ) ) // and Altitude has changed
+//        && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
+//        && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
             {a->modeCcount = 0;}               //....zero the hit count
-        a->altitude = mm->altitude;
-        a->modeC    = mm->modeC;
+        a->altitude =  mm->altitude;
+        a->modeC    = (mm->altitude + 49) / 100;
     } else if(mm->msgtype == 5 || mm->msgtype == 21) {
         if (a->modeA != mm->modeA) {
             a->modeAcount = 0; // Squawk has changed, so zero the hit count
         }
         a->modeA = mm->modeA;
+
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             if ( (a->modeCcount)                   // if we've a modeCcount already
-              && (a->modeC     != mm->modeC    )   // and Altitude has changed
-              && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
-              && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
+              && (a->altitude  != mm->altitude ) ) // and Altitude has changed
+//            && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
+//            && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
                 {a->modeCcount = 0;}               //....zero the hit count
-            a->altitude = mm->altitude;
-            a->modeC    = mm->modeC;
+            a->altitude =  mm->altitude;
+            a->modeC    = (mm->altitude + 49) / 100;
             if (mm->fflag) {
                 a->odd_cprlat = mm->raw_latitude;
                 a->odd_cprlon = mm->raw_longitude;
@@ -2534,11 +2546,24 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             }
         }
     } else if(mm->msgtype == 32) {
-        a->modeACflags = MODEAC_MSG_FLAG;
-        a->modeA       = mm->modeA;
-        a->modeC       = mm->modeC;
-        a->altitude    = mm->altitude;
-        interactiveUpdateAircraftModeA(a);
+
+        int flags = a->modeACflags;
+
+        if ((flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD)) == MODEAC_MSG_MODEC_OLD) { 
+            //
+            // This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is
+            // set  So the aircraft it used to match has either changed altitude, or gone out of our receiver range
+            //
+            // We've now received this Mode-A/C again, so it must be a new aircraft. It could be another aircraft
+            // at the same Mode-C altitude, or it could be a new airctraft with a new Mods-A squawk. 
+            //
+            // To avoid masking this aircraft from the interactive display, clear the MODEAC_MSG_MODES_OLD flag
+            // and set messages to 1;
+            //
+            a->modeACflags = flags & ~MODEAC_MSG_MODEC_OLD;
+            a->messages    = 1;
+        }  
+
     }
     return a;
 }
@@ -2573,9 +2598,10 @@ void interactiveShowData(void) {
         char gs[5] = "   ";
         char spacer = '\0';
 
-        if (  ((a->modeACflags & MODEAC_MSG_FLAG)      == 0) 
-          || (((a->modeACflags & MODEAC_MSG_MODES_HIT) == 0) && (altitude == 0) && (msgs >   4)) 
-          || (((a->modeACflags & MODEAC_MSG_MODES_HIT) == 0)                    && (msgs > 127)) ) {
+        if ( (((a->modeACflags & (MODEAC_MSG_FLAG                             )) == 0                    )                 )
+          || (((a->modeACflags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY) && (msgs > 4  ) ) 
+          || (((a->modeACflags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD )) == 0                    ) && (msgs > 127) ) 
+           ) {
 
             /* Convert units to metric if --metric was specified. */
             if (Modes.metric) {
