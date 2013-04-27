@@ -1,5 +1,5 @@
 CFLAGS=-O2 -g -Wall -W `pkg-config --cflags librtlsdr`
-LIBS=`pkg-config --libs librtlsdr` -lpthread -lm
+LIBS=`pkg-config --libs librtlsdr` -lpthread -lm -lcurses
 CC=gcc
 PROGNAME=dump1090
 
@@ -9,7 +9,7 @@ all: dump1090
 	$(CC) $(CFLAGS) -c $<
 
 dump1090: dump1090.o anet.o
-	$(CC) -g -o dump1090 dump1090.o anet.o $(LIBS)
+	$(CC) -g -o dump1090 dump1090.o anet.o $(LIBS) 
 
 clean:
 	rm -f *.o dump1090
