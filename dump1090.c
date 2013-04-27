@@ -43,6 +43,7 @@
 #include <sys/stat.h>
 #include "rtl-sdr.h"
 #include "anet.h"
+#include <curses.h>  //For the interactive interface
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -90,6 +91,7 @@
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
+
 
 /* Structure used to describe a networking client. */
 struct client {
@@ -241,6 +243,8 @@ void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
+
+WINDOW *scrn; // Interactive mode window
 
 /* ============================= Utility functions ========================== */
 
@@ -1798,39 +1802,52 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 }
 
 /* Show the currently captured interactive data on screen. */
-void interactiveShowData(void) {
+  void interactiveShowData(void) {
     struct aircraft *a = Modes.aircrafts;
     time_t now = time(NULL);
     char progress[4];
     int count = 0;
-
+    int ny = 0; //Window height
+    int nx = 0; //Window width
+    static int initialized = 0; // If the curses interface has been initialized 
+    
+    if(!initialized){
+      scrn = initscr();
+      noecho(); // curses call to set no echoing
+      clear(); // curses call to clear screen, send cursor to position (0,0)
+      refresh(); // curses call to implement all changes since last refresh
+      initialized = 1;
+      curs_set(0);
+    }
+    
+    getmaxyx(scrn,ny,nx); // curses call to find size of window
+    clear();
     memset(progress,' ',3);
     progress[time(NULL)%3] = '.';
     progress[3] = '\0';
-
-    printf("\x1b[H\x1b[2J");    /* Clear the screen */
-    printf(
-"Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
-"--------------------------------------------------------------------------------\n",
-        progress);
-
-    while(a && count < Modes.interactive_rows) {
-        int altitude = a->altitude, speed = a->speed;
-
-        /* Convert units to metric if --metric was specified. */
-        if (Modes.metric) {
-            altitude /= 3.2828;
-            speed *= 1.852;
-        }
-
-        printf("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
-            a->hexaddr, a->flight, altitude, speed,
-            a->lat, a->lon, a->track, a->messages,
-            (int)(now - a->seen));
-        a = a->next;
-        count++;
+    
+    if(nx<80||ny<4){ // If the diplay area is large enough
+      printw("Please enlarge the window");
+    }else{
+      printw("Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
+  "-------------------------------------------------------------------------------\n",progress);
+      while(a && count < Modes.interactive_rows) {
+	  int altitude = a->altitude, speed = a->speed;
+	  /* Convert units to metric if --metric was specified. */
+	  if (Modes.metric) {
+	      altitude /= 3.2828;
+	      speed *= 1.852;
+	  }
+	  printw("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
+	      a->hexaddr, a->flight, altitude, speed,
+	      a->lat, a->lon, a->track, a->messages,
+	      (int)(now - a->seen));
+	  a = a->next;
+	  count++;
+      }
     }
-}
+    refresh();
+  }
 
 /* When in interactive mode If we don't receive new nessages within
  * MODES_INTERACTIVE_TTL seconds we remove the aircraft from the list. */
@@ -2460,6 +2477,7 @@ int main(int argc, char **argv) {
             Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
+	    
         } else if (!strcmp(argv[j],"--interactive-rows")) {
             Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
