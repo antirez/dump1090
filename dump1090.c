@@ -1125,16 +1125,15 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
     }
     return crc; // 24 bit checksum.
 }
-
-/* Given the Downlink Format (DF) of the message, return the message length
- * in bits. */
+//
+// Given the Downlink Format (DF) of the message, return the message length in bits.
+//
+// All known DF's 16 or greater are long. All known DF's 15 or less are short. 
+// There are lots of unused codes in both category, so we can assume ICAO will stick to 
+// these rules, meaning that the most significant bit of the DF indicates the length.
+//
 int modesMessageLenByType(int type) {
-    if (type == 16 || type == 17 ||
-        type == 19 || type == 20 ||
-        type == 21)
-        return MODES_LONG_MSG_BITS;
-    else
-        return MODES_SHORT_MSG_BITS;
+    return (type & 0x10) ? MODES_LONG_MSG_BITS : MODES_SHORT_MSG_BITS ;
 }
 
 /* Try to fix single bit errors using the checksum. On success modifies
