@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.2704.13"
+#define MODES_DUMP1090_VERSION     "1.04.2804.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -139,29 +139,29 @@ struct client {
 
 /* Structure used to describe an aircraft in iteractive mode. */
 struct aircraft {
-    uint32_t addr;      /* ICAO address */
-    char flight[9];     /* Flight number */
-    char signalLevel;   /* Signal Amplitude */
-    int altitude;       /* Altitude */
-    int speed;          /* Velocity computed from EW and NS components. */
-    int track;          /* Angle of flight. */
-    time_t seen;        /* Time at which the last packet was received. */
-    long messages;      /* Number of Mode S messages received. */
-    int  modeA;         /* Squawk */
-    int  modeC;         /* Altitude */
-    long modeAcount;    /* Mode A Squawk hit Count */
-    long modeCcount;    /* Mode C Altitude hit Count */
-    int  modeACflags;   /* Flags for mode A/C recognition */
+    uint32_t addr;             /* ICAO address */
+    char flight[9];            /* Flight number */
+    unsigned char signalLevel; /* Signal Amplitude */
+    int altitude;              /* Altitude */
+    int speed;                 /* Velocity computed from EW and NS components. */
+    int track;                 /* Angle of flight. */
+    time_t seen;               /* Time at which the last packet was received. */
+    long messages;             /* Number of Mode S messages received. */
+    int  modeA;                /* Squawk */
+    int  modeC;                /* Altitude */
+    long modeAcount;           /* Mode A Squawk hit Count */
+    long modeCcount;           /* Mode C Altitude hit Count */
+    int  modeACflags;          /* Flags for mode A/C recognition */
     /* Encoded latitude and longitude as extracted by odd and even
      * CPR encoded messages. */
     int odd_cprlat;
     int odd_cprlon;
     int even_cprlat;
     int even_cprlon;
-    double lat, lon;    /* Coordinated obtained from CPR encoded data. */
+    double lat, lon;           /* Coordinated obtained from CPR encoded data. */
     int sbsflags;
     uint64_t odd_cprtime, even_cprtime;
-    struct aircraft *next; /* Next aircraft in our linked list. */
+    struct aircraft *next;     /* Next aircraft in our linked list. */
 };
 
 /* Program global state. */
@@ -2627,7 +2627,7 @@ void interactiveShowData(void) {
  
     if (Modes.interactive_rtl1090 == 0) {
         printf (
-"Hex     Mode  Sqwk  Flight   Alt     Spd  Hdg   Lat     Long    Sig   Msgs  Ti%c\n", progress);
+"Hex     Mode  Sqwk  Flight   Alt    Spd  Hdg    Lat      Long   Sig  Msgs   Ti%c\n", progress);
     } else {
         printf (
 "Hex    Flight   Alt      V/S GS  TT  SSR  G*456^ Msgs    Seen %c\n", progress);
@@ -2695,7 +2695,7 @@ void interactiveShowData(void) {
                 if (flags & MODEAC_MSG_MODEA_HIT) {mode[2] = 'a';}
                 if (flags & MODEAC_MSG_MODEC_HIT) {mode[3] = 'c';}
 
-                printf("%06x  %-4s  %-4s  %-8s %5d  %4d  %3d   %-7.03f %-7.03f %3d %6d  %2d\n",
+                printf("%06x  %-4s  %-4s  %-8s %5d  %3d  %3d  %7.03f %8.03f  %3d %5d   %2d\n",
                 a->addr, mode, squawk, a->flight, altitude, speed, a->track,
                 a->lat, a->lon, a->signalLevel, msgs, (int)(now - a->seen));
             }
