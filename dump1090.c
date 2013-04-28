@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.03.2604.13"
+#define MODES_DUMP1090_VERSION     "1.04.2704.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -1314,51 +1314,85 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
     }
     return (0);
 }
-
-/* Decode the 13 bit AC altitude field (in DF 20 and others).
- * Returns the altitude, and set 'unit' to either MODES_UNIT_METERS
- * or MDOES_UNIT_FEETS. */
+//
+// Decode the 13 bit AC altitude field (in DF 20 and others).
+// Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
+//
 int decodeAC13Field(unsigned char *msg, int *unit) {
-    int m_bit = msg[3] & (1<<6);
-    int q_bit = msg[3] & (1<<4);
+    int msg2  = msg[2];
+    int msg3  = msg[3];
+    int m_bit = msg3 & 0x40; // set = meters, clear = feet
+    int q_bit = msg3 & 0x10; // set = 25 ft encoding, clear = Gillham Mode C encoding
 
     if (!m_bit) {
         *unit = MODES_UNIT_FEET;
         if (q_bit) {
-            /* N is the 11 bit integer resulting from the removal of bit
-             * Q and M */
-            int n = ((msg[2]&31)<<6) |
-                    ((msg[3]&0x80)>>2) |
-                    ((msg[3]&0x20)>>1) |
-                     (msg[3]&15);
-            /* The final altitude is due to the resulting number multiplied
-             * by 25, minus 1000. */
-            return n*25-1000;
+            // N is the 11 bit integer resulting from the removal of bit Q and M
+            int n = ((msg2 & 0x1F) << 6) |
+                    ((msg3 & 0x80) >> 2) |
+                    ((msg3 & 0x20) >> 1) |
+                     (msg3 & 0x0F);
+            // The final altitude is resulting number multiplied by 25, minus 1000.
+            return ((n * 25) - 1000);
         } else {
-            /* TODO: Implement altitude where Q=0 and M=0 */
+            // N is an 11 bit Gillham coded altitude
+            int n = 0;
+            if (msg2 & 0x10) {n |= 0x0010;} // Bit 20 = C1;
+            if (msg2 & 0x08) {n |= 0x1000;} // Bit 21 = A1;
+            if (msg2 & 0x04) {n |= 0x0020;} // Bit 22 = C2;
+            if (msg2 & 0x02) {n |= 0x2000;} // Bit 23 = A2;
+            if (msg2 & 0x01) {n |= 0x0040;} // Bit 24 = C4;
+            if (msg3 & 0x80) {n |= 0x4000;} // Bit 25 = A4;
+            if (msg3 & 0x20) {n |= 0x0100;} // Bit 27 = B1;
+            if (msg3 & 0x08) {n |= 0x0200;} // Bit 29 = B2;
+            if (msg3 & 0x04) {n |= 0x0002;} // Bit 30 = D2;
+            if (msg3 & 0x02) {n |= 0x0400;} // Bit 31 = B4;
+            if (msg3 & 0x01) {n |= 0x0004;} // Bit 32 = D4;
+
+            n = ModeAToModeC(n);
+            if (n < -12) {n = 0;}
+
+            return (100 * n);
         }
     } else {
         *unit = MODES_UNIT_METERS;
-        /* TODO: Implement altitude when meter unit is selected. */
+        // TODO: Implement altitude when meter unit is selected
     }
     return 0;
 }
-
-/* Decode the 12 bit AC altitude field (in DF 17 and others).
- * Returns the altitude or 0 if it can't be decoded. */
+//
+// Decode the 12 bit AC altitude field (in DF 17 and others).
+//
 int decodeAC12Field(unsigned char *msg, int *unit) {
-    int q_bit = msg[5] & 1;
+    int msg5  = msg[5];
+    int msg6  = msg[6];
+    int q_bit = msg5 & 1; // Bit 48 = Q
 
+    *unit = MODES_UNIT_FEET;
     if (q_bit) {
-        /* N is the 11 bit integer resulting from the removal of bit
-         * Q */
-        int n = ((msg[5]>>1)<<4) | ((msg[6]&0xF0) >> 4);
-        *unit = MODES_UNIT_FEET;
-        /* The final altitude is due to the resulting number multiplied
-         * by 25, minus 1000. */
-        return n*25-1000;
+        /// N is the 11 bit integer resulting from the removal of bit Q
+        int n = ((msg5 & 0xFE) << 3) | ((msg6 & 0xF0) >> 4);
+        // The final altitude is the resulting number multiplied by 25, minus 1000.
+        return ((n * 25) - 1000);
     } else {
-        return 0;
+        // N is an 11 bit Gillham coded altitude
+        int n = 0;
+        if (msg5 & 0x80) {n |= 0x0010;} // Bit 41 = C1;
+        if (msg5 & 0x40) {n |= 0x1000;} // Bit 42 = A1;
+        if (msg5 & 0x20) {n |= 0x0020;} // Bit 43 = C2;
+        if (msg5 & 0x10) {n |= 0x2000;} // Bit 44 = A2;
+        if (msg5 & 0x08) {n |= 0x0040;} // Bit 45 = C4;
+        if (msg5 & 0x04) {n |= 0x4000;} // Bit 46 = A4;
+        if (msg5 & 0x02) {n |= 0x0100;} // Bit 47 = B1;
+        if (msg6 & 0x80) {n |= 0x0200;} // Bit 49 = B2;
+        if (msg6 & 0x40) {n |= 0x0002;} // Bit 50 = D2;
+        if (msg6 & 0x20) {n |= 0x0400;} // Bit 51 = B4;
+        if (msg6 & 0x10) {n |= 0x0004;} // Bit 52 = D4;
+
+        n = ModeAToModeC(n);
+        if (n < -12) {n = 0;}
+
+        return (100 * n);
     }
 }
 
