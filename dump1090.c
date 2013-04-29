@@ -1614,20 +1614,21 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     }
     mm->phase_corrected = 0; /* Set to 1 by the caller if needed. */
 }
-
-/* This function gets a decoded Mode S Message and prints it on the screen
- * in a human readable format. */
+//
+// This function gets a decoded Mode S Message and prints it on the screen
+// in a human readable format.
+//
 void displayModesMessage(struct modesMessage *mm) {
     int j;
     char * pTimeStamp;
 
-    /* Handle only addresses mode first. */
+    // Handle only addresses mode first.
     if (Modes.onlyaddr) {
         printf("%06x\n", mm->addr);
         return;
     }
 
-    /* Show the raw message. */
+    // Show the raw message.
     if (Modes.mlat) {
         printf("@");
         pTimeStamp = (char *) &mm->timestampMsg;
@@ -1651,12 +1652,12 @@ void displayModesMessage(struct modesMessage *mm) {
     if (mm->errorbit != -1)
         printf("Single bit error fixed, bit %d\n", mm->errorbit);
 
-    if (mm->msgtype == 0) {
-        /* DF 0 */
+    if (mm->msgtype == 0) { // DF 0
         printf("DF 0: Short Air-Air Surveillance.\n");
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
         printf("  ICAO Address   : %06x\n", mm->addr);
+
     } else if (mm->msgtype == 4 || mm->msgtype == 20) {
         printf("DF %d: %s, Altitude Reply.\n", mm->msgtype,
             (mm->msgtype == 4) ? "Surveillance" : "Comm-B");
@@ -1670,6 +1671,7 @@ void displayModesMessage(struct modesMessage *mm) {
         if (mm->msgtype == 20) {
             /* TODO: 56 bits DF20 MB additional field. */
         }
+
     } else if (mm->msgtype == 5 || mm->msgtype == 21) {
         printf("DF %d: %s, Identity Reply.\n", mm->msgtype,
             (mm->msgtype == 5) ? "Surveillance" : "Comm-B");
@@ -1691,8 +1693,11 @@ void displayModesMessage(struct modesMessage *mm) {
             {printf("  IID         : SI-%02d\n", mm->iid-16);}
         else
             {printf("  IID         : II-%02d\n", mm->iid);}
-    } else if (mm->msgtype == 17) {
-        /* DF 17 */
+
+    } else if (mm->msgtype == 16) { // DF 16
+        printf("DF 16: Long Air to Air ACAS\n");
+
+    } else if (mm->msgtype == 17) { // DF 17
         printf("DF 17: ADS-B message.\n");
         printf("  Capability     : %d (%s)\n", mm->ca, ca_str[mm->ca]);
         printf("  ICAO Address   : %06x\n", mm->addr);
@@ -1701,7 +1706,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  Extended Squitter  Name: %s\n",
             getMEDescription(mm->metype,mm->mesub));
 
-        /* Decode the extended squitter message. */
+        // Decode the extended squitter message
         if (mm->metype >= 1 && mm->metype <= 4) {
             /* Aircraft identification. */
             char *ac_type_str[4] = {
@@ -1737,8 +1742,20 @@ void displayModesMessage(struct modesMessage *mm) {
             printf("    Unrecognized ME type: %d subtype: %d\n", 
                 mm->metype, mm->mesub);
         }
-    } else if (mm->msgtype == 32) {
-        // DF 32 is special code we use for Mode A/C
+
+    } else if (mm->msgtype == 18) { // DF 18 
+        printf("DF 18: Extended Squitter.\n");
+
+    } else if (mm->msgtype == 19) { // DF 19
+        printf("DF 19: Military Extended Squitter.\n");
+
+    } else if (mm->msgtype == 22) { // DF 22
+        printf("DF 22: Military Use.\n");
+
+    } else if (mm->msgtype == 24) { // DF 24
+        printf("DF 24: Comm D Extended Length Message.\n");
+
+    } else if (mm->msgtype == 32) { // DF 32 is special code we use for Mode A/C
         printf("SSR : Mode A/C Reply.\n");
         if (mm->fs & 0x0080) {
             printf("  Mode A : %04x IDENT\n", mm->modeA);
@@ -1750,10 +1767,7 @@ void displayModesMessage(struct modesMessage *mm) {
         }
 
     } else {
-        if (Modes.check_crc)
-            printf("DF %d with good CRC received "
-                   "(decoding still not implemented).\n",
-                mm->msgtype);
+        printf("DF %d: Unknown DF Format.\n", mm->msgtype);
     }
 }
 
