@@ -303,8 +303,8 @@ void modesSendRawOutput(struct modesMessage *mm);
 void modesSendBeastOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
-int fixSingleBitErrors(unsigned char *msg, int bits, struct modesMessage *mm);
-int fixTwoBitsErrors(unsigned char *msg, int bits, struct modesMessage *mm);
+int fixSingleBitErrors(unsigned char *msg, int bits);
+int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
 
 /* ============================= Utility functions ========================== */
@@ -700,15 +700,13 @@ void dumpRawMessage(char *descr, unsigned char *msg,
                     uint16_t *m, uint32_t offset)
 {
     int j;
-    int msgtype = msg[0]>>3;
+    int msgtype = msg[0] >> 3;
     int fixable = -1;
 
-    if (msgtype == 11 || msgtype == 17) {
-        int msgbits = (msgtype == 11) ? MODES_SHORT_MSG_BITS :
-                                        MODES_LONG_MSG_BITS;
-        fixable = fixSingleBitErrors(msg, msgbits, NULL);
+    if (msgtype == 17) {
+        fixable = fixSingleBitErrors(msg, MODES_LONG_MSG_BITS);
         if (fixable == -1)
-            fixable = fixTwoBitsErrors(msg, msgbits, NULL);
+            fixable = fixTwoBitsErrors(msg, MODES_LONG_MSG_BITS);
     }
 
     if (Modes.debug & MODES_DEBUG_JS) {
@@ -1111,6 +1109,7 @@ uint32_t modes_checksum_table[112] = {
 
 uint32_t modesChecksum(unsigned char *msg, int bits) {
     uint32_t   crc = 0;
+    uint32_t   rem = 0;
     int        offset = (bits == 112) ? 0 : (112-56);
     uint8_t    theByte = *msg;
     uint32_t * pCRCTable = &modes_checksum_table[offset];
@@ -1118,14 +1117,14 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
 
     for(j = 0; j < bits; j++) {
         if ((j & 7) == 0)
-            {theByte = *msg++;}
+            {theByte = *msg++; rem = (rem << 8) | theByte;}
 
         // If bit is set, xor with corresponding table entry.
         if (theByte & 0x80) {crc ^= *pCRCTable;} 
         pCRCTable++;
         theByte = theByte << 1; 
     }
-    return crc; // 24 bit checksum.
+    return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum.
 }
 //
 // Given the Downlink Format (DF) of the message, return the message length in bits.
@@ -1137,97 +1136,79 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
 int modesMessageLenByType(int type) {
     return (type & 0x10) ? MODES_LONG_MSG_BITS : MODES_SHORT_MSG_BITS ;
 }
-
-/* Try to fix single bit errors using the checksum. On success modifies
- * the original buffer with the fixed version, and returns the position
- * of the error bit. Otherwise if fixing failed -1 is returned. */
-int fixSingleBitErrors(unsigned char *msg, int bits, struct modesMessage *mm) {
+//
+// Try to fix single bit errors using the checksum. On success modifies
+// the original buffer with the fixed version, and returns the position
+// of the error bit. Otherwise if fixing failed -1 is returned.
+//
+int fixSingleBitErrors(unsigned char *msg, int bits) {
     int j;
     unsigned char aux[MODES_LONG_MSG_BYTES];
 
-    memcpy(aux, msg,bits/8);
+    memcpy(aux, msg, bits/8);
 
-    for (j = 0; j < bits; j++) {
-        int byte = j/8;
-        int bitmask = 1 << (7-(j%8));
-        uint32_t crc1, crc2;
+    // Do not attempt to error correct Bits 0-4. These contain the DF, and must
+    // be correct because we can only error correct DF17
+    for (j = 5; j < bits; j++) {
+        int byte    = j/8;
+        int bitmask = 1 << (7 - (j & 7));
 
-        aux[byte] ^= bitmask; /* Flip j-th bit. */
+        aux[byte] ^= bitmask; // Flip j-th bit
 
-        crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
-               ((uint32_t)aux[(bits/8)-2] << 8) |
-                (uint32_t)aux[(bits/8)-1];
-        crc2 = modesChecksum(aux,bits);
-
-        if (crc1 == crc2) {
-            /* The error is fixed. Overwrite the original buffer with
-             * the corrected sequence, and returns the error bit
-             * position. */
-            memcpy(msg,aux,bits/8);
-            if (mm)
-               {
-               mm->crc   = crc2;
-               mm->iid   = 0;
-               mm->crcok = 1;
-               }
-            return j;
+        if (0 == modesChecksum(aux, bits)) {
+            // The error is fixed. Overwrite the original buffer with the 
+            // corrected sequence, and returns the error bit position
+            msg[byte] = aux[byte];
+            return (j);
         }
 
-        aux[byte] ^= bitmask; /* Flip j-th bit back again. */
+        aux[byte] ^= bitmask; // Flip j-th bit back again
     }
-    return -1;
+    return (-1);
 }
-
-/* Similar to fixSingleBitErrors() but try every possible two bit combination.
- * This is very slow and should be tried only against DF17 messages that
- * don't pass the checksum, and only in Aggressive Mode. */
-int fixTwoBitsErrors(unsigned char *msg, int bits, struct modesMessage *mm) {
+//
+// Similar to fixSingleBitErrors() but try every possible two bit combination.
+// This is very slow and should be tried only against DF17 messages that
+// don't pass the checksum, and only in Aggressive Mode.
+//
+int fixTwoBitsErrors(unsigned char *msg, int bits) {
     int j, i;
     unsigned char aux[MODES_LONG_MSG_BYTES];
 
-    memcpy(aux,msg, bits/8);
+    memcpy(aux, msg, bits/8);
 
-    for (j = 0; j < bits; j++) {
-        int byte1 = j/8;
-        int bitmask1 = 1 << (7-(j%8));
-        aux[byte1] ^= bitmask1; /* Flip j-th bit. */
+    // Do not attempt to error correct Bits 0-4. These contain the DF, and must
+    // be correct because we can only error correct DF17
+    for (j = 5; j < bits; j++) {
+        int byte1    = j/8;
+        int bitmask1 = 1 << (7 - (j & 7));
+        aux[byte1] ^= bitmask1; // Flip j-th bit
 
-        /* Don't check the same pairs multiple times, so i starts from j+1 */
+        // Don't check the same pairs multiple times, so i starts from j+1
         for (i = j+1; i < bits; i++) {
-            int byte2 = i/8;
-            int bitmask2 = 1 << (7-(i%8));
-            uint32_t crc1, crc2;
+            int byte2    = i/8;
+            int bitmask2 = 1 << (7 - (i & 7));
 
-            aux[byte2] ^= bitmask2; /* Flip i-th bit. */
+            aux[byte2] ^= bitmask2; // Flip i-th bit
 
-            crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
-                   ((uint32_t)aux[(bits/8)-2] << 8) |
-                    (uint32_t)aux[(bits/8)-1];
-            crc2 = modesChecksum(aux,bits);
+            if (0 == modesChecksum(aux, bits)) {
+                // The error is fixed. Overwrite the original buffer with
+                // the corrected sequence, and returns the error bit position
+                msg[byte1] = aux[byte1];
+                msg[byte2] = aux[byte2];
 
-            if (crc1 == crc2) {
-                /* The error is fixed. Overwrite the original buffer with
-                 * the corrected sequence, and returns the error bit
-                 * position. */
-                memcpy(msg,aux,bits/8);
-                if (mm)
-                   {
-                   mm->crc   = crc2;
-                   mm->iid   = 0;
-                   mm->crcok = 1;
-                   }
-                /* We return the two bits as a 16 bit integer by shifting
-                 * 'i' on the left. This is possible since 'i' will always
-                 * be non-zero because i starts from j+1. */
-                return j | (i<<8);
+                // We return the two bits as a 16 bit integer by shifting
+                // 'i' on the left. This is possible since 'i' will always
+                // be non-zero because i starts from j+1
+                return (j | (i << 8));
 
-            aux[byte2] ^= bitmask2; /* Flip i-th bit back. */
+            aux[byte2] ^= bitmask2; // Flip i-th bit back
             }
 
-        aux[byte1] ^= bitmask1; /* Flip j-th bit back. */
+        aux[byte1] ^= bitmask1; // Flip j-th bit back
         }
     }
-    return -1;
+    return (-1);
 }
 
 /* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
@@ -1259,61 +1240,6 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
     uint32_t t = Modes.icao_cache[h*2+1];
 
     return a && a == addr && time(NULL)-t <= MODES_ICAO_CACHE_TTL;
-}
-
-/* If the message type has the checksum xored with the ICAO address, try to
- * brute force it using a list of recently seen ICAO addresses.
- *
- * Do this in a brute-force fashion by xoring the predicted CRC with
- * the address XOR checksum field in the message. This will recover the
- * address: if we found it in our cache, we can assume the message is ok.
- *
- * This function expects mm->msgtype and mm->msgbits to be correctly
- * populated by the caller.
- *
- * On success the correct ICAO address is stored in the modesMessage
- * structure in the addr field.
- *
- * If the function successfully recovers a message with a correct checksum
- * it returns 1. Otherwise 0 is returned. */
-int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
-    unsigned char aux[MODES_LONG_MSG_BYTES];
-    int msgtype = mm->msgtype;
-    int msgbits = mm->msgbits;
-
-    if (msgtype == 0 ||         /* Short air surveillance */
-        msgtype == 4 ||         /* Surveillance, altitude reply */
-        msgtype == 5 ||         /* Surveillance, identity reply */
-        msgtype == 16 ||        /* Long Air-Air survillance */
-        msgtype == 20 ||        /* Comm-A, altitude request */
-        msgtype == 21 ||        /* Comm-A, identity request */
-        msgtype == 24)          /* Comm-C ELM */
-    {
-        uint32_t addr;
-        uint32_t crc;
-        int lastbyte = (msgbits/8)-1;
-
-        /* Work on a copy. */
-        memcpy(aux,msg,msgbits/8);
-
-        /* Compute the CRC of the message and XOR it with the AP field
-         * so that we recover the address, because:
-         *
-         * (ADDR xor CRC) xor CRC = ADDR. */
-        crc = modesChecksum(aux,msgbits);
-        aux[lastbyte]   ^=  crc        & 0xff;
-        aux[lastbyte-1] ^= (crc >> 8)  & 0xff;
-        aux[lastbyte-2] ^= (crc >> 16) & 0xff;
-        
-        /* If the obtained address exists in our cache we consider
-         * the message valid. */
-        addr = aux[lastbyte] | (aux[lastbyte-1] << 8) | (aux[lastbyte-2] << 16);
-        if (ICAOAddressWasRecentlySeen(addr)) {
-            mm->addr = addr;
-            return (1);
-        }
-    }
-    return (0);
 }
 //
 // In the squawk (identity) field bits are interleaved as follows in
@@ -1452,39 +1378,29 @@ char *getMEDescription(int metype, int mesub) {
         mename = "Aircraft Operational Status Message";
     return mename;
 }
-
-/* Decode a raw Mode S message demodulated as a stream of bytes by
- * detectModeS(), and split it into fields populating a modesMessage
- * structure. */
+//
+// Decode a raw Mode S message demodulated as a stream of bytes by detectModeS(), 
+// and split it into fields populating a modesMessage structure.
+//
 void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
-    uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
     char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
-    /* Work on our local copy */
+    // Work on our local copy
     memcpy(mm->msg, msg, MODES_LONG_MSG_BYTES);
     msg = mm->msg;
 
-    /* Get the message type ASAP as other operations depend on this */
-    mm->msgtype = msg[0] >> 3;  /* Downlink Format */
-    mm->msgbits = modesMessageLenByType(mm->msgtype);
+    // If we havn't already got it, get the message type ASAP as other operations depend on this
+    if (mm->msgbits == 0) {
+        mm->msgtype = msg[0] >> 3; // Downlink Format
+        mm->msgbits = modesMessageLenByType(mm->msgtype);
+        }
 
-    /* CRC is always the last three bytes. */
-    mm->crc = ((uint32_t)msg[(mm->msgbits/8)-3] << 16) |
-              ((uint32_t)msg[(mm->msgbits/8)-2] << 8) |
-               (uint32_t)msg[(mm->msgbits/8)-1];
-    crc2 = modesChecksum(msg, mm->msgbits);
-    mm->iid = (mm->crc ^ crc2);
+    mm->errorbit        = -1; // No errors fixed
+    mm->phase_corrected =  0;
+    mm->crc             = modesChecksum(msg, mm->msgbits);
 
-    /* Check CRC and fix single bit errors using the CRC when
-     * possible (DF 11 and 17). */
-    mm->errorbit = -1;  /* No error */
-    if (mm->msgtype == 11)
-        {mm->crcok = (mm->iid < 80);}
-    else
-        {mm->crcok = (mm->iid == 0);}
-
-    if (!mm->crcok && Modes.fix_errors && (mm->msgtype == 17)){
-//    if (!mm->crcok && Modes.fix_errors && ((mm->msgtype == 11) || (mm->msgtype == 17))){
+    if ((mm->crc) && (Modes.fix_errors) &&  (mm->msgtype == 17)) {
+//  if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
         //
         // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to 
         // know for sure if the crc is supposed to be 0 or not - it could be any value 
@@ -1495,51 +1411,56 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         // using the results. Perhaps check the ICAO against known aircraft, and check
         // IID against known good IID's. That's a TODO.
         //
-        mm->errorbit = fixSingleBitErrors(msg, mm->msgbits, mm);
+        mm->errorbit = fixSingleBitErrors(msg, mm->msgbits);
         if ((mm->errorbit == -1) && (Modes.aggressive)) {
-            mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits, mm);
+            mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits);
         }
     }
+    //
+    // Note that most of the other computation happens *after* we fix the 
+    // single/two bit errors, otherwise we would need to recompute the fields again.
+    //
+    if (mm->msgtype == 11) { // DF 11
+        mm->crcok = (mm->crc < 80);
+        mm->iid   =  mm->crc;
+        mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
 
-    /* Note that most of the other computation happens *after* we fix
-     * the single bit errors, otherwise we would need to recompute the
-     * fields again. */
-    mm->ca = msg[0] & 7;        /* Responder capabilities. */
-
-    // ICAO address
-    mm->addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
-
-    /* DF 17 type (assuming this is a DF17, otherwise not used) */
-    mm->metype = msg[4] >> 3;   /* Extended squitter message type. */
-    mm->mesub = msg[4] & 7;     /* Extended squitter message subtype. */
-
-    /* Fields for DF4,5,20,21 */
-    mm->fs = msg[0] & 7;        /* Flight status for DF4,5,20,21 */
-    mm->dr = msg[1] >> 3 & 31;  /* Request extraction of downlink request. */
-    mm->um = ((msg[1] & 7)<<3)| /* Request extraction of downlink request. */
-              msg[2]>>5;
-
-    mm->modeA = decodeGillhamField((msg[2] << 8) | msg[3]);
-
-    /* DF 11 & 17: try to populate our ICAO addresses whitelist.
-     * DFs with an AP field (xored addr and crc), try to decode it. */
-    if (mm->msgtype != 11 && mm->msgtype != 17) {
-        /* Check if we can check the checksum for the Downlink Formats where
-         * the checksum is xored with the aircraft ICAO address. We try to
-         * brute force it using a list of recently seen aircraft addresses. */
-        if (bruteForceAP(msg,mm)) {
-            /* We recovered the message, mark the checksum as valid. */
-            mm->crcok = 1;
-        } else {
-            mm->crcok = 0;
-        }
-    } else {
-        /* If this is DF 11 or DF 17 and the checksum was ok,
-         * we can add this address to the list of recently seen
-         * addresses. */
-        if (mm->crcok && mm->errorbit == -1) {
+        if (0 == mm->crc) {
+            // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
+
+    } else if (mm->msgtype == 17) { // DF 17
+        mm->crcok = (mm->crc == 0);
+        mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+
+        if        (-1 != mm->errorbit) {
+            // DF 17 : if (error corrected) force crc = 0 but do not try to add this address 
+            //         to the whitelist of recently seen ICAO addresses.
+            mm->crc = 0;
+
+        } else if (0 == mm->crc) {
+            // DF 17 : if uncorrected and crc == 0 add this address to the whitelist of 
+            //         recently seen ICAO addresses.
+            addRecentlySeenICAOAddr(mm->addr);
+        }
+
+    } else { // All other DF's
+        // Compare the checksum with the whitelist of recently seen ICAO 
+        // addresses. If it matches one, then declare the message as valid
+        mm->addr  = mm->crc;
+        mm->crcok = ICAOAddressWasRecentlySeen(mm->crc);
+    }
+
+    // Fields for DF4,5,20,21
+    mm->ca =                                       // Responder capabilities
+    mm->fs =   msg[0]  & 7;                        // Flight status for DF4,5,20,21
+    mm->dr =  (msg[1] >> 3) & 0x1F;                // Request extraction of downlink request
+    mm->um = ((msg[1]  & 7) << 3) | (msg[2] >> 5); // Request extraction of downlink request
+              
+    // Fields for DF5,21 = Gillham encoded Squawk
+    if (mm->msgtype == 5  || mm->msgtype == 21) {
+        mm->modeA = decodeGillhamField((msg[2] << 8) | msg[3]);
     }
 
     // Fields for DF0, DF4, DF16, DF20 13 bit altitude
@@ -1548,9 +1469,12 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->altitude = decodeAC13Field(((msg[2] << 8) | msg[3]), &mm->unit);
     }
 
-    /* Decode extended squitter specific stuff. */
+    // Fields for DF17 squitter
     if (mm->msgtype == 17) {
-        /* Decode the extended squitter message. */
+         mm->metype = msg[4] >> 3;   // Extended squitter message type
+         mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
+
+        // Decode the extended squitter message
 
         if (mm->metype >= 1 && mm->metype <= 4) {
             /* Aircraft Identification and Category */
@@ -1612,7 +1536,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             }
         }
     }
-    mm->phase_corrected = 0; /* Set to 1 by the caller if needed. */
 }
 //
 // This function gets a decoded Mode S Message and prints it on the screen
@@ -2082,7 +2005,9 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             mm.timestampMsg = Modes.timestampBlk + (j*6);
             sigStrength    = (sigStrength + 0x7F) >> 8;
             mm.signalLevel = ((sigStrength < 255) ? sigStrength : 255);
-            decodeModesMessage(&mm,msg);
+            mm.msgbits     = msglen;
+            mm.msgtype     = msg[0] >> 3;
+            decodeModesMessage(&mm, msg);
 
             /* Update statistics. */
             if (mm.crcok || use_correction) {
@@ -3070,6 +2995,7 @@ int decodeHexMessage(struct client *c) {
     // Non timemarked internet data has indeterminate delay
     mm.timestampMsg = -1;
     mm.signalLevel  = -1;
+    mm.msgbits      =  0;
 
     // Remove spaces on the left and on the right
     while(l && isspace(hex[l-1])) {
