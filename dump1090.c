@@ -1078,7 +1078,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 mm->ns_dir = (msg[7]&0x80) >> 7;
                 mm->ns_velocity = ((msg[7]&0x7f) << 3) | ((msg[8]&0xe0) >> 5);
                 mm->vert_rate_source = (msg[8]&0x10) >> 4;
-                mm->vert_rate_sign = (msg[8]&0x8) >> 5;
+                mm->vert_rate_sign = (msg[8]&0x8) >> 3;
                 mm->vert_rate = ((msg[8]&7) << 6) | ((msg[9]&0xfc) >> 2);
                 /* Compute velocity and angle from the two speed
                  * components. */
