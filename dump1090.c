@@ -319,6 +319,11 @@ static uint64_t mstime(void) {
     return mst;
 }
 
+void sigintHandler(int dummy) {
+    MODES_NOTUSED(dummy);
+    Modes.exit = 1;      // Signal to threads that we are done
+}
+
 /* =============================== Initialization =========================== */
 
 void modesInitConfig(void) {
@@ -3363,8 +3368,9 @@ void backgroundTasks(void) {
 int main(int argc, char **argv) {
     int j;
 
-    /* Set sane defaults. */
+    // Set sane defaults
     modesInitConfig();
+    signal(SIGINT, sigintHandler); // Define Ctrl/C handler (exit program)
 
     /* Parse the command line options */
     for (j = 1; j < argc; j++) {
@@ -3384,6 +3390,7 @@ int main(int argc, char **argv) {
             Modes.fix_errors = 1;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.fix_errors = 0;
+            Modes.aggressive = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
             Modes.check_crc = 0;
         } else if (!strcmp(argv[j],"--raw")) {
@@ -3414,7 +3421,8 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
-            Modes.aggressive++;
+            Modes.aggressive = 1;
+            Modes.fix_errors = 1;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
@@ -3465,7 +3473,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    /* Initialization */
+    // Initialization
     modesInit();
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
@@ -3484,6 +3492,7 @@ int main(int argc, char **argv) {
     /* If the user specifies --net-only, just run in order to serve network
      * clients without reading data from the RTL device. */
     while (Modes.net_only) {
+        if (Modes.exit) exit(0); // If we exit net_only nothing further in main()
         backgroundTasks();
         usleep(100000);
     }
@@ -3517,8 +3526,9 @@ int main(int argc, char **argv) {
         if (Modes.exit) break;
     }
 
-    /* If --ifile and --stats were given, print statistics. */
-    if (Modes.stats && Modes.filename) {
+    // If --stats were given, print statistics
+    if (Modes.stats) {
+        printf("\n\n");
         printf("%d ModeA/C detected\n",                         Modes.stat_ModeAC);
         printf("%d valid preambles\n",                          Modes.stat_valid_preamble);
         printf("%d DF-?? fields corrected for length\n",        Modes.stat_DF_Len_Corrected);
@@ -3533,6 +3543,7 @@ int main(int argc, char **argv) {
         printf("%d total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
+    rtlsdr_cancel_async(Modes.dev);  // Cancel rtlsdr_read_async will cause data input thread to terminate cleanly
     rtlsdr_close(Modes.dev);
-    return 0;
+    exit (0);
 }
