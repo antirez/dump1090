@@ -243,7 +243,8 @@ struct {
     unsigned int stat_http_requests;
     unsigned int stat_sbs_connections;
     unsigned int stat_out_of_phase;
-    unsigned int stat_DF_Corrected;
+    unsigned int stat_DF_Len_Corrected;
+    unsigned int stat_DF_Type_Corrected;
     unsigned int stat_ModeAC;
 } Modes;
 
@@ -462,7 +463,8 @@ void modesInit(void) {
     Modes.stat_http_requests = 0;
     Modes.stat_sbs_connections = 0;
     Modes.stat_out_of_phase = 0;
-    Modes.stat_DF_Corrected = 0;
+    Modes.stat_DF_Len_Corrected = 0;
+    Modes.stat_DF_Type_Corrected = 0;
     Modes.stat_ModeAC = 0;
     Modes.exit = 0;
 }
@@ -1892,7 +1894,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         int good_message = 0;
         uint16_t *pPreamble, *pPayload, *pPtr;
         uint8_t  theByte, theErrs;
-        int msglen, sigStrength;
+        int msglen, scanlen, sigStrength;
 
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
@@ -1997,69 +1999,97 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     + (pPreamble[7]-pPreamble[6])
                     + (pPreamble[9]-pPreamble[8]);
 
-        msglen = MODES_LONG_MSG_BITS;
-        for (i = 0; i < msglen; i++) {
+        msglen = scanlen = MODES_LONG_MSG_BITS;
+        for (i = 0; i < scanlen; i++) {
             uint32_t a = *pPtr++;
             uint32_t b = *pPtr++;
 
             if      (a > b) 
-                {sigStrength += (a-b); theByte |= 1;} 
+                {theByte |= 1; if (i < 56) {sigStrength += (a-b);}} 
             else if (a < b) 
-                {sigStrength += (b-a); /*theByte |= 0;*/} 
+                {/*theByte |= 0;*/ if (i < 56) {sigStrength += (b-a);}} 
             else if (i >= MODES_SHORT_MSG_BITS) //(a == b), and we're in the long part of a frame
                 {errors++;  /*theByte |= 0;*/} 
             else if (i >= 5)                    //(a == b), and we're in the short part of a frame
-                {errors56 = ++errors;/*theByte |= 0;*/}            
-            else                                //(a == b), and we're in the message type part of a frame
+                {scanlen = MODES_LONG_MSG_BITS; errors56 = ++errors;/*theByte |= 0;*/}            
+            else if (i)                         //(a == b), and we're in the message type part of a frame
                 {errorsTy = errors56 = ++errors; theErrs |= 1; /*theByte |= 0;*/} 
+            else                                //(a == b), and we're in the first bit of the message type part of a frame
+                {errorsTy = errors56 = ++errors; theErrs |= 1; theByte |= 1;} 
 
             if ((i & 7) == 7) 
               {*pMsg++ = theByte;}
-            else if ((i == 4) && (errors == 0))
-              {msglen  = modesMessageLenByType(theByte);}
+            else if (i == 4) {
+              msglen  = modesMessageLenByType(theByte);
+              if (errors == 0)
+                  {scanlen = msglen;}
+            }
 
             theByte = theByte << 1;
-            if (i < 8)
+            if (i < 7)
               {theErrs = theErrs << 1;}
 
-
             // If we've exceeded the permissible number of encoding errors, abandon ship now
-            if (errors > MODES_MSG_ENCODER_ERRS)
-                {
-                // If we're in the long frame when it went to pot, but it was still ok-ish when we
-                // were in the short part of the frame, then try for a mis-identified short frame
-                // we must believe that this should've been a long frame to get this far. 
-                if (i >= MODES_SHORT_MSG_BITS)
-                    {
-                    // If we did see some errors in the first byte of the frame, then it's possible 
-                    // we guessed wrongly about the value of the bit. If we only saw one error, we may
-                    // be able to correct it by guessing the other way.
-                    if (errorsTy == 1)
-                        {
-                        // See if inverting the bit we guessed at would change the message type from a
-                        // long to a short. If it would, invert the bit, cross your fingers and carry on.
-                        theByte = pMsg[0] ^ theErrs;
-                        if (MODES_SHORT_MSG_BITS == modesMessageLenByType(theByte))
-                            {
-                            pMsg[0] = theByte;  // write the modified type back to the msg buffer
-                            errors  = errors56; // revert to the number of errors prior to bit 56
-                            msglen  = MODES_SHORT_MSG_BITS;
-                            i--;                // this latest sample was zero, so we can ignore it.
-                            Modes.stat_DF_Corrected++;
-                            }
-                        }
-                    }
-                break;
+            if (errors > MODES_MSG_ENCODER_ERRS) {
+
+                if        (i < MODES_SHORT_MSG_BITS) {
+                    msglen = 0;
+
+                } else if ((errorsTy == 1) && (theErrs == 0x80)) {
+                    // If we only saw one error in the first bit of the byte of the frame, then it's possible 
+                    // we guessed wrongly about the value of the bit. We may be able to correct it by guessing
+                    // the other way.
+                    //
+                    // We guessed a '1' at bit 7, which is the DF length bit == 112 Bits.
+                    // Inverting bit 7 will change the message type from a long to a short. 
+                    // Invert the bit, cross your fingers and carry on.
+                    msglen  = MODES_SHORT_MSG_BITS;
+                    msg[0] ^= theErrs; errorsTy = 0;
+                    errors  = errors56; // revert to the number of errors prior to bit 56
+                    Modes.stat_DF_Len_Corrected++;
+
+                } else if (i < MODES_LONG_MSG_BITS) {
+                    msglen = MODES_SHORT_MSG_BITS;
+                    errors = errors56;
+
+                } else {
+                    msglen = MODES_LONG_MSG_BITS;
                 }
+
+            break;
+            }
+        }
+
+        if (msglen == modesMessageLenByType(theByte = msg[0])) {
+            // The msglen is consistent with the DF type
+            if ((errorsTy == 1) && (theErrs & 0x78)) {
+                // We guessed at one of the message type bits. See if our guess is "likely" 
+                // to be correct by comparing the DF against a list of known good DF's
+                int DF = ((theByte = msg[0]) >> 3) & 0x1f;
+                if ( (DF !=  0) && (DF !=  4) && (DF !=  5) && (DF != 11) 
+                  && (DF != 16) && (DF != 17) && (DF != 18) && (DF != 19) && (DF != 20) && (DF != 21) && (DF != 22) && (DF != 24) ) {
+                    // Other DF values are probably errors. Toggle the bit we guessed at and see if the resultant DF is more likely
+                    theByte ^= theErrs;
+                    DF       = (theByte >> 3) & 0x1f;
+                    // if this DF any more likely??
+                    if ( (DF ==  0) || (DF ==  4) || (DF ==  5) || (DF == 11) 
+                      || (DF == 16) || (DF == 17) || (DF == 18) || (DF == 19) || (DF == 20) || (DF == 21) || (DF == 22) || (DF == 24) ) {
+                        // Yep, more likely, so update the main message 
+                        msg[0] = theByte;
+                        Modes.stat_DF_Type_Corrected++;
+                        errors--; // decrease the error count so we attempt to use the modified DF.
+                    }
+                }
+            }
         }
 
         // Don't forget to add 4 for the preamble samples. This also removes any risk of dividing by zero.
-        sigStrength /= (msglen+4);
+        sigStrength /= 60;
 
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
          * and CRC may not be correct. This is handled by the next layer. */
-        if ( (sigStrength > MODES_MSG_SQUELCH_LEVEL) && (errors <= MODES_MSG_ENCODER_ERRS) )
+        if ((msglen) && (sigStrength > MODES_MSG_SQUELCH_LEVEL) && (errors <= MODES_MSG_ENCODER_ERRS) )
             {
             struct modesMessage mm;
 
@@ -3580,7 +3610,8 @@ int main(int argc, char **argv) {
     if (Modes.stats && Modes.filename) {
         printf("%d ModeA/C detected\n",                         Modes.stat_ModeAC);
         printf("%d valid preambles\n",                          Modes.stat_valid_preamble);
-        printf("%d DF-?? fields corrected for length\n",        Modes.stat_DF_Corrected);
+        printf("%d DF-?? fields corrected for length\n",        Modes.stat_DF_Len_Corrected);
+        printf("%d DF-?? fields corrected for type\n",          Modes.stat_DF_Type_Corrected);
         printf("%d demodulated again after phase correction\n", Modes.stat_out_of_phase);
         printf("%d demodulated with zero errors\n",             Modes.stat_demodulated);
         printf("%d with good crc\n",                            Modes.stat_goodcrc);
