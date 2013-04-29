@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.2804.13"
+#define MODES_DUMP1090_VERSION     "1.04.2904.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -1316,41 +1316,58 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
     return (0);
 }
 //
+// In the squawk (identity) field bits are interleaved as follows in
+// (message bit 20 to bit 32):
+//
+// C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
+//
+// So every group of three bits A, B, C, D represent an integer from 0 to 7.
+//
+// The actual meaning is just 4 octal numbers, but we convert it into a hex 
+// number tha happens to represent the four octal numbers.
+//
+// For more info: http://en.wikipedia.org/wiki/Gillham_code
+//
+int decodeGillhamField(int rawGillham) {
+    int hexGillham = 0;
+
+    if (rawGillham & 0x1000) {hexGillham |= 0x0010;} // Bit 12 = C1
+    if (rawGillham & 0x0800) {hexGillham |= 0x1000;} // Bit 11 = A1
+    if (rawGillham & 0x0400) {hexGillham |= 0x0020;} // Bit 10 = C2
+    if (rawGillham & 0x0200) {hexGillham |= 0x2000;} // Bit  9 = A2
+    if (rawGillham & 0x0100) {hexGillham |= 0x0040;} // Bit  8 = C4
+    if (rawGillham & 0x0080) {hexGillham |= 0x4000;} // Bit  7 = A4
+  //if (rawGillham & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X or Q 
+    if (rawGillham & 0x0020) {hexGillham |= 0x0100;} // Bit  5 = B1 
+    if (rawGillham & 0x0010) {hexGillham |= 0x0001;} // Bit  4 = D1
+    if (rawGillham & 0x0008) {hexGillham |= 0x0200;} // Bit  3 = B2
+    if (rawGillham & 0x0004) {hexGillham |= 0x0002;} // Bit  2 = D2
+    if (rawGillham & 0x0002) {hexGillham |= 0x0400;} // Bit  1 = B4
+    if (rawGillham & 0x0001) {hexGillham |= 0x0004;} // Bit  0 = D4
+
+    return (hexGillham);
+    }
+//
 // Decode the 13 bit AC altitude field (in DF 20 and others).
 // Returns the altitude, and set 'unit' to either MODES_UNIT_METERS or MDOES_UNIT_FEETS.
 //
-int decodeAC13Field(unsigned char *msg, int *unit) {
-    int msg2  = msg[2];
-    int msg3  = msg[3];
-    int m_bit = msg3 & 0x40; // set = meters, clear = feet
-    int q_bit = msg3 & 0x10; // set = 25 ft encoding, clear = Gillham Mode C encoding
+int decodeAC13Field(int AC13Field, int *unit) {
+    int m_bit  = AC13Field & 0x0040; // set = meters, clear = feet
+    int q_bit  = AC13Field & 0x0010; // set = 25 ft encoding, clear = Gillham Mode C encoding
+    AC13Field &= 0x1FFF;             // limit the field to 13 bits
 
     if (!m_bit) {
         *unit = MODES_UNIT_FEET;
         if (q_bit) {
             // N is the 11 bit integer resulting from the removal of bit Q and M
-            int n = ((msg2 & 0x1F) << 6) |
-                    ((msg3 & 0x80) >> 2) |
-                    ((msg3 & 0x20) >> 1) |
-                     (msg3 & 0x0F);
+            int n = ((AC13Field & 0x1F80) >> 2) |
+                    ((AC13Field & 0x0020) >> 1) |
+                     (AC13Field & 0x000F);
             // The final altitude is resulting number multiplied by 25, minus 1000.
             return ((n * 25) - 1000);
         } else {
             // N is an 11 bit Gillham coded altitude
-            int n = 0;
-            if (msg2 & 0x10) {n |= 0x0010;} // Bit 20 = C1;
-            if (msg2 & 0x08) {n |= 0x1000;} // Bit 21 = A1;
-            if (msg2 & 0x04) {n |= 0x0020;} // Bit 22 = C2;
-            if (msg2 & 0x02) {n |= 0x2000;} // Bit 23 = A2;
-            if (msg2 & 0x01) {n |= 0x0040;} // Bit 24 = C4;
-            if (msg3 & 0x80) {n |= 0x4000;} // Bit 25 = A4;
-            if (msg3 & 0x20) {n |= 0x0100;} // Bit 27 = B1;
-            if (msg3 & 0x08) {n |= 0x0200;} // Bit 29 = B2;
-            if (msg3 & 0x04) {n |= 0x0002;} // Bit 30 = D2;
-            if (msg3 & 0x02) {n |= 0x0400;} // Bit 31 = B4;
-            if (msg3 & 0x01) {n |= 0x0004;} // Bit 32 = D4;
-
-            n = ModeAToModeC(n);
+            int n = ModeAToModeC(decodeGillhamField(AC13Field));
             if (n < -12) {n = 0;}
 
             return (100 * n);
@@ -1364,33 +1381,20 @@ int decodeAC13Field(unsigned char *msg, int *unit) {
 //
 // Decode the 12 bit AC altitude field (in DF 17 and others).
 //
-int decodeAC12Field(unsigned char *msg, int *unit) {
-    int msg5  = msg[5];
-    int msg6  = msg[6];
-    int q_bit = msg5 & 1; // Bit 48 = Q
+int decodeAC12Field(int AC12Field, int *unit) {
+    int q_bit  = AC12Field & 0x10; // Bit 48 = Q
+    AC12Field &= 0x0FFF;           // limit the field to 12 bits
 
     *unit = MODES_UNIT_FEET;
     if (q_bit) {
         /// N is the 11 bit integer resulting from the removal of bit Q
-        int n = ((msg5 & 0xFE) << 3) | ((msg6 & 0xF0) >> 4);
+        int n = ((AC12Field & 0x0FE0) >> 1) | 
+                 (AC12Field & 0x000F);
         // The final altitude is the resulting number multiplied by 25, minus 1000.
         return ((n * 25) - 1000);
     } else {
         // N is an 11 bit Gillham coded altitude
-        int n = 0;
-        if (msg5 & 0x80) {n |= 0x0010;} // Bit 41 = C1;
-        if (msg5 & 0x40) {n |= 0x1000;} // Bit 42 = A1;
-        if (msg5 & 0x20) {n |= 0x0020;} // Bit 43 = C2;
-        if (msg5 & 0x10) {n |= 0x2000;} // Bit 44 = A2;
-        if (msg5 & 0x08) {n |= 0x0040;} // Bit 45 = C4;
-        if (msg5 & 0x04) {n |= 0x4000;} // Bit 46 = A4;
-        if (msg5 & 0x02) {n |= 0x0100;} // Bit 47 = B1;
-        if (msg6 & 0x80) {n |= 0x0200;} // Bit 49 = B2;
-        if (msg6 & 0x40) {n |= 0x0002;} // Bit 50 = D2;
-        if (msg6 & 0x20) {n |= 0x0400;} // Bit 51 = B4;
-        if (msg6 & 0x10) {n |= 0x0004;} // Bit 52 = D4;
-
-        n = ModeAToModeC(n);
+        int n = n = ModeAToModeC(decodeGillhamField(AC12Field));
         if (n < -12) {n = 0;}
 
         return (100 * n);
@@ -1515,41 +1519,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->um = ((msg[1] & 7)<<3)| /* Request extraction of downlink request. */
               msg[2]>>5;
 
-    /* In the squawk (identity) field bits are interleaved like that
-     * (message bit 20 to bit 32):
-     *
-     * C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
-     *
-     * So every group of three bits A, B, C, D represent an integer
-     * from 0 to 7.
-     *
-     * The actual meaning is just 4 octal numbers, but we convert it
-     * into a hex number tha happens to represent the four
-     * octal numbers.
-     *
-     * For more info: http://en.wikipedia.org/wiki/Gillham_code */
-    {
-        int           hexSquawk = 0;
-        unsigned char rawSquawk;
-
-        rawSquawk = msg[2];
-        if (rawSquawk & 0x01) {hexSquawk |= 0x0040;} // C4
-        if (rawSquawk & 0x02) {hexSquawk |= 0x2000;} // A2
-        if (rawSquawk & 0x04) {hexSquawk |= 0x0020;} // C2
-        if (rawSquawk & 0x08) {hexSquawk |= 0x1000;} // A1
-        if (rawSquawk & 0x10) {hexSquawk |= 0x0010;} // C1
-
-        rawSquawk = msg[3];
-        if (rawSquawk & 0x01) {hexSquawk |= 0x0004;} // D4
-        if (rawSquawk & 0x02) {hexSquawk |= 0x0400;} // B4
-        if (rawSquawk & 0x04) {hexSquawk |= 0x0002;} // D2
-        if (rawSquawk & 0x08) {hexSquawk |= 0x0200;} // B2
-        if (rawSquawk & 0x10) {hexSquawk |= 0x0001;} // D1
-        if (rawSquawk & 0x20) {hexSquawk |= 0x0100;} // B1 
-        if (rawSquawk & 0x80) {hexSquawk |= 0x4000;} // A4
-
-        mm->modeA = hexSquawk;
-    }
+    mm->modeA = decodeGillhamField((msg[2] << 8) | msg[3]);
 
     /* DF 11 & 17: try to populate our ICAO addresses whitelist.
      * DFs with an AP field (xored addr and crc), try to decode it. */
@@ -1572,10 +1542,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         }
     }
 
-    /* Decode 13 bit altitude for DF0, DF4, DF16, DF20 */
-    if (mm->msgtype == 0 || mm->msgtype == 4 ||
+    // Fields for DF0, DF4, DF16, DF20 13 bit altitude
+    if (mm->msgtype == 0  || mm->msgtype == 4 ||
         mm->msgtype == 16 || mm->msgtype == 20) {
-        mm->altitude = decodeAC13Field(msg, &mm->unit);
+        mm->altitude = decodeAC13Field(((msg[2] << 8) | msg[3]), &mm->unit);
     }
 
     /* Decode extended squitter specific stuff. */
@@ -1598,7 +1568,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             /* Airborne position Message */
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
-            mm->altitude = decodeAC12Field(msg,&mm->unit);
+            mm->altitude = decodeAC12Field(((msg[5] << 4) | (msg[6] >> 4)), &mm->unit);
             mm->raw_latitude = ((msg[6] & 3) << 15) |
                                 (msg[7] << 7) |
                                 (msg[8] >> 1);
@@ -2083,8 +2053,9 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             }
         }
 
-        // Don't forget to add 4 for the preamble samples. This also removes any risk of dividing by zero.
-        sigStrength /= 60;
+        // We measured signal strength over the first 56 bits. Don't forget to add 4 
+        // for the preamble samples, so round up and divide by 60.
+        sigStrength = (sigStrength + 29) / 60;
 
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
