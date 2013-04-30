@@ -137,31 +137,30 @@ struct client {
     int buflen;                         /* Amount of data on buffer. */
 };
 
-/* Structure used to describe an aircraft in iteractive mode. */
+// Structure used to describe an aircraft in iteractive mode
 struct aircraft {
-    uint32_t addr;             /* ICAO address */
-    char flight[9];            /* Flight number */
-    unsigned char signalLevel; /* Signal Amplitude */
-    int altitude;              /* Altitude */
-    int speed;                 /* Velocity computed from EW and NS components. */
-    int track;                 /* Angle of flight. */
-    time_t seen;               /* Time at which the last packet was received. */
-    long messages;             /* Number of Mode S messages received. */
-    int  modeA;                /* Squawk */
-    int  modeC;                /* Altitude */
-    long modeAcount;           /* Mode A Squawk hit Count */
-    long modeCcount;           /* Mode C Altitude hit Count */
-    int  modeACflags;          /* Flags for mode A/C recognition */
-    /* Encoded latitude and longitude as extracted by odd and even
-     * CPR encoded messages. */
+    uint32_t addr;                // ICAO address
+    char flight[9];               // Flight number
+    unsigned char signalLevel[8]; // Last 8 Signal Amplitudes
+    int altitude;                 // Altitude
+    int speed;                    // Velocity computed from EW and NS components
+    int track;                    // Angle of flight
+    time_t seen;                  // Time at which the last packet was received
+    long messages;                // Number of Mode S messages received
+    int  modeA;                   // Squawk
+    int  modeC;                   // Altitude
+    long modeAcount;              // Mode A Squawk hit Count
+    long modeCcount;              // Mode C Altitude hit Count
+    int  modeACflags;             // Flags for mode A/C recognition
+    // Encoded latitude and longitude as extracted by odd and even CPR encoded messages
     int odd_cprlat;
     int odd_cprlon;
     int even_cprlat;
     int even_cprlon;
-    double lat, lon;           /* Coordinated obtained from CPR encoded data. */
+    double lat, lon;              // Coordinated obtained from CPR encoded data
     int sbsflags;
     uint64_t odd_cprtime, even_cprtime;
-    struct aircraft *next;     /* Next aircraft in our linked list. */
+    struct aircraft *next;        // Next aircraft in our linked list
 };
 
 /* Program global state. */
@@ -2139,6 +2138,8 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
 
     a->addr         = mm->addr;
     a->flight[0]    = '\0';
+    memset(a->signalLevel, mm->signalLevel, 8); // First time, initialise everything
+                                                // to the first signal strength
     a->speed        = 0;
     a->track        = 0;
     a->odd_cprlat   = 0;
@@ -2482,9 +2483,9 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         }
     }
 
+    a->signalLevel[a->messages & 7] = mm->signalLevel;// replace the 8th oldest signal strength
     a->seen = time(NULL);
     a->messages++;
-    a->signalLevel = mm->signalLevel;
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         if ( (a->modeCcount)                   // if we've a modeCcount already
@@ -2637,7 +2638,11 @@ void interactiveShowData(void) {
                 a->addr, a->flight, fl, gs, tt, squawk, msgs, (int)(now - a->seen));
 
             } else {
-                char mode[5] = "    \0";
+                char mode[5]               = "    \0";
+                unsigned char * pSig       = a->signalLevel;
+                unsigned int signalAverage = (pSig[0] + pSig[1] + pSig[2] + pSig[3] + 
+                                              pSig[4] + pSig[5] + pSig[6] + pSig[7] + 3) >> 3; 
+
                 if ((flags & MODEAC_MSG_FLAG) == 0) {
                     mode[0] = 'S';
                 } else if (flags & MODEAC_MSG_MODEA_ONLY) {
@@ -2648,7 +2653,7 @@ void interactiveShowData(void) {
 
                 printf("%06x  %-4s  %-4s  %-8s %5d  %3d  %3d  %7.03f %8.03f  %3d %5d   %2d\n",
                 a->addr, mode, squawk, a->flight, altitude, speed, a->track,
-                a->lat, a->lon, a->signalLevel, msgs, (int)(now - a->seen));
+                a->lat, a->lon, signalAverage, msgs, (int)(now - a->seen));
             }
             count++;
         }        
