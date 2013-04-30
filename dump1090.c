@@ -270,7 +270,6 @@ struct modesMessage {
     int mesub;                  /* Extended squitter message subtype. */
     int heading_is_valid;
     int heading;
-    int aircraft_type;
     int fflag;                  /* 1 = Odd, 0 = Even CPR message. */
     int tflag;                  /* UTC synchronized? */
     int raw_latitude;           /* Non decoded latitude */
@@ -1660,30 +1659,24 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  ICAO Address   : %06x\n", mm->addr);
         printf("  Extended Squitter  Type: %d\n", mm->metype);
         printf("  Extended Squitter  Sub : %d\n", mm->mesub);
-        printf("  Extended Squitter  Name: %s\n",
-            getMEDescription(mm->metype,mm->mesub));
+        printf("  Extended Squitter  Name: %s\n", getMEDescription(mm->metype, mm->mesub));
 
         // Decode the extended squitter message
-        if (mm->metype >= 1 && mm->metype <= 4) {
-            /* Aircraft identification. */
-            char *ac_type_str[4] = {
-                "Aircraft Type D",
-                "Aircraft Type C",
-                "Aircraft Type B",
-                "Aircraft Type A"
-            };
-
-            printf("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
+        if (mm->metype >= 1 && mm->metype <= 4) { // Aircraft identification
+            printf("    Aircraft Type  : %c%d\n", ('A' + 4 - mm->metype), mm->mesub);
             printf("    Identification : %s\n", mm->flight);
-        } else if (mm->metype >= 9 && mm->metype <= 18) {
+
+      //} else if (mm->metype >= 5 && mm->metype <= 8) { // Surface position
+
+        } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Baro
             printf("    F flag   : %s\n", mm->fflag ? "odd" : "even");
             printf("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
             printf("    Altitude : %d feet\n", mm->altitude);
             printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
             printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
-        } else if (mm->metype == 19 && mm->mesub >= 1 && mm->mesub <= 4) {
+
+        } else if (mm->metype == 19) { // Airborne Velocity
             if (mm->mesub == 1 || mm->mesub == 2) {
-                /* Velocity */
                 printf("    EW direction      : %d\n", mm->ew_dir);
                 printf("    EW velocity       : %d\n", mm->ew_velocity);
                 printf("    NS direction      : %d\n", mm->ns_dir);
@@ -1691,13 +1684,19 @@ void displayModesMessage(struct modesMessage *mm) {
                 printf("    Vertical rate src : %d\n", mm->vert_rate_source);
                 printf("    Vertical rate sign: %d\n", mm->vert_rate_sign);
                 printf("    Vertical rate     : %d\n", mm->vert_rate);
+
             } else if (mm->mesub == 3 || mm->mesub == 4) {
                 printf("    Heading status: %d", mm->heading_is_valid);
                 printf("    Heading: %d", mm->heading);
+
+            } else {
+                printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
             }
+
+      //} else if (mm->metype >= 20 && mm->metype <= 22) { // Airborne position GNSS
+
         } else {
-            printf("    Unrecognized ME type: %d subtype: %d\n", 
-                mm->metype, mm->mesub);
+            printf("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
         }
 
     } else if (mm->msgtype == 18) { // DF 18 
