@@ -1394,12 +1394,9 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     memcpy(mm->msg, msg, MODES_LONG_MSG_BYTES);
     msg = mm->msg;
 
-    // If we havn't already got it, get the message type ASAP as other operations depend on this
-    if (mm->msgbits == 0) {
-        mm->msgtype = msg[0] >> 3; // Downlink Format
-        mm->msgbits = modesMessageLenByType(mm->msgtype);
-        }
-
+    // Get the message type ASAP as other operations depend on this
+    mm->msgtype         = msg[0] >> 3; // Downlink Format
+    mm->msgbits         = modesMessageLenByType(mm->msgtype);
     mm->errorbit        = -1; // No errors fixed
     mm->phase_corrected =  0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
@@ -2008,19 +2005,20 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         // for the preamble samples, so round up and divide by 60.
         sigStrength = (sigStrength + 29) / 60;
 
-        /* If we reached this point, and error is zero, we are very likely
-         * with a Mode S message in our hands, but it may still be broken
-         * and CRC may not be correct. This is handled by the next layer. */
-        if ((msglen) && (sigStrength > MODES_MSG_SQUELCH_LEVEL) && (errors <= MODES_MSG_ENCODER_ERRS) )
-            {
+        // When we reach this point, if error is small, and the signal strength is large enough
+        // we may have a Mode S message on our hands. It may still be broken and the CRC may not 
+        // be correct, but this can be handled by the next layer.
+        if ( (msglen) 
+          && (sigStrength >  MODES_MSG_SQUELCH_LEVEL) 
+          && (errors      <= MODES_MSG_ENCODER_ERRS) ) {
             struct modesMessage mm;
 
-            /* Decode the received message and update statistics */
+            // Set initial mm structure details
             mm.timestampMsg = Modes.timestampBlk + (j*6);
             sigStrength    = (sigStrength + 0x7F) >> 8;
             mm.signalLevel = ((sigStrength < 255) ? sigStrength : 255);
-            mm.msgbits     = msglen;
-            mm.msgtype     = msg[0] >> 3;
+
+            // Decode the received message
             decodeModesMessage(&mm, msg);
 
             /* Update statistics. */
@@ -3009,7 +3007,6 @@ int decodeHexMessage(struct client *c) {
     // Non timemarked internet data has indeterminate delay
     mm.timestampMsg = -1;
     mm.signalLevel  = -1;
-    mm.msgbits      =  0;
 
     // Remove spaces on the left and on the right
     while(l && isspace(hex[l-1])) {
