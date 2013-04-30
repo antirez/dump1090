@@ -1477,31 +1477,31 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
         // Decode the extended squitter message
 
-        if (mm->metype >= 1 && mm->metype <= 4) {
-            /* Aircraft Identification and Category */
-            mm->aircraft_type = mm->metype-1;
-            mm->flight[0] = ais_charset[msg[5]>>2];
-            mm->flight[1] = ais_charset[((msg[5]&3)<<4)|(msg[6]>>4)];
-            mm->flight[2] = ais_charset[((msg[6]&15)<<2)|(msg[7]>>6)];
-            mm->flight[3] = ais_charset[msg[7]&63];
-            mm->flight[4] = ais_charset[msg[8]>>2];
-            mm->flight[5] = ais_charset[((msg[8]&3)<<4)|(msg[9]>>4)];
-            mm->flight[6] = ais_charset[((msg[9]&15)<<2)|(msg[10]>>6)];
-            mm->flight[7] = ais_charset[msg[10]&63];
+        if (mm->metype >= 1 && mm->metype <= 4) { // Aircraft Identification and Category
+            uint32_t chars;
+
+            chars = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
+            mm->flight[3] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[2] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[1] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[0] = ais_charset[chars & 0x3F];
+
+            chars = (msg[8] << 16) | (msg[9] << 8) | (msg[10]);
+            mm->flight[7] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[6] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[5] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[4] = ais_charset[chars & 0x3F];
+
             mm->flight[8] = '\0';
-        } else if (mm->metype >= 9 && mm->metype <= 18) {
-            /* Airborne position Message */
+
+        } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Message
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
             mm->altitude = decodeAC12Field(((msg[5] << 4) | (msg[6] >> 4)), &mm->unit);
-            mm->raw_latitude = ((msg[6] & 3) << 15) |
-                                (msg[7] << 7) |
-                                (msg[8] >> 1);
-            mm->raw_longitude = ((msg[8]&1) << 16) |
-                                 (msg[9] << 8) |
-                                 msg[10];
-        } else if (mm->metype == 19 && mm->mesub >= 1 && mm->mesub <= 4) {
-            /* Airborne Velocity Message */
+            mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
+            mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+
+        } else if (mm->metype == 19) { // Airborne Velocity Message
             if (mm->mesub == 1 || mm->mesub == 2) {
                 mm->ew_dir = (msg[5]&4) >> 2;
                 mm->ew_velocity = ((msg[5]&3) << 8) | msg[6];
@@ -1510,9 +1510,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 mm->vert_rate_source = (msg[8]&0x10) >> 4;
                 mm->vert_rate_sign = (msg[8]&0x8) >> 3;
                 mm->vert_rate = ((msg[8]&7) << 6) | ((msg[9]&0xfc) >> 2);
-                /* Compute velocity and angle from the two speed
-                 * components. */
-                mm->velocity = (int) sqrt(mm->ns_velocity*mm->ns_velocity+
+                // Compute velocity and angle from the two speed components
+                mm->velocity = (int) sqrt(mm->ns_velocity*mm->ns_velocity +
                                           mm->ew_velocity*mm->ew_velocity);
                 if (mm->velocity) {
                     int ewv = mm->ew_velocity;
@@ -1523,17 +1522,17 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     if (mm->ns_dir) nsv *= -1;
                     heading = atan2(ewv,nsv);
 
-                    /* Convert to degrees. */
+                    // Convert to degrees
                     mm->heading = (int) (heading * 360 / (M_PI*2));
-                    /* We don't want negative values but a 0-360 scale. */
+                    // We don't want negative values but a 0-360 scale
                     if (mm->heading < 0) mm->heading += 360;
                 } else {
                     mm->heading = 0;
                 }
+
             } else if (mm->mesub == 3 || mm->mesub == 4) {
                 mm->heading_is_valid = msg[5] & (1<<2);
-                mm->heading = (int) (360.0/128) * (((msg[5] & 3) << 5) |
-                                                    (msg[6] >> 3));
+                mm->heading = (int) (360.0/128) * (((msg[5] & 3) << 5) | (msg[6] >> 3));
             }
         }
     }
