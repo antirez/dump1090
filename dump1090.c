@@ -2021,25 +2021,25 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             // Decode the received message
             decodeModesMessage(&mm, msg);
 
-            /* Update statistics. */
-            if (mm.crcok || use_correction) {
-                if (errors == 0) Modes.stat_demodulated++;
-                if (mm.errorbit == -1) {
-                    if (mm.crcok)
-                        Modes.stat_goodcrc++;
-                    else
+            // Update statistics
+            if (Modes.stats) {
+                if (mm.crcok || use_correction) {
+                    if (errors == 0) Modes.stat_demodulated++;
+                    if (mm.errorbit == -1) {
+                        if (mm.crcok) {Modes.stat_goodcrc++;}
+                        else          {Modes.stat_badcrc++;}
+                    } else {
                         Modes.stat_badcrc++;
-                } else {
-                    Modes.stat_badcrc++;
-                    Modes.stat_fixed++;
-                    if (mm.errorbit < MODES_LONG_MSG_BITS)
-                        Modes.stat_single_bit_fix++;
-                    else
-                        Modes.stat_two_bits_fix++;
+                        Modes.stat_fixed++;
+                        if (mm.errorbit < MODES_LONG_MSG_BITS)
+                            {Modes.stat_single_bit_fix++;}
+                        else
+                            {Modes.stat_two_bits_fix++;}
+                    }
                 }
             }
 
-            /* Output debug mode info if needed. */
+            // Output debug mode info if needed
             if (use_correction) {
                 if (Modes.debug & MODES_DEBUG_DEMOD)
                     dumpRawMessage("Demodulated with 0 errors", msg, m, j);
@@ -2052,7 +2052,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     dumpRawMessage("Decoded with good CRC", msg, m, j);
             }
 
-            /* Skip this message if we are sure it's fine. */
+            // Skip this message if we are sure it's fine
             if (mm.crcok) {
                 j += (MODES_PREAMBLE_US+msglen)*2;
                 good_message = 1;
@@ -2060,7 +2060,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     mm.phase_corrected = 1;
             }
 
-            /* Pass data to the next layer */
+            // Pass data to the next layer
             useModesMessage(&mm);
 
         } else {
