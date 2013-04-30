@@ -1536,6 +1536,29 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             }
         }
     }
+
+    // Fields for DF20, DF21 Comm-B
+    if ((mm->msgtype == 20) || (mm->msgtype == 21)){
+
+        if (msg[4] == 0x20) { // Aircraft Identification
+            uint32_t chars;
+
+            chars = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
+            mm->flight[3] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[2] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[1] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[0] = ais_charset[chars & 0x3F];
+
+            chars = (msg[8] << 16) | (msg[9] << 8) | (msg[10]);
+            mm->flight[7] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[6] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[5] = ais_charset[chars & 0x3F]; chars = chars >> 6;
+            mm->flight[4] = ais_charset[chars & 0x3F];
+
+            mm->flight[8] = '\0';
+        } else {
+        }
+    }
 }
 //
 // This function gets a decoded Mode S Message and prints it on the screen
@@ -1592,7 +1615,12 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 20) {
-            /* TODO: 56 bits DF20 MB additional field. */
+            printf("  Comm-B BDS     : %x\n", mm->msg[4]);
+
+            // Decode the extended squitter message
+            if ( mm->msg[4]       == 0x20) { // Aircraft identification
+                printf("    BDS 2,0 Aircraft Identification : %s\n", mm->flight);
+            }        
         }
 
     } else if (mm->msgtype == 5 || mm->msgtype == 21) {
@@ -1605,8 +1633,14 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 21) {
-            /* TODO: 56 bits DF21 MB additional field. */
+            printf("  Comm-B BDS     : %x\n", mm->msg[4]);
+
+            // Decode the extended squitter message
+            if ( mm->msg[4]       == 0x20) { // Aircraft identification
+                printf("    BDS 2,0 Aircraft Identification : %s\n", mm->flight);
+            }        
         }
+
     } else if (mm->msgtype == 11) {
         /* DF 11 */
         printf("DF 11: All Call Reply.\n");
