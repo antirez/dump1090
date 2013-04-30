@@ -1258,22 +1258,22 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
 //
 // For more info: http://en.wikipedia.org/wiki/Gillham_code
 //
-int decodeGillhamField(int rawGillham) {
+int decodeID13Field(int ID13Field) {
     int hexGillham = 0;
 
-    if (rawGillham & 0x1000) {hexGillham |= 0x0010;} // Bit 12 = C1
-    if (rawGillham & 0x0800) {hexGillham |= 0x1000;} // Bit 11 = A1
-    if (rawGillham & 0x0400) {hexGillham |= 0x0020;} // Bit 10 = C2
-    if (rawGillham & 0x0200) {hexGillham |= 0x2000;} // Bit  9 = A2
-    if (rawGillham & 0x0100) {hexGillham |= 0x0040;} // Bit  8 = C4
-    if (rawGillham & 0x0080) {hexGillham |= 0x4000;} // Bit  7 = A4
-  //if (rawGillham & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X or Q 
-    if (rawGillham & 0x0020) {hexGillham |= 0x0100;} // Bit  5 = B1 
-    if (rawGillham & 0x0010) {hexGillham |= 0x0001;} // Bit  4 = D1
-    if (rawGillham & 0x0008) {hexGillham |= 0x0200;} // Bit  3 = B2
-    if (rawGillham & 0x0004) {hexGillham |= 0x0002;} // Bit  2 = D2
-    if (rawGillham & 0x0002) {hexGillham |= 0x0400;} // Bit  1 = B4
-    if (rawGillham & 0x0001) {hexGillham |= 0x0004;} // Bit  0 = D4
+    if (ID13Field & 0x1000) {hexGillham |= 0x0010;} // Bit 12 = C1
+    if (ID13Field & 0x0800) {hexGillham |= 0x1000;} // Bit 11 = A1
+    if (ID13Field & 0x0400) {hexGillham |= 0x0020;} // Bit 10 = C2
+    if (ID13Field & 0x0200) {hexGillham |= 0x2000;} // Bit  9 = A2
+    if (ID13Field & 0x0100) {hexGillham |= 0x0040;} // Bit  8 = C4
+    if (ID13Field & 0x0080) {hexGillham |= 0x4000;} // Bit  7 = A4
+  //if (ID13Field & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X or Q 
+    if (ID13Field & 0x0020) {hexGillham |= 0x0100;} // Bit  5 = B1 
+    if (ID13Field & 0x0010) {hexGillham |= 0x0001;} // Bit  4 = D1
+    if (ID13Field & 0x0008) {hexGillham |= 0x0200;} // Bit  3 = B2
+    if (ID13Field & 0x0004) {hexGillham |= 0x0002;} // Bit  2 = D2
+    if (ID13Field & 0x0002) {hexGillham |= 0x0400;} // Bit  1 = B4
+    if (ID13Field & 0x0001) {hexGillham |= 0x0004;} // Bit  0 = D4
 
     return (hexGillham);
     }
@@ -1297,7 +1297,7 @@ int decodeAC13Field(int AC13Field, int *unit) {
             return ((n * 25) - 1000);
         } else {
             // N is an 11 bit Gillham coded altitude
-            int n = ModeAToModeC(decodeGillhamField(AC13Field));
+            int n = ModeAToModeC(decodeID13Field(AC13Field));
             if (n < -12) {n = 0;}
 
             return (100 * n);
@@ -1324,7 +1324,7 @@ int decodeAC12Field(int AC12Field, int *unit) {
         return ((n * 25) - 1000);
     } else {
         // N is an 11 bit Gillham coded altitude
-        int n = n = ModeAToModeC(decodeGillhamField(AC12Field));
+        int n = n = ModeAToModeC(decodeID13Field(AC12Field));
         if (n < -12) {n = 0;}
 
         return (100 * n);
@@ -1459,9 +1459,9 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->dr =  (msg[1] >> 3) & 0x1F;                // Request extraction of downlink request
     mm->um = ((msg[1]  & 7) << 3) | (msg[2] >> 5); // Request extraction of downlink request
               
-    // Fields for DF5,21 = Gillham encoded Squawk
+    // Fields for DF5, DF21 = Gillham encoded Squawk
     if (mm->msgtype == 5  || mm->msgtype == 21) {
-        mm->modeA = decodeGillhamField((msg[2] << 8) | msg[3]);
+        mm->modeA = decodeID13Field((msg[2] << 8) | msg[3]);
     }
 
     // Fields for DF0, DF4, DF16, DF20 13 bit altitude
