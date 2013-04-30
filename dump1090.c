@@ -1977,18 +1977,25 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         if      (msglen > i) {msglen = i;}
         else if (msglen < i) {msglen = 0;}
 
+        //
+        // If we guessed at any of the bits in the DF type field, then look to see if our guess was sensible.
+        // Do this by looking to see if the original guess results in the DF type being one of the ICAO defined
+        // message types. If it isn't then toggle the guessed bit and see if this new value is ICAO defined.
+        // if the new value is ICAO defined, then update it in our message.
         if ((msglen) && (errorsTy == 1) && (theErrs & 0x78)) {
-            // We guessed at one of the message type bits. See if our guess is "likely" 
+            // We guessed at one (and only one) of the message type bits. See if our guess is "likely" 
             // to be correct by comparing the DF against a list of known good DF's
-            int DF = ((theByte = msg[0]) >> 3) & 0x1f;
-            if ( (DF !=  0) && (DF !=  4) && (DF !=  5) && (DF != 11) 
-              && (DF != 16) && (DF != 17) && (DF != 18) && (DF != 19) && (DF != 20) && (DF != 21) && (DF != 22) && (DF != 24) ) {
-                // Other DF values are probably errors. Toggle the bit we guessed at and see if the resultant DF is more likely
-                theByte ^= theErrs;
-                DF       = (theByte >> 3) & 0x1f;
-                // if this DF any more likely??
-                if ( (DF ==  0) || (DF ==  4) || (DF ==  5) || (DF == 11) 
-                  || (DF == 16) || (DF == 17) || (DF == 18) || (DF == 19) || (DF == 20) || (DF == 21) || (DF == 22) || (DF == 24) ) {
+            int      thisDF      = ((theByte = msg[0]) >> 3) & 0x1f;
+            uint32_t validDFbits = 0x017F0831;   // One bit per 32 possible DF's. Set bits 0,4,5,11,16.17.18.19,20,21,22,24
+            uint32_t thisDFbit   = (1 << thisDF);
+            if (0 == (validDFbits & thisDFbit)) {
+                // The current DF is not ICAO defined, so is probably an errors. 
+                // Toggle the bit we guessed at and see if the resultant DF is more likely
+                theByte  ^= theErrs;
+                thisDF    = (theByte >> 3) & 0x1f;
+                thisDFbit = (1 << thisDF);
+                // if this DF any more likely?
+                if (validDFbits & thisDFbit) {
                     // Yep, more likely, so update the main message 
                     msg[0] = theByte;
                     Modes.stat_DF_Type_Corrected++;
