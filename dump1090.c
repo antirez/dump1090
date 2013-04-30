@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.2904.13"
+#define MODES_DUMP1090_VERSION     "1.04.3004.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -1972,25 +1972,27 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             }
         }
 
-        if (msglen == modesMessageLenByType(theByte = msg[0])) {
-            // The msglen is consistent with the DF type
-            if ((errorsTy == 1) && (theErrs & 0x78)) {
-                // We guessed at one of the message type bits. See if our guess is "likely" 
-                // to be correct by comparing the DF against a list of known good DF's
-                int DF = ((theByte = msg[0]) >> 3) & 0x1f;
-                if ( (DF !=  0) && (DF !=  4) && (DF !=  5) && (DF != 11) 
-                  && (DF != 16) && (DF != 17) && (DF != 18) && (DF != 19) && (DF != 20) && (DF != 21) && (DF != 22) && (DF != 24) ) {
-                    // Other DF values are probably errors. Toggle the bit we guessed at and see if the resultant DF is more likely
-                    theByte ^= theErrs;
-                    DF       = (theByte >> 3) & 0x1f;
-                    // if this DF any more likely??
-                    if ( (DF ==  0) || (DF ==  4) || (DF ==  5) || (DF == 11) 
-                      || (DF == 16) || (DF == 17) || (DF == 18) || (DF == 19) || (DF == 20) || (DF == 21) || (DF == 22) || (DF == 24) ) {
-                        // Yep, more likely, so update the main message 
-                        msg[0] = theByte;
-                        Modes.stat_DF_Type_Corrected++;
-                        errors--; // decrease the error count so we attempt to use the modified DF.
-                    }
+        // Ensure msglen is consistent with the DF type
+        i = modesMessageLenByType(msg[0] >> 3);
+        if      (msglen > i) {msglen = i;}
+        else if (msglen < i) {msglen = 0;}
+
+        if ((msglen) && (errorsTy == 1) && (theErrs & 0x78)) {
+            // We guessed at one of the message type bits. See if our guess is "likely" 
+            // to be correct by comparing the DF against a list of known good DF's
+            int DF = ((theByte = msg[0]) >> 3) & 0x1f;
+            if ( (DF !=  0) && (DF !=  4) && (DF !=  5) && (DF != 11) 
+              && (DF != 16) && (DF != 17) && (DF != 18) && (DF != 19) && (DF != 20) && (DF != 21) && (DF != 22) && (DF != 24) ) {
+                // Other DF values are probably errors. Toggle the bit we guessed at and see if the resultant DF is more likely
+                theByte ^= theErrs;
+                DF       = (theByte >> 3) & 0x1f;
+                // if this DF any more likely??
+                if ( (DF ==  0) || (DF ==  4) || (DF ==  5) || (DF == 11) 
+                  || (DF == 16) || (DF == 17) || (DF == 18) || (DF == 19) || (DF == 20) || (DF == 21) || (DF == 22) || (DF == 24) ) {
+                    // Yep, more likely, so update the main message 
+                    msg[0] = theByte;
+                    Modes.stat_DF_Type_Corrected++;
+                    errors--; // decrease the error count so we attempt to use the modified DF.
                 }
             }
         }
