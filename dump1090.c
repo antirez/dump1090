@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.3004.13"
+#define MODES_DUMP1090_VERSION     "1.04.0105.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -1617,7 +1617,7 @@ void displayModesMessage(struct modesMessage *mm) {
             printf("  Comm-B BDS     : %x\n", mm->msg[4]);
 
             // Decode the extended squitter message
-            if ( mm->msg[4]       == 0x20) { // Aircraft identification
+            if        ( mm->msg[4]       == 0x20) { // BDS 2,0 Aircraft identification
                 printf("    BDS 2,0 Aircraft Identification : %s\n", mm->flight);
             }        
         }
@@ -1635,7 +1635,7 @@ void displayModesMessage(struct modesMessage *mm) {
             printf("  Comm-B BDS     : %x\n", mm->msg[4]);
 
             // Decode the extended squitter message
-            if ( mm->msg[4]       == 0x20) { // Aircraft identification
+            if        ( mm->msg[4]       == 0x20) { // BDS 2,0 Aircraft identification
                 printf("    BDS 2,0 Aircraft Identification : %s\n", mm->flight);
             }        
         }
@@ -2530,12 +2530,21 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             }
         a->altitude =  mm->altitude;
         a->modeC    = (mm->altitude + 49) / 100;
+
+        if ((mm->msgtype == 20) && (mm->msg[4] == 0x20)) {
+            memcpy(a->flight, mm->flight, sizeof(a->flight));
+        }
+
     } else if(mm->msgtype == 5 || mm->msgtype == 21) {
         if (a->modeA != mm->modeA) {
             a->modeAcount   = 0; // Squawk has changed, so zero the hit count
             a->modeACflags &= ~MODEAC_MSG_MODEA_HIT;
         }
         a->modeA = mm->modeA;
+
+        if ((mm->msgtype == 21) && (mm->msg[4] == 0x20)) {
+            memcpy(a->flight, mm->flight, sizeof(a->flight));
+        }
 
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
@@ -2574,6 +2583,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
                 a->track = mm->heading;
             }
         }
+
     } else if(mm->msgtype == 32) {
 
         int flags = a->modeACflags;
