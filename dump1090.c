@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.0105.13"
+#define MODES_DUMP1090_VERSION     "1.04.0205.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -325,34 +325,19 @@ void sigintHandler(int dummy) {
 /* =============================== Initialization =========================== */
 
 void modesInitConfig(void) {
-    Modes.gain = MODES_MAX_GAIN;
-    Modes.dev_index = 0;
-    Modes.enable_agc = 0;
-    Modes.ppm_error = 0;
-    Modes.freq = MODES_DEFAULT_FREQ;
-    Modes.filename = NULL;
-    Modes.fix_errors = 0;
-    Modes.check_crc = 1;
-    Modes.raw = 0;
-    Modes.beast = 0;
-    Modes.mode_ac = 0;
-    Modes.net = 0;
-    Modes.net_only = 0;
+    // Default everything to zero/NULL
+    memset(&Modes, 0, sizeof(Modes));
+
+    // Now initialise things that should not be 0/NULL to their defaults
+    Modes.gain                = MODES_MAX_GAIN;
+    Modes.freq                = MODES_DEFAULT_FREQ;
+    Modes.check_crc           = 1;
     Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
-    Modes.net_output_raw_size = 0;
-    Modes.net_output_raw_rate = 0;
     Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
-    Modes.net_input_raw_port = MODES_NET_INPUT_RAW_PORT;
-    Modes.net_http_port = MODES_NET_HTTP_PORT;
-    Modes.onlyaddr = 0;
-    Modes.debug = 0;
-    Modes.interactive = 0;
-    Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
-    Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
-    Modes.quiet = 0;
-    Modes.aggressive = 0;
-    Modes.mlat = 0;
-    Modes.interactive_rtl1090 = 0;
+    Modes.net_input_raw_port  = MODES_NET_INPUT_RAW_PORT;
+    Modes.net_http_port       = MODES_NET_HTTP_PORT;
+    Modes.interactive_rows    = MODES_INTERACTIVE_ROWS;
+    Modes.interactive_ttl     = MODES_INTERACTIVE_TTL;
 }
 
 void modesInit(void) {
@@ -372,46 +357,21 @@ void modesInit(void) {
         exit(1);
     }
 
-    // Limit the maximum requested raw output size to less than one Ethernet Block 
-    Modes.net_output_raw_rate_count = 0;
-    if (Modes.net_output_raw_size > (MODES_RAWOUT_BUF_FLUSH))
-      {Modes.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH;}
-    if (Modes.net_output_raw_rate > (MODES_RAWOUT_BUF_RATE))
-      {Modes.net_output_raw_rate = MODES_RAWOUT_BUF_RATE;}
-
     // Clear the buffers that have just been allocated, just in-case
     memset(Modes.icao_cache, 0,   sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2);
     memset(Modes.data,       127, MODES_ASYNC_BUF_SIZE);
     memset(Modes.magnitude,  0,   MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
 
-    // The ICAO address cache. We use two uint32_t for every
-    // entry because it's a addr / timestamp pair for every entry.
-    Modes.timestampBlk            = 0;
-    Modes.data_ready              = 0;
-    Modes.aircrafts               = NULL;
-    Modes.interactive_last_update = 0;
-    Modes.rawOutUsed              = 0;
+    // Limit the maximum requested raw output size to less than one Ethernet Block 
+    if (Modes.net_output_raw_size > (MODES_RAWOUT_BUF_FLUSH))
+      {Modes.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH;}
+    if (Modes.net_output_raw_rate > (MODES_RAWOUT_BUF_RATE))
+      {Modes.net_output_raw_rate = MODES_RAWOUT_BUF_RATE;}
+
+    // Initialise the Block Timers to something half sensible
     ftime(&Modes.stSystemTimeRTL);
     Modes.stSystemTimeBlk         = Modes.stSystemTimeRTL;
 
-    /* Populate the I/Q -> Magnitude lookup table. It is used because
-     * sqrt or round may be expensive and may vary a lot depending on
-     * the libc used.
-     *
-     * We scale to 0-255 range multiplying by 1.4 in order to ensure that
-     * every different I/Q pair will result in a different magnitude value,
-     * not losing any resolution. */
-/*
-    for (i = 0; i <= 255; i++) {
-        for (q = 0; q <= 255; q++) {
-            int mag_i = i - 127;
-            int mag_q = q - 127;
-            int mag   = 0;           
-            mag = (int) round(sqrt((mag_i*mag_i)+(mag_q*mag_q)) * 360);
-            Modes.maglut[(i*256)+q] = (uint16_t) min(mag,65535);
-        }
-    }
-*/
     // Each I and Q value varies from 0 to 255, which represents a range from -1 to +1. To get from the 
     // unsigned (0-255) range you therefore subtract 127 (or 128 or 127.5) from each I and Q, giving you 
     // a range from -127 to +128 (or -128 to +127, or -127.5 to +127.5)..
@@ -454,22 +414,6 @@ void modesInit(void) {
             Modes.maglut[(i*256)+q] = (uint16_t) ((mag < 65535) ? mag : 65535);
         }
     }
-
-    /* Statistics */
-    Modes.stat_valid_preamble = 0;
-    Modes.stat_demodulated = 0;
-    Modes.stat_goodcrc = 0;
-    Modes.stat_badcrc = 0;
-    Modes.stat_fixed = 0;
-    Modes.stat_single_bit_fix = 0;
-    Modes.stat_two_bits_fix = 0;
-    Modes.stat_http_requests = 0;
-    Modes.stat_sbs_connections = 0;
-    Modes.stat_out_of_phase = 0;
-    Modes.stat_DF_Len_Corrected = 0;
-    Modes.stat_DF_Type_Corrected = 0;
-    Modes.stat_ModeAC = 0;
-    Modes.exit = 0;
 }
 
 /* =============================== RTLSDR handling ========================== */
@@ -2168,23 +2112,21 @@ void useModesMessage(struct modesMessage *mm) {
 struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     struct aircraft *a = (struct aircraft *) malloc(sizeof(*a));
 
+    // Default everything to zero/NULL
+    memset(a, 0, sizeof(*a));
+
+    // Now initialise things that should not be 0/NULL to their defaults
+
     a->addr         = mm->addr;
-    a->flight[0]    = '\0';
     memset(a->signalLevel, mm->signalLevel, 8); // First time, initialise everything
                                                 // to the first signal strength
-    a->speed        = 0;
-    a->track        = 0;
-    a->odd_cprlat   = 0;
-    a->odd_cprlon   = 0;
-    a->odd_cprtime  = 0;
-    a->even_cprlat  = 0;
-    a->even_cprlon  = 0;
-    a->even_cprtime = 0;
-    a->lat          = 0;
-    a->lon          = 0;
-    a->sbsflags     = 0;
+    a->lat          = 0.0;
+    a->lon          = 0.0;
     a->seen         = time(NULL);
-    a->messages     = 0;
+
+    // mm->msgtype 32 is used to represent Mode A/C. These values can never change, so 
+    // set them once here during initialisation, and don't bother to set them every 
+    // time this ModeA/C is received again in the future/
     if (mm->msgtype == 32) {
         a->modeACflags = MODEAC_MSG_FLAG;
         a->modeA       = mm->modeA;
@@ -2192,15 +2134,7 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
         a->altitude    = a->modeC * 100;
         if (a->modeC < -12)
             {a->modeACflags |= MODEAC_MSG_MODEA_ONLY;}  
-    } else {
-        a->modeACflags = 0;
-        a->modeA       = 0;
-        a->modeC       = 0;
-        a->altitude    = 0;
     }
-    a->modeAcount   = 0;
-    a->modeCcount   = 0;
-    a->next         = NULL;
     return (a);
 }
 //
