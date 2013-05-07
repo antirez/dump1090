@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.0205.13"
+#define MODES_DUMP1090_VERSION     "1.04.0705.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -140,12 +140,15 @@ struct client {
 // Structure used to describe an aircraft in iteractive mode
 struct aircraft {
     uint32_t addr;                // ICAO address
-    char flight[9];               // Flight number
+    char flight[16];              // Flight number
     unsigned char signalLevel[8]; // Last 8 Signal Amplitudes
     int altitude;                 // Altitude
     int speed;                    // Velocity computed from EW and NS components
     int track;                    // Angle of flight
     time_t seen;                  // Time at which the last packet was received
+    time_t seenLatLon;            // Time at which the last lat long was calculated
+    uint64_t timestamp;           // Timestamp at which the last packet was received
+    uint64_t timestampLatLon;     // Timestamp at which the last lat long was calculated
     long messages;                // Number of Mode S messages received
     int  modeA;                   // Squawk
     int  modeC;                   // Altitude
@@ -247,50 +250,50 @@ struct {
     unsigned int stat_ModeAC;
 } Modes;
 
-/* The struct we use to store information about a decoded message. */
+// The struct we use to store information about a decoded message.
 struct modesMessage {
-    /* Generic fields */
-    unsigned char msg[MODES_LONG_MSG_BYTES]; /* Binary message. */
-    int msgbits;                /* Number of bits in message */
-    int msgtype;                /* Downlink format # */
-    int crcok;                  /* True if CRC was valid */
-    uint32_t crc;               /* Message CRC */
-    int errorbit;               /* Bit corrected. -1 if no bit corrected. */
-    uint32_t addr;              /* ICAO Address from bytes 1 2 and 3 */
-    int phase_corrected;        /* True if phase correction was applied. */
-    uint64_t timestampMsg;      /* Timestamp of the message. */  
-    unsigned char signalLevel;  /* Signal Amplitude */
+    // Generic fields
+    unsigned char msg[MODES_LONG_MSG_BYTES]; // Binary message.
+    int msgbits;                             // Number of bits in message 
+    int msgtype;                             // Downlink format #
+    int crcok;                               // True if CRC was valid
+    uint32_t crc;                            // Message CRC
+    int errorbit;                            // Bit corrected. -1 if no bit corrected
+    uint32_t addr;                           // ICAO Address from bytes 1 2 and 3
+    int phase_corrected;                     // True if phase correction was applied
+    uint64_t timestampMsg;                   // Timestamp of the message
+    unsigned char signalLevel;               // Signal Amplitude
 
-    /* DF 11 */
-    int ca;                     /* Responder capabilities. */
+    // DF 11
+    int ca;                     // Responder capabilities
     int iid;
 
-    /* DF 17 */
-    int metype;                 /* Extended squitter message type. */
-    int mesub;                  /* Extended squitter message subtype. */
+    // DF 17
+    int metype;                 // Extended squitter message type.
+    int mesub;                  // Extended squitter message subtype.
     int heading_is_valid;
     int heading;
-    int fflag;                  /* 1 = Odd, 0 = Even CPR message. */
-    int tflag;                  /* UTC synchronized? */
-    int raw_latitude;           /* Non decoded latitude */
-    int raw_longitude;          /* Non decoded longitude */
-    char flight[9];             /* 8 chars flight number. */
-    int ew_dir;                 /* 0 = East, 1 = West. */
-    int ew_velocity;            /* E/W velocity. */
-    int ns_dir;                 /* 0 = North, 1 = South. */
-    int ns_velocity;            /* N/S velocity. */
-    int vert_rate_source;       /* Vertical rate source. */
-    int vert_rate_sign;         /* Vertical rate sign. */
-    int vert_rate;              /* Vertical rate. */
-    int velocity;               /* Computed from EW and NS velocity. */
+    int fflag;                  // 1 = Odd, 0 = Even CPR message.
+    int tflag;                  // UTC synchronized?
+    int raw_latitude;           // Non decoded latitude.
+    int raw_longitude;          // Non decoded longitude.
+    char flight[16];            // 8 chars flight number.
+    int ew_dir;                 // 0 = East, 1 = West.
+    int ew_velocity;            // E/W velocity.
+    int ns_dir;                 // 0 = North, 1 = South.
+    int ns_velocity;            // N/S velocity.
+    int vert_rate_source;       // Vertical rate source.
+    int vert_rate_sign;         // Vertical rate sign.
+    int vert_rate;              // Vertical rate.
+    int velocity;               // Computed from EW and NS velocity.
 
-    /* DF4, DF5, DF20, DF21 */
-    int fs;                     /* Flight status for DF4,5,20,21 */
-    int dr;                     /* Request extraction of downlink request. */
-    int um;                     /* Request extraction of downlink request. */
-    int modeA;                  /* 13 bits identity (Squawk). */
+    // DF4, DF5, DF20, DF21
+    int fs;                     // Flight status for DF4,5,20,21
+    int dr;                     // Request extraction of downlink request.
+    int um;                     // Request extraction of downlink request.
+    int modeA;                  // 13 bits identity (Squawk).
 
-    /* Fields used by multiple message types. */
+    // Fields used by multiple message types.
     int altitude, unit; 
 };
 
@@ -2122,7 +2125,6 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
                                                 // to the first signal strength
     a->lat          = 0.0;
     a->lon          = 0.0;
-    a->seen         = time(NULL);
 
     // mm->msgtype 32 is used to represent Mode A/C. These values can never change, so 
     // set them once here during initialisation, and don't bother to set them every 
@@ -2347,7 +2349,9 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     }
     if (a->lon > 180) a->lon -= 360;
 
-    a->sbsflags |= MODES_SBS_LAT_LONG_FRESH;
+    a->seenLatLon      = a->seen;
+    a->timestampLatLon = a->timestamp;
+    a->sbsflags       |= MODES_SBS_LAT_LONG_FRESH;
 }
 
 /* This algorithm comes from:
@@ -2413,7 +2417,10 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
 
     a->lat = rlat;
     a->lon = rlon;
-    a->sbsflags |= MODES_SBS_LAT_LONG_FRESH;
+
+    a->seenLatLon      = a->seen;
+    a->timestampLatLon = a->timestamp;
+    a->sbsflags       |= MODES_SBS_LAT_LONG_FRESH;
 
     return (0);
 }
@@ -2450,7 +2457,8 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     }
 
     a->signalLevel[a->messages & 7] = mm->signalLevel;// replace the 8th oldest signal strength
-    a->seen = time(NULL);
+    a->seen      = time(NULL);
+    a->timestamp = mm->timestampMsg;
     a->messages++;
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
