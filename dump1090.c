@@ -1230,7 +1230,6 @@ int decodeID13Field(int ID13Field) {
 int decodeAC13Field(int AC13Field, int *unit) {
     int m_bit  = AC13Field & 0x0040; // set = meters, clear = feet
     int q_bit  = AC13Field & 0x0010; // set = 25 ft encoding, clear = Gillham Mode C encoding
-    AC13Field &= 0x1FFF;             // limit the field to 13 bits
 
     if (!m_bit) {
         *unit = MODES_UNIT_FEET;
@@ -1414,7 +1413,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     // Fields for DF0, DF4, DF16, DF20 13 bit altitude
     if (mm->msgtype == 0  || mm->msgtype == 4 ||
         mm->msgtype == 16 || mm->msgtype == 20) {
-        mm->altitude = decodeAC13Field(((msg[2] << 8) | msg[3]), &mm->unit);
+        int AC13Field = ((msg[2] << 8) | msg[3]) & 0x1FFF; 
+        if (AC13Field) { // Only attempt to decode if a valid (non zero) altitude is present
+            mm->altitude = decodeAC13Field(AC13Field, &mm->unit);
+        }
     }
 
     // Fields for DF17 squitter
@@ -1442,11 +1444,14 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[8] = '\0';
 
         } else if (mm->metype >= 9 && mm->metype <= 18) { // Position Message
+            int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
-            mm->altitude = decodeAC12Field(((msg[5] << 4) | (msg[6] >> 4)), &mm->unit);
             mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
             mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+            if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
+                mm->altitude = decodeAC12Field(AC12Field, &mm->unit);
+            }
 
         } else if (mm->metype == 19) { // Airborne Velocity Message
             if (mm->mesub == 1 || mm->mesub == 2) {
