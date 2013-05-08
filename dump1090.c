@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.0705.13"
+#define MODES_DUMP1090_VERSION     "1.04.0805.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -1213,9 +1213,9 @@ int decodeID13Field(int ID13Field) {
     if (ID13Field & 0x0200) {hexGillham |= 0x2000;} // Bit  9 = A2
     if (ID13Field & 0x0100) {hexGillham |= 0x0040;} // Bit  8 = C4
     if (ID13Field & 0x0080) {hexGillham |= 0x4000;} // Bit  7 = A4
-  //if (ID13Field & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X or Q 
+  //if (ID13Field & 0x0040) {hexGillham |= 0x0800;} // Bit  6 = X  or M 
     if (ID13Field & 0x0020) {hexGillham |= 0x0100;} // Bit  5 = B1 
-    if (ID13Field & 0x0010) {hexGillham |= 0x0001;} // Bit  4 = D1
+    if (ID13Field & 0x0010) {hexGillham |= 0x0001;} // Bit  4 = D1 or Q
     if (ID13Field & 0x0008) {hexGillham |= 0x0200;} // Bit  3 = B2
     if (ID13Field & 0x0004) {hexGillham |= 0x0002;} // Bit  2 = D2
     if (ID13Field & 0x0002) {hexGillham |= 0x0400;} // Bit  1 = B4
@@ -1259,18 +1259,19 @@ int decodeAC13Field(int AC13Field, int *unit) {
 //
 int decodeAC12Field(int AC12Field, int *unit) {
     int q_bit  = AC12Field & 0x10; // Bit 48 = Q
-    AC12Field &= 0x0FFF;           // limit the field to 12 bits
 
     *unit = MODES_UNIT_FEET;
     if (q_bit) {
-        /// N is the 11 bit integer resulting from the removal of bit Q
+        /// N is the 11 bit integer resulting from the removal of bit Q at bit 4
         int n = ((AC12Field & 0x0FE0) >> 1) | 
                  (AC12Field & 0x000F);
         // The final altitude is the resulting number multiplied by 25, minus 1000.
         return ((n * 25) - 1000);
     } else {
-        // N is an 11 bit Gillham coded altitude
-        int n = n = ModeAToModeC(decodeID13Field(AC12Field));
+        // Make N a 13 bit Gillham coded altitude by inserting M=0 at bit 6
+        int n = ((AC12Field & 0x0FC0) << 1) | 
+                 (AC12Field & 0x003F);
+        n = ModeAToModeC(decodeID13Field(n));
         if (n < -12) {n = 0;}
 
         return (100 * n);
