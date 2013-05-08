@@ -1441,7 +1441,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
             mm->flight[8] = '\0';
 
-        } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Message
+        } else if (mm->metype >= 9 && mm->metype <= 18) { // Position Message
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
             mm->altitude = decodeAC12Field(((msg[5] << 4) | (msg[6] >> 4)), &mm->unit);
@@ -1457,9 +1457,11 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 mm->vert_rate_source = (msg[8]&0x10) >> 4;
                 mm->vert_rate_sign = (msg[8]&0x8) >> 3;
                 mm->vert_rate = ((msg[8]&7) << 6) | ((msg[9]&0xfc) >> 2);
+
                 // Compute velocity and angle from the two speed components
                 mm->velocity = (int) sqrt(mm->ns_velocity*mm->ns_velocity +
                                           mm->ew_velocity*mm->ew_velocity);
+
                 if (mm->velocity) {
                     int ewv = mm->ew_velocity;
                     int nsv = mm->ns_velocity;
@@ -2124,12 +2126,11 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     a->addr         = mm->addr;
     memset(a->signalLevel, mm->signalLevel, 8); // First time, initialise everything
                                                 // to the first signal strength
-    a->lat          = 0.0;
-    a->lon          = 0.0;
+    a->lat = a->lon = 0.0;
 
     // mm->msgtype 32 is used to represent Mode A/C. These values can never change, so 
     // set them once here during initialisation, and don't bother to set them every 
-    // time this ModeA/C is received again in the future/
+    // time this ModeA/C is received again in the future
     if (mm->msgtype == 32) {
         a->modeACflags = MODEAC_MSG_FLAG;
         a->modeA       = mm->modeA;
@@ -2492,6 +2493,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
+
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             if ( (a->modeCcount)                   // if we've a modeCcount already
               && (a->altitude  != mm->altitude ) ) // and Altitude has changed
@@ -2520,6 +2522,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
                       decodeCPR(a, mm->fflag, 0);
                 }
             }
+
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
                 a->speed = mm->velocity;
@@ -2557,7 +2560,7 @@ void interactiveShowData(void) {
     int count = 0;
     char progress;
     char spinner[4] = "|/-\\";
-    
+
     progress = spinner[time(NULL)%4];
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
@@ -3341,8 +3344,8 @@ void backgroundTasks(void) {
         modesReadFromClients();
     }    
 
-   // If Modes.aircrafts is not NULL, remove any stale aircraft
-   if (Modes.aircrafts)
+    // If Modes.aircrafts is not NULL, remove any stale aircraft
+    if (Modes.aircrafts)
         {interactiveRemoveStaleAircrafts();}
 
     // Refresh screen when in interactive mode
