@@ -951,6 +951,7 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
   if ((ModeABits < 3) || (ModeABits & 0xFFFF8808) || (ModeAErrs) )
     {return (ModeABits = 0);}
 
+  memset(mm, 0, sizeof(*mm));
   fSig            = (fSig + 0x7F) >> 8;
   mm->signalLevel = ((fSig < 255) ? fSig : 255);
 
@@ -1478,13 +1479,15 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
                 if (ew_raw) { // Do East/West  
                     mm->ew_velocity = ew_vel;
-                    if (mm->ew_dir  = ((msg[5] & 0x04) >> 2))
+                    mm->ew_dir      = (msg[5] & 0x04) >> 2;
+                    if (mm->ew_dir)
                         {ew_vel = 0 - ew_vel;}                   
                 }
 
                 if (ns_raw) { // Do North/South
                     mm->ns_velocity = ns_vel;
-                    if (mm->ns_dir  = ((msg[7] & 0x80) >> 7))
+                    mm->ns_dir      = (msg[7] & 0x80) >> 7;
+                    if (mm->ns_dir)
                         {ns_vel = 0 - ns_vel;}                   
                 }
 
@@ -1509,7 +1512,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     mm->tasflag  = (msg[7] & 0x80);
                 }
 
-                if (mm->heading_is_valid = (msg[5] & 0x04)) {
+                mm->heading_is_valid = msg[5] & 0x04;
+                if (mm->heading_is_valid) {
                     mm->heading          = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
                 }
             }
@@ -1824,11 +1828,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             if (Modes.mode_ac) 
                 {
-                int ModeA; 
                 struct modesMessage mm;
-                memset(&mm, 0, sizeof(mm));
+                int ModeA = detectModeA(pPreamble, &mm); 
 
-                if (ModeA = detectModeA(pPreamble, &mm)) // We have found a valid ModeA/C in the data                    
+                if (ModeA) // We have found a valid ModeA/C in the data                    
                     {
                     mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
 
