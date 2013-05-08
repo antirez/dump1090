@@ -272,7 +272,7 @@ struct modesMessage {
     int metype;                 // Extended squitter message type.
     int mesub;                  // Extended squitter message subtype.
     int heading_is_valid;
-    int heading;
+    int heading;                // Reported by aircraft, or computed from from EW and NS velocity
     int fflag;                  // 1 = Odd, 0 = Even CPR message.
     int tflag;                  // UTC synchronized?
     int raw_latitude;           // Non decoded latitude.
@@ -285,7 +285,8 @@ struct modesMessage {
     int vert_rate_source;       // Vertical rate source.
     int vert_rate_sign;         // Vertical rate sign.
     int vert_rate;              // Vertical rate.
-    int velocity;               // Computed from EW and NS velocity.
+    int velocity;               // Reported by aircraft, or computed from from EW and NS velocity
+    int tasflag;                // TAS or IAS
 
     // DF4, DF5, DF20, DF21
     int fs;                     // Flight status for DF4,5,20,21
@@ -1454,39 +1455,63 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             }
 
         } else if (mm->metype == 19) { // Airborne Velocity Message
-            if (mm->mesub == 1 || mm->mesub == 2) {
-                mm->ew_dir = (msg[5]&4) >> 2;
-                mm->ew_velocity = ((msg[5]&3) << 8) | msg[6];
-                mm->ns_dir = (msg[7]&0x80) >> 7;
-                mm->ns_velocity = ((msg[7]&0x7f) << 3) | ((msg[8]&0xe0) >> 5);
-                mm->vert_rate_source = (msg[8]&0x10) >> 4;
-                mm->vert_rate_sign = (msg[8]&0x8) >> 3;
-                mm->vert_rate = ((msg[8]&7) << 6) | ((msg[9]&0xfc) >> 2);
 
-                // Compute velocity and angle from the two speed components
-                mm->velocity = (int) sqrt(mm->ns_velocity*mm->ns_velocity +
-                                          mm->ew_velocity*mm->ew_velocity);
+            if ( (mm->mesub >= 1) && (mm->mesub <= 4) ) {
+                int vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
+                if (vert_rate) {
+                    mm->vert_rate_source = (msg[8] & 0x10) >> 4;
+                    mm->vert_rate_sign   = (msg[8] & 0x08) >> 3;
+                    mm->vert_rate        =  vert_rate - 1;
+                }
+            }
 
-                if (mm->velocity) {
-                    int ewv = mm->ew_velocity;
-                    int nsv = mm->ns_velocity;
-                    double heading;
+            if ((mm->mesub == 1) || (mm->mesub == 2)) {
+                int ew_raw = ((msg[5] & 0x03) << 8) |  msg[6];
+                int ew_vel = ew_raw - 1;
+                int ns_raw = ((msg[7] & 0x7F) << 3) | (msg[8] >> 5);
+                int ns_vel = ew_raw - 1;
 
-                    if (mm->ew_dir) ewv *= -1;
-                    if (mm->ns_dir) nsv *= -1;
-                    heading = atan2(ewv,nsv);
+                if (mm->mesub == 2) { // If (supersonic) unit is 4 kts
+                   ns_vel = ns_vel << 2;
+                   ew_vel = ew_vel << 2;
+                }
 
-                    // Convert to degrees
-                    mm->heading = (int) (heading * 360 / (M_PI*2));
-                    // We don't want negative values but a 0-360 scale
-                    if (mm->heading < 0) mm->heading += 360;
-                } else {
-                    mm->heading = 0;
+                if (ew_raw) { // Do East/West  
+                    mm->ew_velocity = ew_vel;
+                    if (mm->ew_dir  = ((msg[5] & 0x04) >> 2))
+                        {ew_vel = 0 - ew_vel;}                   
+                }
+
+                if (ns_raw) { // Do North/South
+                    mm->ns_velocity = ns_vel;
+                    if (mm->ns_dir  = ((msg[7] & 0x80) >> 7))
+                        {ns_vel = 0 - ns_vel;}                   
+                }
+
+                if (ew_raw && ns_raw) {
+                    // Compute velocity and angle from the two speed components
+                    mm->velocity = (int) sqrt((ns_vel * ns_vel) + (ew_vel * ew_vel));
+
+                    if (mm->velocity) {
+                        mm->heading = (int) (atan2(ew_vel, ns_vel) * 180.0 / M_PI);
+                        // We don't want negative values but a 0-360 scale
+                        if (mm->heading < 0) mm->heading += 360;
+                    }
                 }
 
             } else if (mm->mesub == 3 || mm->mesub == 4) {
-                mm->heading_is_valid = msg[5] & (1<<2);
-                mm->heading = (int) (360.0/128) * (((msg[5] & 3) << 5) | (msg[6] >> 3));
+                int airspeed = ((msg[7] & 0x7f) << 3) | (msg[8] >> 5);
+                if (airspeed) {
+                    --airspeed;
+                    if (mm->mesub == 4)  // If (supersonic) unit is 4 kts
+                        {airspeed = airspeed << 2;}
+                    mm->velocity =  airspeed;
+                    mm->tasflag  = (msg[7] & 0x80);
+                }
+
+                if (mm->heading_is_valid = (msg[5] & 0x04)) {
+                    mm->heading          = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
+                }
             }
         }
     }
@@ -1799,10 +1824,11 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             if (Modes.mode_ac) 
                 {
+                int ModeA; 
                 struct modesMessage mm;
-                int ModeA = detectModeA(pPreamble, &mm);
+                memset(&mm, 0, sizeof(mm));
 
-                if (ModeA) // We have found a valid ModeA/C in the data                    
+                if (ModeA = detectModeA(pPreamble, &mm)) // We have found a valid ModeA/C in the data                    
                     {
                     mm.timestampMsg = Modes.timestampBlk + ((j+1) * 6);
 
@@ -1998,6 +2024,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
           && (sigStrength >  MODES_MSG_SQUELCH_LEVEL) 
           && (errors      <= MODES_MSG_ENCODER_ERRS) ) {
             struct modesMessage mm;
+            memset(&mm, 0, sizeof(mm));
 
             // Set initial mm structure details
             mm.timestampMsg = Modes.timestampBlk + (j*6);
@@ -2998,6 +3025,7 @@ int decodeHexMessage(struct client *c) {
     int l = strlen(hex), j;
     unsigned char msg[MODES_LONG_MSG_BYTES];
     struct modesMessage mm;
+    memset(&mm, 0, sizeof(mm));
 
     // Always mark the timestamp as invalid for packets received over the internet
     // Mixing of data from two or more different receivers and publishing
