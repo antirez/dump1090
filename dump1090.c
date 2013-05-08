@@ -1278,6 +1278,25 @@ int decodeAC12Field(int AC12Field, int *unit) {
         return (100 * n);
     }
 }
+//
+// Decode the 7 bit ground movement field PWL exponential style scale
+//
+int decodeMovementField(int movement) {
+    int gspeed;
+
+    // Note : movement codes 0,125,126,127 are all invalid, but they are 
+    //        trapped for before this function is called.
+
+    if      (movement  > 123) gspeed = 199; // > 175kt
+    else if (movement  > 108) gspeed = ((movement - 108)  * 5) + 100;
+    else if (movement  >  93) gspeed = ((movement -  93)  * 2) +  70;
+    else if (movement  >  38) gspeed = ((movement -  38)     ) +  15;
+    else if (movement  >  12) gspeed = ((movement -  11) >> 1) +   2;
+    else if (movement  >   8) gspeed = ((movement -   6) >> 2) +   1;
+    else                      gspeed = 0;
+
+    return (gspeed);
+}
 
 /* Capability table. */
 char *ca_str[8] = {
@@ -1445,14 +1464,25 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
             mm->flight[8] = '\0';
 
-        } else if (mm->metype >= 9 && mm->metype <= 18) { // Position Message
-            int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
+        } else if (mm->metype >= 5 && mm->metype <= 18) { // Position Message
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
             mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
             mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
-            if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
-                mm->altitude = decodeAC12Field(AC12Field, &mm->unit);
+            if (mm->metype >= 9) {        // Airborne
+                int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
+                if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
+                    {mm->altitude = decodeAC12Field(AC12Field, &mm->unit);}
+                }
+            } else {                      // Ground
+                int movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
+                if ((movement) && (movement < 125))
+                    {mm->velocity = decodeMovementField(movement);}
+
+                mm->heading_is_valid = (msg[5] & 0x08);
+                if (mm->heading_is_valid) {
+                    mm->heading = ((((msg[5] << 4) | (msg[6] >> 4)) & 0x007F) * 45) >> 4;
+                }
             }
 
         } else if (mm->metype == 19) { // Airborne Velocity Message
