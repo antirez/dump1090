@@ -2078,7 +2078,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
  * Basically this function passes a raw message to the upper layers for
  * further processing and visualization. */
 void useModesMessage(struct modesMessage *mm) {
-    if (!Modes.stats && (Modes.check_crc == 0 || mm->crcok)) {
+    if ((Modes.check_crc == 0) || (mm->crcok)) {
         // Track aircrafts if...
         if ( (Modes.interactive)              //       in interactive mode
           || (Modes.stat_http_requests > 0)   // or if the HTTP interface is enabled
