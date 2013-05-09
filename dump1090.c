@@ -1548,7 +1548,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                 int ew_raw = ((msg[5] & 0x03) << 8) |  msg[6];
                 int ew_vel = ew_raw - 1;
                 int ns_raw = ((msg[7] & 0x7F) << 3) | (msg[8] >> 5);
-                int ns_vel = ew_raw - 1;
+                int ns_vel = ns_raw - 1;
 
                 if (mesub == 2) { // If (supersonic) unit is 4 kts
                    ns_vel = ns_vel << 2;
@@ -1785,10 +1785,9 @@ void displayModesMessage(struct modesMessage *mm) {
         if (mm->fs & 0x0080) {
             printf("  Mode A : %04x IDENT\n", mm->modeA);
         } else {
-            int modeC = ModeAToModeC(mm->modeA);
             printf("  Mode A : %04x\n", mm->modeA);
-            if (modeC >= -13)
-                {printf("  Mode C : %d feet\n", (modeC * 100));}
+            if (mm->bFlags & MODES_ACFLAGS_ALTITUDE_VALID)
+                {printf("  Mode C : %d feet\n", mm->altitude);}
         }
 
     } else {
@@ -2242,22 +2241,26 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     memset(a, 0, sizeof(*a));
 
     // Now initialise things that should not be 0/NULL to their defaults
-
-    a->addr         = mm->addr;
+    a->addr = mm->addr;
+    a->lat  = a->lon = 0.0;
     memset(a->signalLevel, mm->signalLevel, 8); // First time, initialise everything
                                                 // to the first signal strength
-    a->lat = a->lon = 0.0;
 
     // mm->msgtype 32 is used to represent Mode A/C. These values can never change, so 
     // set them once here during initialisation, and don't bother to set them every 
     // time this ModeA/C is received again in the future
     if (mm->msgtype == 32) {
+        int modeC      = ModeAToModeC(mm->modeA | mm->fs);
         a->modeACflags = MODEAC_MSG_FLAG;
         a->modeA       = mm->modeA;
-        a->modeC       = ModeAToModeC(mm->modeA | mm->fs);
-        a->altitude    = a->modeC * 100;
-        if (a->modeC < -12)
-            {a->modeACflags |= MODEAC_MSG_MODEA_ONLY;}  
+        a->bFlags      = mm->bFlags;
+        if (modeC < -12) {
+            a->modeACflags |= MODEAC_MSG_MODEA_ONLY;
+        } else {
+            a->modeC    = modeC;
+            a->altitude = modeC * 100;
+            a->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
+        } 
     }
     return (a);
 }
@@ -2700,6 +2703,10 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             a->messages    = 1;
         }  
 
+        if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
+            mm->altitude = a->altitude;
+            mm->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
+        }
     }
     return a;
 }
