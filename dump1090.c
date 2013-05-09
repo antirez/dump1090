@@ -106,6 +106,14 @@
 #define MODES_USER_LATLON_VALID (1<<0)
 
 #define MODES_ACFLAGS_LATLON_VALID   (1<<0)  // Aircraft Lat/Lon is known
+#define MODES_ACFLAGS_ALTITUDE_VALID (1<<1)  // Aircraft altitude is known
+#define MODES_ACFLAGS_HEADING_VALID  (1<<2)  // Aircraft heading is known
+#define MODES_ACFLAGS_SPEED_VALID    (1<<3)  // Aircraft speed is known
+#define MODES_ACFLAGS_VERTRATE_VALID (1<<4)  // Aircraft vertical rate is known
+#define MODES_ACFLAGS_SQUAWK_VALID   (1<<5)  // Aircraft Mode A Squawk is known
+#define MODES_ACFLAGS_CALLSIGN_VALID (1<<6)  // Aircraft Callsign Identity
+#define MODES_ACFLAGS_EWSPEED_VALID  (1<<7)  // Aircraft East West Speed is known
+#define MODES_ACFLAGS_NSSPEED_VALID  (1<<8)  // Aircraft North South Speed is known
 #define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
 #define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
 
@@ -279,34 +287,26 @@ struct modesMessage {
     unsigned char signalLevel;               // Signal Amplitude
 
     // DF 11
-    int ca;                     // Responder capabilities
-    int iid;
+    int  ca;                    // Responder capabilities
+    int  iid;
 
     // DF 17
-    int metype;                 // Extended squitter message type.
-    int mesub;                  // Extended squitter message subtype.
-    int heading_is_valid;
-    int heading;                // Reported by aircraft, or computed from from EW and NS velocity
-    int fflag;                  // 1 = Odd, 0 = Even CPR message.
-    int tflag;                  // UTC synchronized?
-    int raw_latitude;           // Non decoded latitude.
-    int raw_longitude;          // Non decoded longitude.
+    int  metype;                // Extended squitter message type.
+    int  mesub;                 // Extended squitter message subtype.
+    int  heading;               // Reported by aircraft, or computed from from EW and NS velocity
+    int  raw_latitude;          // Non decoded latitude.
+    int  raw_longitude;         // Non decoded longitude.
     char flight[16];            // 8 chars flight number.
-    int ew_dir;                 // 0 = East, 1 = West.
-    int ew_velocity;            // E/W velocity.
-    int ns_dir;                 // 0 = North, 1 = South.
-    int ns_velocity;            // N/S velocity.
-    int vert_rate_source;       // Vertical rate source.
-    int vert_rate_sign;         // Vertical rate sign.
-    int vert_rate;              // Vertical rate.
-    int velocity;               // Reported by aircraft, or computed from from EW and NS velocity
-    int tasflag;                // TAS or IAS
+    int  ew_velocity;           // E/W velocity.
+    int  ns_velocity;           // N/S velocity.
+    int  vert_rate;             // Vertical rate.
+    int  velocity;              // Reported by aircraft, or computed from from EW and NS velocity
 
     // DF4, DF5, DF20, DF21
-    int fs;                     // Flight status for DF4,5,20,21
-    int dr;                     // Request extraction of downlink request.
-    int um;                     // Request extraction of downlink request.
-    int modeA;                  // 13 bits identity (Squawk).
+    int  fs;                    // Flight status for DF4,5,20,21
+    int  dr;                    // Request extraction of downlink request.
+    int  um;                    // Request extraction of downlink request.
+    int  modeA;                 // 13 bits identity (Squawk).
 
     // Fields used by multiple message types.
     int  altitude;
@@ -1048,7 +1048,8 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA)
   mm->addr = 0x00FF0000 | (ModeA & 0x0000FF7F);
 
   // Set the Identity field to ModeA
-  mm->modeA =  ModeA & 0x7777;
+  mm->modeA   = ModeA & 0x7777;
+  mm->bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
 
   // Flag ident in flight status
   mm->fs = ModeA & 0x0080;
@@ -1465,7 +1466,11 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
               
     // Fields for DF5, DF21 = Gillham encoded Squawk
     if (mm->msgtype == 5  || mm->msgtype == 21) {
-        mm->modeA = decodeID13Field((msg[2] << 8) | msg[3]);
+        int ID13Field = ((msg[2] << 8) | msg[3]) & 0x1FFF; 
+        if (ID13Field) {
+            mm->bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+            mm->modeA   = decodeID13Field(ID13Field);
+        }
     }
 
     // Fields for DF0, DF4, DF16, DF20 13 bit altitude
@@ -1473,19 +1478,21 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->msgtype == 16 || mm->msgtype == 20) {
         int AC13Field = ((msg[2] << 8) | msg[3]) & 0x1FFF; 
         if (AC13Field) { // Only attempt to decode if a valid (non zero) altitude is present
+            mm->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
             mm->altitude = decodeAC13Field(AC13Field, &mm->unit);
         }
     }
 
     // Fields for DF17 squitter
     if (mm->msgtype == 17) {
-         mm->metype = msg[4] >> 3;   // Extended squitter message type
-         mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
+         int metype = mm->metype = msg[4] >> 3;   // Extended squitter message type
+         int mesub  = mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
 
         // Decode the extended squitter message
 
-        if (mm->metype >= 1 && mm->metype <= 4) { // Aircraft Identification and Category
+        if (metype >= 1 && metype <= 4) { // Aircraft Identification and Category
             uint32_t chars;
+            mm->bFlags |= MODES_ACFLAGS_CALLSIGN_VALID;
 
             chars = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
             mm->flight[3] = ais_charset[chars & 0x3F]; chars = chars >> 6;
@@ -1501,65 +1508,70 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
             mm->flight[8] = '\0';
 
-        } else if (mm->metype >= 5 && mm->metype <= 18) { // Position Message
-            mm->fflag = msg[6] & (1<<2);
-            mm->tflag = msg[6] & (1<<3);
+        } else if (metype >= 5 && metype <= 18) { // Position Message
             mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
             mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
-            if (mm->metype >= 9) {        // Airborne
+            if (metype >= 9) {        // Airborne
                 int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
                 if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
-                    {mm->altitude = decodeAC12Field(AC12Field, &mm->unit);}
+                    mm->bFlags |= MODES_ACFLAGS_ALTITUDE_VALID;
+                    mm->altitude = decodeAC12Field(AC12Field, &mm->unit);
                 }
             } else {                      // Ground
                 int movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
-                if ((movement) && (movement < 125))
-                    {mm->velocity = decodeMovementField(movement);}
+                mm->bFlags |= MODES_ACFLAGS_AOG;
+                if ((movement) && (movement < 125)) {
+                    mm->bFlags |= MODES_ACFLAGS_SPEED_VALID;
+                    mm->velocity = decodeMovementField(movement);
+                }
 
-                mm->heading_is_valid = (msg[5] & 0x08);
-                if (mm->heading_is_valid) {
+                if (msg[5] & 0x08) {
+                    mm->bFlags |= MODES_ACFLAGS_HEADING_VALID;
                     mm->heading = ((((msg[5] << 4) | (msg[6] >> 4)) & 0x007F) * 45) >> 4;
                 }
             }
 
-        } else if (mm->metype == 19) { // Airborne Velocity Message
+        } else if (metype == 19) { // Airborne Velocity Message
 
-            if ( (mm->mesub >= 1) && (mm->mesub <= 4) ) {
+            if ( (mesub >= 1) && (mesub <= 4) ) {
                 int vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
                 if (vert_rate) {
-                    mm->vert_rate_source = (msg[8] & 0x10) >> 4;
-                    mm->vert_rate_sign   = (msg[8] & 0x08) >> 3;
-                    mm->vert_rate        =  vert_rate - 1;
+                    --vert_rate;
+                    if (msg[8] & 0x08) 
+                      {vert_rate = 0 - vert_rate;}
+                    mm->vert_rate =  vert_rate * 64;
+                    mm->bFlags   |= MODES_ACFLAGS_VERTRATE_VALID;
                 }
             }
 
-            if ((mm->mesub == 1) || (mm->mesub == 2)) {
+            if ((mesub == 1) || (mesub == 2)) {
                 int ew_raw = ((msg[5] & 0x03) << 8) |  msg[6];
                 int ew_vel = ew_raw - 1;
                 int ns_raw = ((msg[7] & 0x7F) << 3) | (msg[8] >> 5);
                 int ns_vel = ew_raw - 1;
 
-                if (mm->mesub == 2) { // If (supersonic) unit is 4 kts
+                if (mesub == 2) { // If (supersonic) unit is 4 kts
                    ns_vel = ns_vel << 2;
                    ew_vel = ew_vel << 2;
                 }
 
                 if (ew_raw) { // Do East/West  
-                    mm->ew_velocity = ew_vel;
-                    mm->ew_dir      = (msg[5] & 0x04) >> 2;
-                    if (mm->ew_dir)
+                    mm->bFlags |= MODES_ACFLAGS_EWSPEED_VALID;
+                    if (msg[5] & 0x04)
                         {ew_vel = 0 - ew_vel;}                   
+                    mm->ew_velocity = ew_vel;
                 }
 
                 if (ns_raw) { // Do North/South
-                    mm->ns_velocity = ns_vel;
-                    mm->ns_dir      = (msg[7] & 0x80) >> 7;
-                    if (mm->ns_dir)
+                    mm->bFlags |= MODES_ACFLAGS_NSSPEED_VALID;
+                    if (msg[7] & 0x80)
                         {ns_vel = 0 - ns_vel;}                   
+                    mm->ns_velocity = ns_vel;
                 }
 
                 if (ew_raw && ns_raw) {
                     // Compute velocity and angle from the two speed components
+                    mm->bFlags |= (MODES_ACFLAGS_SPEED_VALID | MODES_ACFLAGS_HEADING_VALID);
                     mm->velocity = (int) sqrt((ns_vel * ns_vel) + (ew_vel * ew_vel));
 
                     if (mm->velocity) {
@@ -1569,19 +1581,19 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     }
                 }
 
-            } else if (mm->mesub == 3 || mm->mesub == 4) {
+            } else if (mesub == 3 || mesub == 4) {
                 int airspeed = ((msg[7] & 0x7f) << 3) | (msg[8] >> 5);
                 if (airspeed) {
+                    mm->bFlags |= MODES_ACFLAGS_SPEED_VALID;
                     --airspeed;
-                    if (mm->mesub == 4)  // If (supersonic) unit is 4 kts
+                    if (mesub == 4)  // If (supersonic) unit is 4 kts
                         {airspeed = airspeed << 2;}
                     mm->velocity =  airspeed;
-                    mm->tasflag  = (msg[7] & 0x80);
                 }
 
-                mm->heading_is_valid = msg[5] & 0x04;
-                if (mm->heading_is_valid) {
-                    mm->heading          = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
+                if (msg[5] & 0x04) {
+                    mm->bFlags |= MODES_ACFLAGS_HEADING_VALID;
+                    mm->heading = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
                 }
             }
         }
@@ -1592,6 +1604,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
         if (msg[4] == 0x20) { // Aircraft Identification
             uint32_t chars;
+            mm->bFlags |= MODES_ACFLAGS_CALLSIGN_VALID;
 
             chars = (msg[5] << 16) | (msg[6] << 8) | (msg[7]);
             mm->flight[3] = ais_charset[chars & 0x3F]; chars = chars >> 6;
@@ -1720,25 +1733,30 @@ void displayModesMessage(struct modesMessage *mm) {
       //} else if (mm->metype >= 5 && mm->metype <= 8) { // Surface position
 
         } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Baro
-            printf("    F flag   : %s\n", mm->fflag ? "odd" : "even");
-            printf("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
+            printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
+            printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
             printf("    Altitude : %d feet\n", mm->altitude);
             printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
             printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
 
         } else if (mm->metype == 19) { // Airborne Velocity
             if (mm->mesub == 1 || mm->mesub == 2) {
-                printf("    EW direction      : %d\n", mm->ew_dir);
+                printf("    EW status         : %s\n", (mm->bFlags & MODES_ACFLAGS_EWSPEED_VALID) ? "Valid" : "Unavailable");
                 printf("    EW velocity       : %d\n", mm->ew_velocity);
-                printf("    NS direction      : %d\n", mm->ns_dir);
+                printf("    NS status         : %s\n", (mm->bFlags & MODES_ACFLAGS_NSSPEED_VALID) ? "Valid" : "Unavailable");
                 printf("    NS velocity       : %d\n", mm->ns_velocity);
-                printf("    Vertical rate src : %d\n", mm->vert_rate_source);
-                printf("    Vertical rate sign: %d\n", mm->vert_rate_sign);
+                printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
+                printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
                 printf("    Vertical rate     : %d\n", mm->vert_rate);
 
             } else if (mm->mesub == 3 || mm->mesub == 4) {
-                printf("    Heading status: %d", mm->heading_is_valid);
-                printf("    Heading: %d", mm->heading);
+                printf("    Heading status    : %s\n", (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) ? "Valid" : "Unavailable");
+                printf("    Heading           : %d\n", mm->heading);
+                printf("    Airspeed status   : %s\n", (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) ? "Valid" : "Unavailable");
+                printf("    Airspeed          : %d\n", mm->velocity);
+                printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
+                printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
+                printf("    Vertical rate     : %d\n", mm->vert_rate);
 
             } else {
                 printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
@@ -2482,11 +2500,12 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
  * Note:   text of document describes trunc() functionality for deltaZI calculation
  *         but the formulae use floor().
  */
-int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, double lonr) {
+int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
     double AirDlat;
     double AirDlon;
     double lat;
     double lon;
+    double lonr, latr;
     double rlon, rlat;
     int j,m;
 
@@ -2613,18 +2632,31 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
 
-        } else if (mm->metype >= 9 && mm->metype <= 18) {
-            if ( (a->modeCcount)                   // if we've a modeCcount already
-              && (a->altitude  != mm->altitude ) ) // and Altitude has changed
-//            && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
-//            && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
-                {
-                a->modeCcount   = 0;               //....zero the hit count
-                a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
-                }
-            a->altitude =  mm->altitude;
-            a->modeC    = (mm->altitude + 49) / 100;
-            if (mm->fflag) {
+        } else if (mm->metype >= 5 && mm->metype <= 18) {
+            int fflag = mm->msg[6] & 0x04;
+
+            if ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG) {
+                a->odd_cprtime = a->even_cprtime = 0;  // Change airborne = change CPR scale need new pair
+                a->bFlags     ^= MODES_ACFLAGS_AOG;    // Ground = metype 5-8, Airborne = metype 9-18
+            }
+
+            if (mm->metype >= 9) {                     // Airborne
+                if ( (a->modeCcount)                   // if we've a modeCcount already
+                  && (a->altitude  != mm->altitude ) ) // and Altitude has changed
+//                && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
+//                && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
+                    {
+                    a->modeCcount   = 0;               //....zero the hit count
+                    a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
+                    }
+                a->altitude =  mm->altitude;
+                a->modeC    = (mm->altitude + 49) / 100;
+            } else {                                   // Ground
+                a->speed = mm->velocity;
+                a->track = mm->heading;
+            }
+
+            if (fflag) {
                 a->odd_cprlat = mm->raw_latitude;
                 a->odd_cprlon = mm->raw_longitude;
                 a->odd_cprtime = mstime();
@@ -2634,16 +2666,16 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
                 a->even_cprtime = mstime();
             }
             // Try relative CPR first
-            if (decodeCPRrelative(a, mm->fflag, 0, 0, 0)) {
+            if (decodeCPRrelative(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG))) {
                 // If it fails then try global if the two data are less than 10 seconds apart, compute
                 // the position.
                 if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
-                      decodeCPR(a, mm->fflag, 0);
+                    decodeCPR(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG));
                 }
             }
 
         } else if (mm->metype == 19) {
-            if (mm->mesub == 1 || mm->mesub == 2) {
+            if ((mm->mesub >= 1) && (mm->mesub <= 4)) {
                 a->speed = mm->velocity;
                 a->track = mm->heading;
             }
