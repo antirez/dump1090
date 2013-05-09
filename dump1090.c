@@ -56,7 +56,9 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.0805.13"
+#define MODES_DUMP1090_VERSION     "1.04.0905.13"
+#define MODES_USER_LATITUDE_DFLT   (0.0)
+#define MODES_USER_LONGITUDE_DFLT  (0.0)
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -100,6 +102,8 @@
 #define MODES_ICAO_CACHE_TTL 60   /* Time to live of cached addresses. */
 #define MODES_UNIT_FEET 0
 #define MODES_UNIT_METERS 1
+
+#define MODES_USER_LATLON_VALID (1<<0)
 
 #define MODES_SBS_LAT_LONG_FRESH (1<<0)
 
@@ -230,6 +234,11 @@ struct {
     int mlat;                       /* Use Beast ascii format for raw data output, i.e. @...; iso *...; */
     int interactive_rtl1090;        /* flight table in interactive mode is formatted like RTL1090 */
 
+    // User details
+    double fUserLat;                // Users receiver/antenna lat/lon needed for initial surface location
+    double fUserLon;                // Users receiver/antenna lat/lon needed for initial surface location
+    int    bUserFlags;              // Flags relating to the user details
+
     /* Interactive mode */
     struct aircraft *aircrafts;
     uint64_t interactive_last_update;  /* Last screen update in milliseconds */
@@ -342,6 +351,8 @@ void modesInitConfig(void) {
     Modes.net_http_port       = MODES_NET_HTTP_PORT;
     Modes.interactive_rows    = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl     = MODES_INTERACTIVE_TTL;
+    Modes.fUserLat            = MODES_USER_LATITUDE_DFLT;
+    Modes.fUserLon            = MODES_USER_LONGITUDE_DFLT;
 }
 
 void modesInit(void) {
@@ -365,6 +376,25 @@ void modesInit(void) {
     memset(Modes.icao_cache, 0,   sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2);
     memset(Modes.data,       127, MODES_ASYNC_BUF_SIZE);
     memset(Modes.magnitude,  0,   MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
+
+    // Validate the users Lat/Lon home location inputs
+    if ( (Modes.fUserLat >   90.0)  // Latitude must be -90 to +90
+      || (Modes.fUserLat <  -90.0)  // and 
+      || (Modes.fUserLon >  360.0)  // Longitude must be -180 to +360
+      || (Modes.fUserLon < -180.0) ) {
+        Modes.fUserLat = Modes.fUserLon = 0.0;
+    } else if (Modes.fUserLon > 180.0) { // If Longitude is +180 to +360, make it -180 to 0
+        Modes.fUserLon -= 360.0;
+    }
+    // If both Lat and Lon are 0.0 then the users location is either invalid/not-set, or (s)he's in the 
+    // Atlantic ocean off the west coast of Africa. This is unlikely to be correct. 
+    // Set the user LatLon valid flag only if either Lat or Lon are non zero. Note the Greenwich meridian 
+    // is at 0.0 Lon,so we must check for either fLat or fLon being non zero not both. 
+    // Testing the flag at runtime will be much quicker than ((fLon != 0.0) || (fLat != 0.0))
+    Modes.bUserFlags &= ~MODES_USER_LATLON_VALID;
+    if ((Modes.fUserLat != 0.0) || (Modes.fUserLon != 0.0)) {
+        Modes.bUserFlags |= MODES_USER_LATLON_VALID;
+    }
 
     // Limit the maximum requested raw output size to less than one Ethernet Block 
     if (Modes.net_output_raw_size > (MODES_RAWOUT_BUF_FLUSH))
@@ -1859,7 +1889,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             if (Modes.mode_ac) 
                 {
                 struct modesMessage mm;
-                int ModeA = detectModeA(pPreamble, &mm); 
+                int ModeA = detectModeA(pPreamble, &mm);
 
                 if (ModeA) // We have found a valid ModeA/C in the data                    
                     {
@@ -3377,6 +3407,8 @@ void showHelp(void) {
 "--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
 "--net-http-port <port>   HTTP server port (default: 8080)\n"
 "--net-sbs-port <port>    TCP BaseStation output listen port (default: 30003)\n"
+"--lat <latitude>         Reference/receiver latitide for surface posn (opt)\n"
+"--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
 "--fix                    Enable single-bits error correction using CRC\n"
 "--no-fix                 Disable single-bits error correction using CRC\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged)\n"
@@ -3490,10 +3522,14 @@ int main(int argc, char **argv) {
             Modes.fix_errors = 1;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
-        } else if (!strcmp(argv[j],"--interactive-rows")) {
+        } else if (!strcmp(argv[j],"--interactive-rows") && more) {
             Modes.interactive_rows = atoi(argv[++j]);
-        } else if (!strcmp(argv[j],"--interactive-ttl")) {
+        } else if (!strcmp(argv[j],"--interactive-ttl") && more) {
             Modes.interactive_ttl = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--lat") && more) {
+            Modes.fUserLat = atof(argv[++j]);
+        } else if (!strcmp(argv[j],"--lon") && more) {
+            Modes.fUserLon = atof(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {
             char *f = argv[++j];
             while(*f) {
