@@ -1,10 +1,11 @@
-Map = null;
+Map       = null;
 CenterLat = 45.0;
 CenterLon = 9.0;
 ZoomLvl   = 5;
-Planes={};
-NumPlanes = 0;
-Selected=null
+Planes    = {};
+PlanesOnMap  = 0;
+PlanesOnGrid = 0;
+Selected     = null;
 
 if (localStorage['CenterLat']) { CenterLat = Number(localStorage['CenterLat']); }
 if (localStorage['CenterLon']) { CenterLon = Number(localStorage['CenterLon']); }
@@ -12,7 +13,7 @@ if (localStorage['ZoomLvl'])   { ZoomLvl   = Number(localStorage['ZoomLvl']); }
 
 function getIconForPlane(plane) {
     var r = 255, g = 255, b = 0;
-    var maxalt = 40000; /* Max altitude in the average case */
+    var maxalt = 40000; // Max altitude in the average case
     var invalt = maxalt-plane.altitude;
     var selected = (Selected == plane.hex);
 
@@ -42,8 +43,9 @@ function selectPlane() {
 
 function refreshGeneralInfo() {
     var i = document.getElementById('geninfo');
-
-    i.innerHTML = NumPlanes+' planes on screen.';
+    
+    i.innerHTML  = PlanesOnGrid + ' planes on grid.<br>';
+    i.innerHTML += PlanesOnMap + ' planes on map.';
 }
 
 function refreshSelectedInfo() {
@@ -58,53 +60,69 @@ function refreshSelectedInfo() {
     html += 'Altitude: '+p.altitude+' feet<br>';
     html += 'Speed: '+p.speed+' knots<br>';
     html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
+    html += 'Messages: '+p.messages+'<br>';
+    html += 'Seen: '+p.seen+' sec<br>';
     i.innerHTML = html;
 }
 
 function fetchData() {
     $.getJSON('/data.json', function(data) {
         var stillhere = {}
+        PlanesOnMap = 0;
+        
         for (var j=0; j < data.length; j++) {
             var plane = data[j];
-            var marker = null;
             stillhere[plane.hex] = true;
             plane.flight = $.trim(plane.flight);
+            
+            if (plane.lat != 0 && plane.lon != 0) {
+                // Show only planes with position
+                var marker = null;
+                PlanesOnMap++;
+                
+                if (Planes[plane.hex]) {
+                    // Move and refresh old plane on map
+                    var myplane = Planes[plane.hex];
+                    marker = myplane.marker;
+                    var icon = marker.getIcon();
+                    var newpos = new google.maps.LatLng(plane.lat, plane.lon);
+                    marker.setPosition(newpos);
+                    marker.setIcon(getIconForPlane(plane));
+                    myplane.altitude = plane.altitude;
+                    myplane.speed = plane.speed;
+                    myplane.lat = plane.lat;
+                    myplane.lon = plane.lon;
+                    myplane.track = plane.track;
+                    myplane.flight = plane.flight;
+                    myplane.seen = plane.seen;
+                    myplane.messages = plane.messages;
+                    if (myplane.hex == Selected)
+                        refreshSelectedInfo();
+                } else {
+                    // Add new plane to map
+                    marker = new google.maps.Marker({
+                        position: new google.maps.LatLng(plane.lat, plane.lon),
+                        map: Map,
+                        icon: getIconForPlane(plane)
+                    });
+                    plane.marker = marker;
+                    marker.planehex = plane.hex;
+                    Planes[plane.hex] = plane;
 
-            if (Planes[plane.hex]) {
-                var myplane = Planes[plane.hex];
-                marker = myplane.marker;
-                var icon = marker.getIcon();
-                var newpos = new google.maps.LatLng(plane.lat, plane.lon);
-                marker.setPosition(newpos);
-                marker.setIcon(getIconForPlane(plane));
-                myplane.altitude = plane.altitude;
-                myplane.speed = plane.speed;
-                myplane.lat = plane.lat;
-                myplane.lon = plane.lon;
-                myplane.track = plane.track;
-                myplane.flight = plane.flight;
-                if (myplane.hex == Selected)
-                    refreshSelectedInfo();
-            } else {
-                marker = new google.maps.Marker({
-                    position: new google.maps.LatLng(plane.lat, plane.lon),
-                    map: Map,
-                    icon: getIconForPlane(plane)
-                });
-                plane.marker = marker;
-                marker.planehex = plane.hex;
-                Planes[plane.hex] = plane;
-
-                /* Trap clicks for this marker. */
-                google.maps.event.addListener(marker, 'click', selectPlane);
+                    // Trap clicks for this marker.
+                    google.maps.event.addListener(marker, 'click', selectPlane);
+                }
+                
+                if (plane.flight.length == 0) {
+                    marker.setTitle(plane.hex)
+                } else {
+                    marker.setTitle(plane.flight+' ('+plane.hex+')')
+                }
             }
-            if (plane.flight.length == 0)
-                marker.setTitle(plane.hex)
-            else
-                marker.setTitle(plane.flight+' ('+plane.hex+')')
         }
-        NumPlanes = data.length;
 
+        PlanesOnGrid = data.length;
+        
         /* Remove idle planes. */
         for (var p in Planes) {
             if (!stillhere[p]) {
@@ -143,8 +161,18 @@ function placeFooter() {
     var infoWidth = parseInt($('#info').width());
     var marginLeft = parseInt((infoWidth / 2) - (footerWidth / 2));
     
-    $('#info_footer').css('top',offset);
-    $('#info_footer').css('margin-left',marginLeft);
+    $('#info_footer').css('top', offset);
+    $('#info_footer').css('margin-left', marginLeft);
+}
+
+function resetMap() {
+    localStorage['CenterLat'] = 45.0;
+    localStorage['CenterLon'] = 9.0;
+    localStorage['ZoomLvl']   = 5;
+    Map.setZoom(parseInt(localStorage['ZoomLvl']));
+    Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']), parseInt(localStorage['CenterLon'])));
+    Selected = null;
+    document.getElementById('selinfo').innerHTML = '';
 }
 
 function initialize() {

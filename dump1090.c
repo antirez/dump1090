@@ -3051,6 +3051,7 @@ int decodeHexMessage(struct client *c) {
 
 /* Return a description of planes in json. */
 char *aircraftsToJson(int *len) {
+    time_t now = time(NULL);
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
     char *buf = (char *) malloc(buflen), *p = buf;
@@ -3070,9 +3071,9 @@ char *aircraftsToJson(int *len) {
         l = snprintf(p,buflen,
             "{\"hex\":\"%06x\", \"squawk\":\"%04x\", \"flight\":\"%s\", \"lat\":%f, "
             "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
-            "\"speed\":%d},\n",
+            "\"speed\":%d, \"messages\":%ld, \"seen\":%d},\n",
             a->addr, a->modeA, a->flight, a->lat, a->lon, a->altitude, a->track,
-            a->speed);
+            a->speed, a->messages, (int)(now - a->seen));
         p += l; buflen -= l;
         
         /* Resize if needed. */
