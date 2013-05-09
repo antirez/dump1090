@@ -105,7 +105,7 @@
 
 #define MODES_USER_LATLON_VALID (1<<0)
 
-#define MODES_ACFLAGS_LATLON_VALID   (1<<0)  // Aircraft Lat/Lon is known
+#define MODES_ACFLAGS_LATLON_VALID   (1<<0)  // Aircraft Lat/Lon is decoded
 #define MODES_ACFLAGS_ALTITUDE_VALID (1<<1)  // Aircraft altitude is known
 #define MODES_ACFLAGS_HEADING_VALID  (1<<2)  // Aircraft heading is known
 #define MODES_ACFLAGS_SPEED_VALID    (1<<3)  // Aircraft speed is known
@@ -115,7 +115,12 @@
 #define MODES_ACFLAGS_EWSPEED_VALID  (1<<7)  // Aircraft East West Speed is known
 #define MODES_ACFLAGS_NSSPEED_VALID  (1<<8)  // Aircraft North South Speed is known
 #define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
+#define MODES_ACFLAGS_LLEVEN_VALID   (1<<10) // Aircraft Even Lot/Lon is known
+#define MODES_ACFLAGS_LLODD_VALID    (1<<11) // Aircraft Odd Lot/Lon is known
 #define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
+
+#define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID) 
+#define MODES_ACFLAGS_LLBOTH_VALID   (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
 
 #define MODES_SBS_LAT_LONG_FRESH (1<<0)
 
@@ -296,6 +301,8 @@ struct modesMessage {
     int  heading;               // Reported by aircraft, or computed from from EW and NS velocity
     int  raw_latitude;          // Non decoded latitude.
     int  raw_longitude;         // Non decoded longitude.
+    double fLat;                // Coordinates obtained from CPR encoded data if/when decoded
+    double fLon;                // Coordinates obtained from CPR encoded data if/when decoded
     char flight[16];            // 8 chars flight number.
     int  ew_velocity;           // E/W velocity.
     int  ns_velocity;           // N/S velocity.
@@ -1511,6 +1518,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         } else if (metype >= 5 && metype <= 18) { // Position Message
             mm->raw_latitude  = ((msg[6] & 3) << 15) | (msg[7] << 7) | (msg[8] >> 1);
             mm->raw_longitude = ((msg[8] & 1) << 16) | (msg[9] << 8) | (msg[10]);
+            mm->bFlags       |= (mm->msg[6] & 0x04) ? MODES_ACFLAGS_LLODD_VALID 
+                                                    : MODES_ACFLAGS_LLEVEN_VALID;
             if (metype >= 9) {        // Airborne
                 int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
                 if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
@@ -1704,8 +1713,7 @@ void displayModesMessage(struct modesMessage *mm) {
             }        
         }
 
-    } else if (mm->msgtype == 11) {
-        /* DF 11 */
+    } else if (mm->msgtype == 11) { // DF 11
         printf("DF 11: All Call Reply.\n");
         printf("  Capability  : %s\n", ca_str[mm->ca]);
         printf("  ICAO Address: %06x\n", mm->addr);
@@ -1736,8 +1744,13 @@ void displayModesMessage(struct modesMessage *mm) {
             printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
             printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
             printf("    Altitude : %d feet\n", mm->altitude);
-            printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
-            printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+            if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                printf("    Latitude : %f\n", mm->fLat);
+                printf("    Longitude: %f\n", mm->fLon);
+            } else {
+                printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+                printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+            }
 
         } else if (mm->metype == 19) { // Airborne Velocity
             if (mm->mesub == 1 || mm->mesub == 2) {
@@ -2252,14 +2265,11 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     if (mm->msgtype == 32) {
         int modeC      = ModeAToModeC(mm->modeA | mm->fs);
         a->modeACflags = MODEAC_MSG_FLAG;
-        a->modeA       = mm->modeA;
-        a->bFlags      = mm->bFlags;
         if (modeC < -12) {
             a->modeACflags |= MODEAC_MSG_MODEA_ONLY;
         } else {
-            a->modeC    = modeC;
-            a->altitude = modeC * 100;
-            a->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
+            mm->altitude = modeC * 100;
+            mm->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
         } 
     }
     return (a);
@@ -2604,7 +2614,13 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     a->timestamp = mm->timestampMsg;
     a->messages++;
 
-    if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
+    // If a (new) CALLSIGN has been received, copy it to the aircraft structure
+    if (mm->bFlags & MODES_ACFLAGS_CALLSIGN_VALID) {
+        memcpy(a->flight, mm->flight, sizeof(a->flight));
+    }
+
+    // If a (new) ALTITUDE has been received, copy it to the aircraft structure
+    if (mm->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
         if ( (a->modeCcount)                   // if we've a modeCcount already
           && (a->altitude  != mm->altitude ) ) // and Altitude has changed
 //        && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
@@ -2613,81 +2629,70 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             a->modeCcount   = 0;               //....zero the hit count
             a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
             }
-        a->altitude =  mm->altitude;
+        a->altitude = mm->altitude;
         a->modeC    = (mm->altitude + 49) / 100;
+    }
 
-        if ((mm->msgtype == 20) && (mm->msg[4] == 0x20)) {
-            memcpy(a->flight, mm->flight, sizeof(a->flight));
-        }
-
-    } else if(mm->msgtype == 5 || mm->msgtype == 21) {
+    // If a (new) SQUAWK has been received, copy it to the aircraft structure
+    if (mm->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
         if (a->modeA != mm->modeA) {
             a->modeAcount   = 0; // Squawk has changed, so zero the hit count
             a->modeACflags &= ~MODEAC_MSG_MODEA_HIT;
         }
         a->modeA = mm->modeA;
+    }
 
-        if ((mm->msgtype == 21) && (mm->msg[4] == 0x20)) {
-            memcpy(a->flight, mm->flight, sizeof(a->flight));
+    // If a (new) HEADING has been received, copy it to the aircraft structure
+    if (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) {
+        a->track = mm->heading;
+    }
+
+    // If a (new) SPEED has been received, copy it to the aircraft structure
+    if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) {
+        a->speed = mm->velocity;
+    }
+
+    // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
+    if ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG) {
+        a->bFlags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
+
+    } else  if (   (mm->bFlags & MODES_ACFLAGS_LLEITHER_VALID) 
+              && (((mm->bFlags | a->bFlags) & MODES_ACFLAGS_LLEITHER_VALID) == MODES_ACFLAGS_LLBOTH_VALID) ) {
+        // If it's a new even/odd raw lat/lon, and we now have both even and odd,decode the CPR
+        int fflag;
+
+        if (mm->bFlags & MODES_ACFLAGS_LLODD_VALID) {
+            fflag = 1;
+            a->odd_cprlat  = mm->raw_latitude;
+            a->odd_cprlon  = mm->raw_longitude;
+            a->odd_cprtime = mstime();
+        } else {
+            fflag = 0;
+            a->even_cprlat  = mm->raw_latitude;
+            a->even_cprlon  = mm->raw_longitude;
+            a->even_cprtime = mstime();
         }
-
-    } else if (mm->msgtype == 17) {
-        if (mm->metype >= 1 && mm->metype <= 4) {
-            memcpy(a->flight, mm->flight, sizeof(a->flight));
-
-        } else if (mm->metype >= 5 && mm->metype <= 18) {
-            int fflag = mm->msg[6] & 0x04;
-
-            if ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG) {
-                a->odd_cprtime = a->even_cprtime = 0;  // Change airborne = change CPR scale need new pair
-                a->bFlags     ^= MODES_ACFLAGS_AOG;    // Ground = metype 5-8, Airborne = metype 9-18
-            }
-
-            if (mm->metype >= 9) {                     // Airborne
-                if ( (a->modeCcount)                   // if we've a modeCcount already
-                  && (a->altitude  != mm->altitude ) ) // and Altitude has changed
-//                && (a->modeC     != mm->modeC + 1)   // and Altitude not changed by +100 feet
-//                && (a->modeC + 1 != mm->modeC    ) ) // and Altitude not changes by -100 feet
-                    {
-                    a->modeCcount   = 0;               //....zero the hit count
-                    a->modeACflags &= ~MODEAC_MSG_MODEC_HIT;
-                    }
-                a->altitude =  mm->altitude;
-                a->modeC    = (mm->altitude + 49) / 100;
-            } else {                                   // Ground
-                a->speed = mm->velocity;
-                a->track = mm->heading;
-            }
-
-            if (fflag) {
-                a->odd_cprlat = mm->raw_latitude;
-                a->odd_cprlon = mm->raw_longitude;
-                a->odd_cprtime = mstime();
-            } else {
-                a->even_cprlat = mm->raw_latitude;
-                a->even_cprlon = mm->raw_longitude;
-                a->even_cprtime = mstime();
-            }
-            // Try relative CPR first
-            if (decodeCPRrelative(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG))) {
-                // If it fails then try global if the two data are less than 10 seconds apart, compute
-                // the position.
-                if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
-                    decodeCPR(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG));
-                }
-            }
-
-        } else if (mm->metype == 19) {
-            if ((mm->mesub >= 1) && (mm->mesub <= 4)) {
-                a->speed = mm->velocity;
-                a->track = mm->heading;
+        // Try relative CPR first
+        if (decodeCPRrelative(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG))) {
+            // If it fails then try global if the two data are less than 10 seconds apart
+            if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
+                decodeCPR(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG));
             }
         }
 
-    } else if(mm->msgtype == 32) {
+        //If we sucessfully decoded, back copy the results to mm so that we can print them in list output
+        if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+            mm->bFlags |= MODES_ACFLAGS_LATLON_VALID;
+            mm->fLat    = a->lat;
+            mm->fLon    = a->lon;
+        }
+    }
 
+    // Update the aircrafts a->bFlags to reflect the newly received mm->bFlags;
+    a->bFlags |= mm->bFlags;
+
+    if (mm->msgtype == 32) {
         int flags = a->modeACflags;
-
         if ((flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD)) == MODEAC_MSG_MODEC_OLD) { 
             //
             // This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is
@@ -2702,13 +2707,9 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             a->modeACflags = flags & ~MODEAC_MSG_MODEC_OLD;
             a->messages    = 1;
         }  
-
-        if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
-            mm->altitude = a->altitude;
-            mm->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
-        }
     }
-    return a;
+
+    return (a);
 }
 
 /* Show the currently captured interactive data on screen. */
