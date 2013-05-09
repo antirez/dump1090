@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.0705.13"
+#define MODES_DUMP1090_VERSION     "1.04.0905.13"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -3117,6 +3117,7 @@ int handleHTTPRequest(struct client *c) {
     char *p, *url, *content;
     char ctype[48];
     char getFile[1024];
+    char *ext;
 
     if (Modes.debug & MODES_DEBUG_NET)
         printf("\nHTTP request: %s\n", c->buf);
@@ -3179,7 +3180,7 @@ int handleHTTPRequest(struct client *c) {
 
     // Get file extension and content type
     snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_HTML); // Default content type
-    char *ext = strrchr(getFile, '.');
+    ext = strrchr(getFile, '.');
 
     if (strlen(ext) > 0) {
         if (strstr(ext, ".json")) {
