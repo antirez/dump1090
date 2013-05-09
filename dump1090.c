@@ -105,6 +105,10 @@
 
 #define MODES_USER_LATLON_VALID (1<<0)
 
+#define MODES_ACFLAGS_LATLON_VALID   (1<<0)  // Aircraft Lat/Lon is known
+#define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
+#define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
+
 #define MODES_SBS_LAT_LONG_FRESH (1<<0)
 
 #define MODES_DEBUG_DEMOD (1<<0)
@@ -147,7 +151,7 @@ struct aircraft {
     char flight[16];              // Flight number
     unsigned char signalLevel[8]; // Last 8 Signal Amplitudes
     int altitude;                 // Altitude
-    int speed;                    // Velocity computed from EW and NS components
+    int speed;                    // Velocity
     int track;                    // Angle of flight
     time_t seen;                  // Time at which the last packet was received
     time_t seenLatLon;            // Time at which the last lat long was calculated
@@ -165,6 +169,7 @@ struct aircraft {
     int even_cprlat;
     int even_cprlon;
     double lat, lon;              // Coordinated obtained from CPR encoded data
+    int bFlags;                   // Flags related to valid fields in this structure
     int sbsflags;
     uint64_t odd_cprtime, even_cprtime;
     struct aircraft *next;        // Next aircraft in our linked list
@@ -304,7 +309,9 @@ struct modesMessage {
     int modeA;                  // 13 bits identity (Squawk).
 
     // Fields used by multiple message types.
-    int altitude, unit; 
+    int  altitude;
+    int  unit; 
+    int  bFlags;                // Flags related to fields in this structure
 };
 
 void interactiveShowData(void);
@@ -2424,8 +2431,16 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
     double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
 
-    if (rlat0 >= 270) rlat0 -= 360;
-    if (rlat1 >= 270) rlat1 -= 360;
+    if (surface) {
+        // If we're on the ground, make sure we have our receiver base station Lat/Lon
+        if (0 == (Modes.bUserFlags & MODES_USER_LATLON_VALID))
+            {return;}
+        rlat0 += floor(Modes.fUserLat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+        rlat1 += floor(Modes.fUserLat / 90.0) * 90.0;
+    } else {
+        if (rlat0 >= 270) rlat0 -= 360;
+        if (rlat1 >= 270) rlat1 -= 360;
+    }
 
     // Check that both are in the same latitude zone, or abort.
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
@@ -2444,10 +2459,16 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
         a->lon = cprDlonFunction(rlat0, 0, surface) * (cprModFunction(m, ni)+lon0/131072);
         a->lat = rlat0;
     }
-    if (a->lon > 180) a->lon -= 360;
+
+    if (surface) {
+        a->lon += floor(Modes.fUserLon / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+    } else if (a->lon > 180) {
+        a->lon -= 360;
+    }
 
     a->seenLatLon      = a->seen;
     a->timestampLatLon = a->timestamp;
+    a->bFlags         |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
     a->sbsflags       |= MODES_SBS_LAT_LONG_FRESH;
 }
 
@@ -2469,13 +2490,15 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
     double rlon, rlat;
     int j,m;
 
-    // If not passed a lat/long, we must be using aircraft relative
-    if ( (latr == 0) && (lonr == 0) ) {
+    if (a->bFlags & MODES_ACFLAGS_LATLON_REL_OK) { // Ok to try aircraft relative first
         latr = a->lat;
         lonr = a->lon;
-    }
-    if ( (latr == 0) && (lonr == 0) )
+    } else if (Modes.bUserFlags & MODES_USER_LATLON_VALID) { // Try ground station relative next
+        latr = Modes.fUserLat;
+        lonr = Modes.fUserLon;
+    } else {
         return (-1); // Exit with error - can't do relative if we don't have ref.
+    }
 
     if (fflag) { // odd
         AirDlat = (surface ? 90.0 : 360.0) / 59.0;
@@ -2495,8 +2518,8 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away 
     if (fabs(rlat - a->lat) > (AirDlat/2)) {
-        a->lat = a->lon = 0; // This will cause a quick exit next time if no global has been done
-        return (-1);         // Time to give up - Latitude error 
+        a->bFlags &= ~MODES_ACFLAGS_LATLON_REL_OK; // This will cause a quick exit next time if no global has been done
+        return (-1);                               // Time to give up - Latitude error 
     }
 
     // Compute the Longitude Index "m"
@@ -2508,8 +2531,8 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away
     if (fabs(rlon - a->lon) > (AirDlon/2)) {
-        a->lat = a->lon = 0; // This will cause a quick exit next time if no global has been done
-        return (-1);         // Time to give up - Longitude error
+        a->bFlags &= ~MODES_ACFLAGS_LATLON_REL_OK; // This will cause a quick exit next time if no global has been done
+        return (-1);                               // Time to give up - Longitude error
     }
 
     a->lat = rlat;
@@ -2517,6 +2540,7 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface, double latr, d
 
     a->seenLatLon      = a->seen;
     a->timestampLatLon = a->timestamp;
+    a->bFlags         |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
     a->sbsflags       |= MODES_SBS_LAT_LONG_FRESH;
 
     return (0);
@@ -3167,7 +3191,7 @@ char *aircraftsToJson(int *len) {
             speed    = (int) (speed * 1.852);
         }
 
-        if (a->lat != 0 && a->lon != 0) {
+        if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
             l = snprintf(p,buflen,
                 "{\"hex\":\"%06x\", \"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
