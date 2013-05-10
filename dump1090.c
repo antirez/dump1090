@@ -3215,6 +3215,7 @@ int decodeHexMessage(struct client *c) {
 
 /* Return a description of planes in json. */
 char *aircraftsToJson(int *len) {
+    time_t now = time(NULL);
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
     char *buf = (char *) malloc(buflen), *p = buf;
@@ -3230,23 +3231,23 @@ char *aircraftsToJson(int *len) {
             altitude = (int) (altitude / 3.2828);
             speed    = (int) (speed * 1.852);
         }
-
-        if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
-            l = snprintf(p,buflen,
-                "{\"hex\":\"%06x\", \"flight\":\"%s\", \"lat\":%f, "
-                "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
-                "\"speed\":%d},\n",
-                a->addr, a->flight, a->lat, a->lon, a->altitude, a->track,
-                a->speed);
-            p += l; buflen -= l;
-            /* Resize if needed. */
-            if (buflen < 256) {
-                int used = p-buf;
-                buflen += 1024; /* Our increment. */
-                buf = (char *) realloc(buf,used+buflen);
-                p = buf+used;
-            }
+        
+        l = snprintf(p,buflen,
+            "{\"hex\":\"%06x\", \"squawk\":\"%04x\", \"flight\":\"%s\", \"lat\":%f, "
+            "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
+            "\"speed\":%d, \"messages\":%ld, \"seen\":%d},\n",
+            a->addr, a->modeA, a->flight, a->lat, a->lon, a->altitude, a->track,
+            a->speed, a->messages, (int)(now - a->seen));
+        p += l; buflen -= l;
+        
+        /* Resize if needed. */
+        if (buflen < 256) {
+            int used = p-buf;
+            buflen += 1024; // Our increment.
+            buf = (char *) realloc(buf,used+buflen);
+            p = buf+used;
         }
+        
         a = a->next;
     }
     /* Remove the final comma if any, and closes the json array. */
@@ -3263,7 +3264,9 @@ char *aircraftsToJson(int *len) {
 }
 
 #define MODES_CONTENT_TYPE_HTML "text/html;charset=utf-8"
+#define MODES_CONTENT_TYPE_CSS  "text/css;charset=utf-8"
 #define MODES_CONTENT_TYPE_JSON "application/json;charset=utf-8"
+#define MODES_CONTENT_TYPE_JS   "application/javascript;charset=utf-8"
 
 /* Get an HTTP request header and write the response to the client.
  * Again here we assume that the socket buffer is enough without doing
@@ -3276,22 +3279,24 @@ int handleHTTPRequest(struct client *c) {
     int clen, hdrlen;
     int httpver, keepalive;
     char *p, *url, *content;
-    char *ctype;
+    char ctype[48];
+    char getFile[1024];
+    char *ext;
 
     if (Modes.debug & MODES_DEBUG_NET)
         printf("\nHTTP request: %s\n", c->buf);
 
-    /* Minimally parse the request. */
+    // Minimally parse the request.
     httpver = (strstr(c->buf, "HTTP/1.1") != NULL) ? 11 : 10;
     if (httpver == 10) {
-        /* HTTP 1.0 defaults to close, unless otherwise specified. */
+        // HTTP 1.0 defaults to close, unless otherwise specified.
         keepalive = strstr(c->buf, "Connection: keep-alive") != NULL;
     } else if (httpver == 11) {
-        /* HTTP 1.1 defaults to keep-alive, unless close is specified. */
+        // HTTP 1.1 defaults to keep-alive, unless close is specified.
         keepalive = strstr(c->buf, "Connection: close") == NULL;
     }
 
-    /* Identify he URL. */
+    // Identify he URL.
     p = strchr(c->buf,' ');
     if (!p) return 1; /* There should be the method and a space... */
     url = ++p; /* Now this should point to the requested URL. */
@@ -3303,35 +3308,52 @@ int handleHTTPRequest(struct client *c) {
         printf("\nHTTP keep alive: %d\n", keepalive);
         printf("HTTP requested URL: %s\n\n", url);
     }
+    
+    if (strlen(url) < 2) {
+        snprintf(getFile, sizeof getFile, "./public_html/gmap.html"); // Default file
+    } else {
+        snprintf(getFile, sizeof getFile, "./public_html%s", url);
+    }
 
     /* Select the content to send, we have just two so far:
      * "/" -> Our google map application.
      * "/data.json" -> Our ajax request to update planes. */
     if (strstr(url, "/data.json")) {
         content = aircraftsToJson(&clen);
-        ctype = MODES_CONTENT_TYPE_JSON;
+        //snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
     } else {
         struct stat sbuf;
         int fd = -1;
 
-        if (stat("gmap.html",&sbuf) != -1 &&
-            (fd = open("gmap.html",O_RDONLY)) != -1)
-        {
+        if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
             content = (char *) malloc(sbuf.st_size);
-            if (read(fd,content,sbuf.st_size) == -1) {
-                snprintf(content,sbuf.st_size,"Error reading from file: %s",
-                    strerror(errno));
+            if (read(fd, content, sbuf.st_size) == -1) {
+                snprintf(content, sbuf.st_size, "Error reading from file: %s", strerror(errno));
             }
             clen = sbuf.st_size;
         } else {
             char buf[128];
-
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s",
-                strerror(errno));
+            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s", strerror(errno));
             content = strdup(buf);
         }
-        if (fd != -1) close(fd);
-        ctype = MODES_CONTENT_TYPE_HTML;
+        
+        if (fd != -1) {
+            close(fd);
+        }
+    }
+
+    // Get file extension and content type
+    snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_HTML); // Default content type
+    ext = strrchr(getFile, '.');
+
+    if (strlen(ext) > 0) {
+        if (strstr(ext, ".json")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JSON);
+        } else if (strstr(ext, ".css")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_CSS);
+        } else if (strstr(ext, ".js")) {
+            snprintf(ctype, sizeof ctype, MODES_CONTENT_TYPE_JS);
+        }
     }
 
     /* Create the header and send the reply. */
@@ -3346,13 +3368,12 @@ int handleHTTPRequest(struct client *c) {
         keepalive ? "keep-alive" : "close",
         clen);
 
-    if (Modes.debug & MODES_DEBUG_NET)
+    if (Modes.debug & MODES_DEBUG_NET) {
         printf("HTTP Reply header:\n%s", hdr);
+    }
 
-    /* Send header and content. */
-    if (write(c->fd, hdr, hdrlen) == -1 ||
-        write(c->fd, content, clen) == -1)
-    {
+    // Send header and content.
+    if (write(c->fd, hdr, hdrlen) == -1 || write(c->fd, content, clen) == -1) {
         free(content);
         return 1;
     }
