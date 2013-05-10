@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.04.0905.13"
+#define MODES_DUMP1090_VERSION     "1.05.1005.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -117,10 +117,14 @@
 #define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
 #define MODES_ACFLAGS_LLEVEN_VALID   (1<<10) // Aircraft Even Lot/Lon is known
 #define MODES_ACFLAGS_LLODD_VALID    (1<<11) // Aircraft Odd Lot/Lon is known
+#define MODES_ACFLAGS_AOG_VALID      (1<<12) // MODES_ACFLAGS_AOG is valid 
+#define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known 
+#define MODES_ACFLAGS_NSEWSPD_VALID  (1<<14) // Aircraft EW and NS Speed is known
 #define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
 
 #define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID) 
 #define MODES_ACFLAGS_LLBOTH_VALID   (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
+#define MODES_ACFLAGS_AOG_GROUND     (MODES_ACFLAGS_AOG_VALID    | MODES_ACFLAGS_AOG)
 
 #define MODES_SBS_LAT_LONG_FRESH (1<<0)
 
@@ -311,8 +315,6 @@ struct modesMessage {
 
     // DF4, DF5, DF20, DF21
     int  fs;                    // Flight status for DF4,5,20,21
-    int  dr;                    // Request extraction of downlink request.
-    int  um;                    // Request extraction of downlink request.
     int  modeA;                 // 13 bits identity (Squawk).
 
     // Fields used by multiple message types.
@@ -1465,12 +1467,25 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->crcok = ICAOAddressWasRecentlySeen(mm->crc);
     }
 
-    // Fields for DF4,5,20,21
-    mm->ca =                                       // Responder capabilities
-    mm->fs =   msg[0]  & 7;                        // Flight status for DF4,5,20,21
-    mm->dr =  (msg[1] >> 3) & 0x1F;                // Request extraction of downlink request
-    mm->um = ((msg[1]  & 7) << 3) | (msg[2] >> 5); // Request extraction of downlink request
-              
+    // Fields for DF0, DF16
+    if (mm->msgtype == 0  || mm->msgtype == 16) {
+        if (msg[0] & 0x04) {                       // VS Bit
+            mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+        } else {
+            mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
+        }
+    }
+
+    // Fields for DF11, DF17
+    if (mm->msgtype == 11  || mm->msgtype == 17) {
+        mm->ca = msg[0] & 0x07;                     // Responder capabilities
+        if (mm->ca == 4) {
+            mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
+        } else if (mm->ca == 5) {
+            mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
+        }
+    }
+          
     // Fields for DF5, DF21 = Gillham encoded Squawk
     if (mm->msgtype == 5  || mm->msgtype == 21) {
         int ID13Field = ((msg[2] << 8) | msg[3]) & 0x1FFF; 
@@ -1487,6 +1502,18 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         if (AC13Field) { // Only attempt to decode if a valid (non zero) altitude is present
             mm->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
             mm->altitude = decodeAC13Field(AC13Field, &mm->unit);
+        }
+    }
+
+    // Fields for DF4, DF5, DF20, DF21
+    if ((mm->msgtype == 4) || (mm->msgtype == 20) ||
+        (mm->msgtype == 5) || (mm->msgtype == 21)) {
+        mm->bFlags  |= MODES_ACFLAGS_FS_VALID;
+        mm->fs       = msg[0]  & 7;               // Flight status for DF4,5,20,21
+        if (mm->fs <= 3) {
+            mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
+            if (mm->fs & 1)
+                {mm->bFlags |= MODES_ACFLAGS_AOG;}
         }
     }
 
@@ -1522,13 +1549,14 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                                                     : MODES_ACFLAGS_LLEVEN_VALID;
             if (metype >= 9) {        // Airborne
                 int AC12Field = ((msg[5] << 4) | (msg[6] >> 4)) & 0x0FFF;
+                mm->bFlags |= MODES_ACFLAGS_AOG_VALID;
                 if (AC12Field) {// Only attempt to decode if a valid (non zero) altitude is present
                     mm->bFlags |= MODES_ACFLAGS_ALTITUDE_VALID;
                     mm->altitude = decodeAC12Field(AC12Field, &mm->unit);
                 }
             } else {                      // Ground
                 int movement = ((msg[4] << 4) | (msg[5] >> 4)) & 0x007F;
-                mm->bFlags |= MODES_ACFLAGS_AOG;
+                mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
                 if ((movement) && (movement < 125)) {
                     mm->bFlags |= MODES_ACFLAGS_SPEED_VALID;
                     mm->velocity = decodeMovementField(movement);
@@ -1580,7 +1608,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
                 if (ew_raw && ns_raw) {
                     // Compute velocity and angle from the two speed components
-                    mm->bFlags |= (MODES_ACFLAGS_SPEED_VALID | MODES_ACFLAGS_HEADING_VALID);
+                    mm->bFlags |= (MODES_ACFLAGS_SPEED_VALID | MODES_ACFLAGS_HEADING_VALID | MODES_ACFLAGS_NSEWSPD_VALID);
                     mm->velocity = (int) sqrt((ns_vel * ns_vel) + (ew_vel * ew_vel));
 
                     if (mm->velocity) {
@@ -1643,7 +1671,7 @@ void displayModesMessage(struct modesMessage *mm) {
     // Handle only addresses mode first.
     if (Modes.onlyaddr) {
         printf("%06x\n", mm->addr);
-        return;
+        return;         // Enough for --onlyaddr mode
     }
 
     // Show the raw message.
@@ -1660,8 +1688,8 @@ void displayModesMessage(struct modesMessage *mm) {
     printf(";\n");
 
     if (Modes.raw) {
-        fflush(stdout); /* Provide data to the reader ASAP. */
-        return; /* Enough for --raw mode */
+        fflush(stdout); // Provide data to the reader ASAP
+        return;         // Enough for --raw mode
     }
 
     if (mm->msgtype < 32)
@@ -1680,8 +1708,8 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("DF %d: %s, Altitude Reply.\n", mm->msgtype,
             (mm->msgtype == 4) ? "Surveillance" : "Comm-B");
         printf("  Flight Status  : %s\n", fs_str[mm->fs]);
-        printf("  DR             : %d\n", mm->dr);
-        printf("  UM             : %d\n", mm->um);
+        printf("  DR             : %d\n", ((mm->msg[1] >> 3) & 0x1F));
+        printf("  UM             : %d\n", (((mm->msg[1]  & 7) << 3) | (mm->msg[2] >> 5)));
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
         printf("  ICAO Address   : %06x\n", mm->addr);
@@ -1699,8 +1727,8 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("DF %d: %s, Identity Reply.\n", mm->msgtype,
             (mm->msgtype == 5) ? "Surveillance" : "Comm-B");
         printf("  Flight Status  : %s\n", fs_str[mm->fs]);
-        printf("  DR             : %d\n", mm->dr);
-        printf("  UM             : %d\n", mm->um);
+        printf("  DR             : %d\n", ((mm->msg[1] >> 3) & 0x1F));
+        printf("  UM             : %d\n", (((mm->msg[1]  & 7) << 3) | (mm->msg[2] >> 5)));
         printf("  Squawk         : %x\n", mm->modeA);
         printf("  ICAO Address   : %06x\n", mm->addr);
 
@@ -1715,7 +1743,7 @@ void displayModesMessage(struct modesMessage *mm) {
 
     } else if (mm->msgtype == 11) { // DF 11
         printf("DF 11: All Call Reply.\n");
-        printf("  Capability  : %s\n", ca_str[mm->ca]);
+        printf("  Capability  : %d (%s)\n", mm->ca, ca_str[mm->ca]);
         printf("  ICAO Address: %06x\n", mm->addr);
         if (mm->iid > 16)
             {printf("  IID         : SI-%02d\n", mm->iid-16);}
@@ -1754,18 +1782,18 @@ void displayModesMessage(struct modesMessage *mm) {
 
         } else if (mm->metype == 19) { // Airborne Velocity
             if (mm->mesub == 1 || mm->mesub == 2) {
-                printf("    EW status         : %s\n", (mm->bFlags & MODES_ACFLAGS_EWSPEED_VALID) ? "Valid" : "Unavailable");
+                printf("    EW status         : %s\n", (mm->bFlags & MODES_ACFLAGS_EWSPEED_VALID)  ? "Valid" : "Unavailable");
                 printf("    EW velocity       : %d\n", mm->ew_velocity);
-                printf("    NS status         : %s\n", (mm->bFlags & MODES_ACFLAGS_NSSPEED_VALID) ? "Valid" : "Unavailable");
+                printf("    NS status         : %s\n", (mm->bFlags & MODES_ACFLAGS_NSSPEED_VALID)  ? "Valid" : "Unavailable");
                 printf("    NS velocity       : %d\n", mm->ns_velocity);
                 printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
                 printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
                 printf("    Vertical rate     : %d\n", mm->vert_rate);
 
             } else if (mm->mesub == 3 || mm->mesub == 4) {
-                printf("    Heading status    : %s\n", (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) ? "Valid" : "Unavailable");
+                printf("    Heading status    : %s\n", (mm->bFlags & MODES_ACFLAGS_HEADING_VALID)  ? "Valid" : "Unavailable");
                 printf("    Heading           : %d\n", mm->heading);
-                printf("    Airspeed status   : %s\n", (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) ? "Valid" : "Unavailable");
+                printf("    Airspeed status   : %s\n", (mm->bFlags & MODES_ACFLAGS_SPEED_VALID)    ? "Valid" : "Unavailable");
                 printf("    Airspeed          : %d\n", mm->velocity);
                 printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
                 printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
@@ -1806,6 +1834,8 @@ void displayModesMessage(struct modesMessage *mm) {
     } else {
         printf("DF %d: Unknown DF Format.\n", mm->msgtype);
     }
+
+    printf("\n");
 }
 
 /* Turn I/Q samples pointed by Modes.data into the magnitude vector
@@ -2229,7 +2259,6 @@ void useModesMessage(struct modesMessage *mm) {
         // standard output as they occur.
         if (!Modes.interactive && !Modes.quiet) {
             displayModesMessage(mm);
-            if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
 
         // Send data to connected network clients
@@ -2653,7 +2682,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     }
 
     // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
-    if ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG) {
+    if ((mm->bFlags & MODES_ACFLAGS_AOG_VALID) && ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG)) {
         a->bFlags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
 
     } else  if (   (mm->bFlags & MODES_ACFLAGS_LLEITHER_VALID) 
