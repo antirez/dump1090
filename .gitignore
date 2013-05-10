@@ -4,5 +4,4 @@ testfiles/*.bin
 misc
 frames.js
 .*.swp
-~*
-
+*~
