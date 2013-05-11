@@ -29,7 +29,8 @@ function getIconForPlane(plane) {
     };
 }
 
-function selectPlane() {
+function selectPlane(selectedPlane) {
+    if (selectedPlane.length) this.planehex = selectedPlane;
     if (!Planes[this.planehex]) return;
     var old = Selected;
     Selected = this.planehex;
@@ -38,7 +39,9 @@ function selectPlane() {
         Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
     }
     Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
+    
     refreshSelectedInfo();
+    refreshTableInfo();
 }
 
 function refreshGeneralInfo() {
@@ -51,17 +54,30 @@ function refreshGeneralInfo() {
 function refreshSelectedInfo() {
     var i = document.getElementById('selinfo');
     var p = Planes[Selected];
-
-    if (!p) return;
-    var html = 'ICAO: '+p.hex+'<br>';
-    if (p.flight.length) {
-        html += '<b>'+p.flight+'</b><br>';
+    
+    if (!p) {
+        p = {};
+        p.flight = "";
+        p.hex = "";
+        p.squawk = "";
+        p.altitude = "0";
+        p.speed = "0";
+        p.lat = "lat";
+        p.lon = "lon";
+        p.messages = "0";
+        p.seen = "0";
     }
-    html += 'Altitude: '+p.altitude+' feet<br>';
-    html += 'Speed: '+p.speed+' knots<br>';
-    html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
-    html += 'Messages: '+p.messages+'<br>';
-    html += 'Seen: '+p.seen+' sec<br>';
+    
+    var html = '<table id="selectedinfo">';
+    html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;</b></td></tr>';
+    html += '<tr><td>ICAO:</td><td>'+p.hex+'</td></tr>';
+    html += '<tr><td>Squawk:</td><td>'+p.squawk+'</td></tr>';
+    html += '<tr><td>Altitude:</td><td>'+p.altitude+' feet</td></tr>';
+    html += '<tr><td>Speed:</td><td>'+p.speed+' knots</td></tr>';
+    html += '<tr><td>Coordinates:</td><td>'+p.lat+', '+p.lon+'</td></tr>';
+    html += '<tr><td>Messages:</td><td>'+p.messages+'</td></tr>';
+    html += '<tr><td>Seen:</td><td>'+p.seen+' sec</td></tr>';
+    html += '</table>';
     i.innerHTML = html;
 }
 
@@ -69,21 +85,23 @@ function refreshTableInfo() {
     var i = document.getElementById('tabinfo');
 
     var html = '<table id="tableinfo" width="100%">';
-    html += '<thead style="background-color: #CCCCCC;"><td>Flight</td><td align="right">Altitude</td><td align="center">Speed</td><td align="center">Track</td><td>Lat</td><td>Long</td><td>Seen</td><td>Msgs</td></thead>';
+    html += '<thead style="background-color: #CCCCCC;">';
+    html += '<td>Flight</td><td>Squawk</td><td align="right">Altitude</td>';
+    html += '<td align="center">Speed</td><td align="center">Track</td><td>Seen</td>';
+    html += '<td>Msgs</td></thead>';
     for (var p in Planes) {
         if (p == Selected) {
-            html += '<tr style="background-color: #F0F0F0;">';
+            html += '<tr style="background-color: #E0E0E0;">';
         } else {
-            html += '<tr>';
+            html += '<tr id="tableinforow" onClick="selectPlane(\''+p+'\');">';
         }
         html += '<td>' + Planes[p].flight + '</td>';
+        html += '<td align="right">' + Planes[p].squawk + '</td>';
         html += '<td align="right">' + Planes[p].altitude + '</td>';
-        html += '<td align="center">' + Planes[p].speed + '</td>';
-        html += '<td align="center">' + Planes[p].track + '</td>';
-        html += '<td>' + Planes[p].lat + '</td>';
-        html += '<td>' + Planes[p].lon + '</td>';
-        html += '<td align="center">' + Planes[p].seen + '</td>';
-        html += '<td align="center">' + Planes[p].messages + '</td>';
+        html += '<td align="right">' + Planes[p].speed + '</td>';
+        html += '<td align="right">' + Planes[p].track + '</td>';
+        html += '<td align="right">' + Planes[p].seen + '</td>';
+        html += '<td align="right">' + Planes[p].messages + '</td>';
         html += '</tr>';
     }
     html += '</table>';
@@ -120,6 +138,7 @@ function fetchData() {
                     myplane.track = plane.track;
                     myplane.flight = plane.flight;
                     myplane.seen = plane.seen;
+                    myplane.squawk = plane.squawk;
                     myplane.messages = plane.messages;
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
@@ -155,9 +174,8 @@ function fetchData() {
                 delete Planes[p];
             }
         }
-
+        
         refreshTableInfo() ;
-
     });
 }
 
@@ -180,19 +198,6 @@ function printTime() {
     }
 }
 
-function placeFooter() {    
-    var windHeight = $(window).height();
-    var footerHeight = $('#info_footer').height();
-    var offset = parseInt(windHeight) - parseInt(footerHeight);
-    
-    var footerWidth = parseInt($('#info_footer').width());
-    var infoWidth = parseInt($('#info').width());
-    var marginLeft = parseInt((infoWidth / 2) - (footerWidth / 2));
-    
-    $('#info_footer').css('top', offset);
-    $('#info_footer').css('margin-left', marginLeft);
-}
-
 function resetMap() {
     localStorage['CenterLat'] = 45.0;
     localStorage['CenterLon'] = 9.0;
@@ -201,6 +206,13 @@ function resetMap() {
     Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']), parseInt(localStorage['CenterLon'])));
     Selected = null;
     document.getElementById('selinfo').innerHTML = '';
+}
+
+function resizeMap() {
+    var windWidth = parseInt($(window).width());
+    var infoWidth = parseInt($('#info').width());
+    var mapWidth = windWidth - infoWidth;
+    $('#map_canvas').css('width', mapWidth);
 }
 
 function initialize() {
@@ -230,14 +242,8 @@ function initialize() {
         maxZoom: 18
     }));
     
-    // show footer at info-area
-    $(function(){
-        $(window).resize(function(e){
-            placeFooter();
-        });
-        placeFooter();
-        // hide it before it's positioned
-        $('#info_footer').css('display','inline');
+    $(window).resize(function(e){
+        resizeMap();
     });
     
     // Listener for newly created Map
@@ -248,6 +254,13 @@ function initialize() {
     
     google.maps.event.addListener(Map, 'zoom_changed', function() {
         localStorage['ZoomLvl']  = Map.getZoom();
+    });
+    
+    google.maps.event.addListener(Map, 'click', function() {
+        selectPlane("xyzxyz"); // Select not valid ICAO24 address to clear selection.
+        Selected = null;
+        refreshSelectedInfo();
+        refreshTableInfo();
     });
 
     // Setup our timer to poll from the server.
@@ -260,4 +273,8 @@ function initialize() {
     window.setInterval(function() {
         printTime();
     }, 250);
+    
+    refreshGeneralInfo();
+    refreshSelectedInfo();
+    resizeMap();
 }
