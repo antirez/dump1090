@@ -43,7 +43,7 @@ function selectPlane() {
 
 function refreshGeneralInfo() {
     var i = document.getElementById('geninfo');
-    
+
     i.innerHTML  = PlanesOnGrid + ' planes on grid.<br>';
     i.innerHTML += PlanesOnMap + ' planes on map.';
 }
@@ -65,8 +65,33 @@ function refreshSelectedInfo() {
     i.innerHTML = html;
 }
 
+function refreshTableInfo() {
+    var i = document.getElementById('tabinfo');
+
+    var html = '<table id="tableinfo" width="100%">';
+    html += '<thead style="background-color: #CCCCCC;"><td>Flight</td><td align="right">Altitude</td><td align="center">Speed</td><td align="center">Track</td><td>Lat</td><td>Long</td><td>Seen</td><td>Msgs</td></thead>';
+    for (var p in Planes) {
+        if (p == Selected) {
+            html += '<tr style="background-color: #F0F0F0;">';
+        } else {
+            html += '<tr>';
+        }
+        html += '<td>' + Planes[p].flight + '</td>';
+        html += '<td align="right">' + Planes[p].altitude + '</td>';
+        html += '<td align="center">' + Planes[p].speed + '</td>';
+        html += '<td align="center">' + Planes[p].track + '</td>';
+        html += '<td>' + Planes[p].lat + '</td>';
+        html += '<td>' + Planes[p].lon + '</td>';
+        html += '<td align="center">' + Planes[p].seen + '</td>';
+        html += '<td align="center">' + Planes[p].messages + '</td>';
+        html += '</tr>';
+    }
+    html += '</table>';
+    i.innerHTML = html;
+}
+
 function fetchData() {
-    $.getJSON('/data.json', function(data) {
+    $.getJSON('data.json', function(data) {
         var stillhere = {}
         PlanesOnMap = 0;
         
@@ -130,6 +155,9 @@ function fetchData() {
                 delete Planes[p];
             }
         }
+
+        refreshTableInfo() ;
+
     });
 }
 
@@ -176,12 +204,31 @@ function resetMap() {
 }
 
 function initialize() {
+    var mapTypeIds = [];
+    for(var type in google.maps.MapTypeId) {
+        mapTypeIds.push(google.maps.MapTypeId[type]);
+    }
+    mapTypeIds.push("OSM");
+
     var mapOptions = {
         center: new google.maps.LatLng(CenterLat, CenterLon),
         zoom: ZoomLvl,
-        mapTypeId: google.maps.MapTypeId.ROADMAP
+        mapTypeId: google.maps.MapTypeId.ROADMAP,
+        mapTypeControlOptions: {
+            mapTypeIds: mapTypeIds,
+        }
     };
     Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+
+    //Define OSM map type pointing at the OpenStreetMap tile server
+    Map.mapTypes.set("OSM", new google.maps.ImageMapType({
+        getTileUrl: function(coord, zoom) {
+           return "http://tile.openstreetmap.org/" + zoom + "/" + coord.x + "/" + coord.y + ".png";
+        },
+        tileSize: new google.maps.Size(256, 256),
+        name: "OpenStreetMap",
+        maxZoom: 18
+    }));
     
     // show footer at info-area
     $(function(){
