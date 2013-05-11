@@ -32,3 +32,8 @@ text-align: center;
 padding:0px;
 margin:0px;
 }
+#tableinfo {
+font-size: x-small;
+font-family: monospace;
+}
+

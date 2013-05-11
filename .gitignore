@@ -5,3 +5,5 @@ misc
 frames.js
 .*.swp
 *~
+*.rej
+*.orig
