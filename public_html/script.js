@@ -118,8 +118,8 @@ function fetchData() {
             stillhere[plane.hex] = true;
             plane.flight = $.trim(plane.flight);
             
-            if (plane.lat != 0 && plane.lon != 0) {
-                // Show only planes with position
+            // Show only planes with position
+            if (plane.validposition == 1) {
                 var marker = null;
                 PlanesOnMap++;
                 
@@ -175,7 +175,8 @@ function fetchData() {
             }
         }
         
-        refreshTableInfo() ;
+        refreshTableInfo();
+        refreshSelectedInfo();
     });
 }
 
