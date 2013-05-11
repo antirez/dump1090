@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.05.1005.13"
+#define MODES_DUMP1090_VERSION     "1.05.1105.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -3083,11 +3083,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
 }
 //
 // Write SBS output to TCP clients
-//
-// We are passed in both the aircraft structure (a) and the message structure (mm).
 // The message structure mm->bFlags tells us what has been updated by this message
-// The aircraft structure a->bFlags tells us everything we currently know about this
-// aircraft. Information not marked as 'new' in mm->bFlags will be historical/stale
 //
 void modesSendSBSOutput(struct modesMessage *mm) {
     char msg[256], *p = msg;
@@ -3149,7 +3145,6 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     stTime = *localtime(&epocTime.time);                      // convert the time to year, month  day, hours, min, sec
     p += sprintf(p, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
     p += sprintf(p, "%02d:%02d:%02d.%03d", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
-
 
     // Field 11 is the callsign (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_CALLSIGN_VALID) {p += sprintf(p, ",%s", mm->flight);}
