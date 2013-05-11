@@ -2344,27 +2344,33 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
     while(b) {
         if ((b->modeACflags & MODEAC_MSG_FLAG) == 0) {// skip any fudged ICAO records 
 
-            // First check for Mode-A <=> Mode-S Squawk matches
-            if (a->modeA == b->modeA) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
-                b->modeAcount   = a->messages;
-                b->modeACflags |= MODEAC_MSG_MODEA_HIT;
-                a->modeACflags |= MODEAC_MSG_MODEA_HIT;
-                if ( (b->modeAcount > 0) && 
-                   ( (b->modeCcount > 1) 
-                  || (a->modeACflags & MODEAC_MSG_MODEA_ONLY)) ) // Allow Mode-A only matches if this Mode-A is invalid Mode-C
-                    {a->modeACflags |= MODEAC_MSG_MODES_HIT;}    // flag this ModeA/C probably belongs to a known Mode S                    
+            // If both (a) and (b) have valid squawks...
+            if ((a->bFlags & b->bFlags) & MODES_ACFLAGS_SQUAWK_VALID) {
+                // ...check for Mode-A == Mode-S Squawk matches
+                if (a->modeA == b->modeA) { // If a 'real' Mode-S ICAO exists using this Mode-A Squawk
+                    b->modeAcount   = a->messages;
+                    b->modeACflags |= MODEAC_MSG_MODEA_HIT;
+                    a->modeACflags |= MODEAC_MSG_MODEA_HIT;
+                    if ( (b->modeAcount > 0) && 
+                       ( (b->modeCcount > 1) 
+                      || (a->modeACflags & MODEAC_MSG_MODEA_ONLY)) ) // Allow Mode-A only matches if this Mode-A is invalid Mode-C
+                        {a->modeACflags |= MODEAC_MSG_MODES_HIT;}    // flag this ModeA/C probably belongs to a known Mode S                    
+                }
             } 
 
-            // Next check for Mode-C <=> Mode-S Altitude matches
-            if (  (a->modeC     == b->modeC    )     // If a 'real' Mode-S ICAO exists at this Mode-C Altitude
-               || (a->modeC     == b->modeC + 1)     //          or this Mode-C - 100 ft
-               || (a->modeC + 1 == b->modeC    ) ) { //          or this Mode-C + 100 ft
-                b->modeCcount   = a->messages;
-                b->modeACflags |= MODEAC_MSG_MODEC_HIT;
-                a->modeACflags |= MODEAC_MSG_MODEC_HIT;
-                if ( (b->modeAcount > 0) && 
-                     (b->modeCcount > 1) )
-                    {a->modeACflags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD);} // flag this ModeA/C probably belongs to a known Mode S                    
+            // If both (a) and (b) have valid altitudes...
+            if ((a->bFlags & b->bFlags) & MODES_ACFLAGS_ALTITUDE_VALID) {
+                // ... check for Mode-C == Mode-S Altitude matches
+                if (  (a->modeC     == b->modeC    )     // If a 'real' Mode-S ICAO exists at this Mode-C Altitude
+                   || (a->modeC     == b->modeC + 1)     //          or this Mode-C - 100 ft
+                   || (a->modeC + 1 == b->modeC    ) ) { //          or this Mode-C + 100 ft
+                    b->modeCcount   = a->messages;
+                    b->modeACflags |= MODEAC_MSG_MODEC_HIT;
+                    a->modeACflags |= MODEAC_MSG_MODEC_HIT;
+                    if ( (b->modeAcount > 0) && 
+                         (b->modeCcount > 1) )
+                        {a->modeACflags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD);} // flag this ModeA/C probably belongs to a known Mode S                    
+                }
             }
         }
         b = b->next;
