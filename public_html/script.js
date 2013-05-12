@@ -108,6 +108,31 @@ function refreshTableInfo() {
     i.innerHTML = html;
 }
 
+function refreshTableInfo() {
+    var i = document.getElementById('tabinfo');
+
+    var html = '<table id="tableinfo" width="100%">';
+    html += '<thead style="background-color: #CCCCCC;"><td>Flight</td><td align="right">Altitude</td><td align="center">Speed</td><td align="center">Track</td><td>Lat</td><td>Long</td><td>Seen</td><td>Msgs</td></thead>';
+    for (var p in Planes) {
+        if (p == Selected) {
+            html += '<tr style="background-color: #F0F0F0;">';
+        } else {
+            html += '<tr>';
+        }
+        html += '<td>' + Planes[p].flight + '</td>';
+        html += '<td align="right">' + Planes[p].altitude + '</td>';
+        html += '<td align="center">' + Planes[p].speed + '</td>';
+        html += '<td align="center">' + Planes[p].track + '</td>';
+        html += '<td>' + Planes[p].lat + '</td>';
+        html += '<td>' + Planes[p].lon + '</td>';
+        html += '<td align="center">' + Planes[p].seen + '</td>';
+        html += '<td align="center">' + Planes[p].messages + '</td>';
+        html += '</tr>';
+    }
+    html += '</table>';
+    i.innerHTML = html;
+}
+
 function fetchData() {
     $.getJSON('data.json', function(data) {
         var stillhere = {}

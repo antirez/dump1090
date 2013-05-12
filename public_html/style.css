@@ -42,3 +42,8 @@ body { height: 100%; margin: 0; padding: 0; }
     cursor: pointer;
 }
 
+#tableinfo {
+font-size: x-small;
+font-family: monospace;
+}
+
