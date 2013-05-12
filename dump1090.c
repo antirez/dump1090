@@ -286,7 +286,7 @@ struct modesMessage {
     int msgtype;                             // Downlink format #
     int crcok;                               // True if CRC was valid
     uint32_t crc;                            // Message CRC
-    int errorbit;                            // Bit corrected. -1 if no bit corrected
+    int correctedbits;                       // No. of bits corrected 
     uint32_t addr;                           // ICAO Address from bytes 1 2 and 3
     int phase_corrected;                     // True if phase correction was applied
     uint64_t timestampMsg;                   // Timestamp of the message
@@ -657,12 +657,7 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
     int start = offset - padding;
     int end = offset + (MODES_PREAMBLE_SAMPLES)+(MODES_LONG_MSG_SAMPLES) - 1;
     FILE *fp;
-    int j, fix1 = -1, fix2 = -1;
-
-    if (fixable != -1) {
-        fix1 = fixable & 0xff;
-        if (fixable > 255) fix2 = fixable >> 8;
-    }
+    int j;
 
     if ((fp = fopen("frames.js","a")) == NULL) {
         fprintf(stderr, "Error opening frames.js: %s\n", strerror(errno));
@@ -674,8 +669,8 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
         fprintf(fp,"%d", j < 0 ? 0 : m[j]);
         if (j != end) fprintf(fp,",");
     }
-    fprintf(fp,"], \"fix1\": %d, \"fix2\": %d, \"bits\": %d, \"hex\": \"",
-        fix1, fix2, modesMessageLenByType(msg[0]>>3));
+    fprintf(fp,"], \"fixed\": %d, \"bits\": %d, \"hex\": \"",
+        fixable, modesMessageLenByType(msg[0]>>3));
     for (j = 0; j < MODES_LONG_MSG_BYTES; j++)
         fprintf(fp,"\\x%02x",msg[j]);
     fprintf(fp,"\"});\n");
@@ -699,12 +694,10 @@ void dumpRawMessage(char *descr, unsigned char *msg,
 {
     int j;
     int msgtype = msg[0] >> 3;
-    int fixable = -1;
+    int fixable = 0;
 
     if (msgtype == 17) {
-        fixable = fixSingleBitErrors(msg, MODES_LONG_MSG_BITS);
-        if (fixable == -1)
-            fixable = fixTwoBitsErrors(msg, MODES_LONG_MSG_BITS);
+        fixable = fixBitErrors(msg, MODES_LONG_MSG_BITS);
     }
 
     if (Modes.debug & MODES_DEBUG_JS) {
@@ -1067,7 +1060,7 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA)
   // Not much else we can tell from a Mode A/C reply.
   // Just fudge up a few bits to keep other code happy
   mm->crcok = 1;
-  mm->errorbit = -1;
+  mm->correctedbits = 0;
   }
 
 /* ===================== Mode S detection and decoding  ===================== */
@@ -1712,7 +1705,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     // Get the message type ASAP as other operations depend on this
     mm->msgtype         = msg[0] >> 3; // Downlink Format
     mm->msgbits         = modesMessageLenByType(mm->msgtype);
-    mm->errorbit        = -1; // No errors fixed
+    mm->correctedbits   = 0; // No errors fixed
     mm->phase_corrected =  0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
@@ -1728,10 +1721,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         // using the results. Perhaps check the ICAO against known aircraft, and check
         // IID against known good IID's. That's a TODO.
         //
-        mm->errorbit = fixSingleBitErrors(msg, mm->msgbits);
-        if ((mm->errorbit == -1) && (Modes.aggressive)) {
-            mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits);
-        }
+        mm->correctedbits = fixBitErrors(msg, mm->msgbits);
+        //if ((mm->errorbit == -1) && (Modes.aggressive)) {
+        //    mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits);
+        //}
     }
     //
     // Note that most of the other computation happens *after* we fix the 
@@ -1751,7 +1744,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->crcok = (mm->crc == 0);
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
 
-        if        (-1 != mm->errorbit) {
+        if        (0 != mm->correctedbits) {
             // DF 17 : if (error corrected) force crc = 0 but do not try to add this address 
             //         to the whitelist of recently seen ICAO addresses.
             mm->crc = 0;
@@ -1997,8 +1990,8 @@ void displayModesMessage(struct modesMessage *mm) {
     if (mm->msgtype < 32)
         printf("CRC: %06x (%s)\n", (int)mm->crc, mm->crcok ? "ok" : "wrong");
 
-    if (mm->errorbit != -1)
-        printf("Single bit error fixed, bit %d\n", mm->errorbit);
+    if (mm->correctedbits != 0)
+        printf("No. of bit errors fixed: %d\n", mm->correctedbits);
 
     if (mm->msgtype == 0) { // DF 0
         printf("DF 0: Short Air-Air Surveillance.\n");
@@ -2470,16 +2463,17 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             if (Modes.stats) {
                 if (mm.crcok || use_correction) {
                     if (errors == 0) Modes.stat_demodulated++;
-                    if (mm.errorbit == -1) {
+                    if (mm.correctedbits == 0) {
                         if (mm.crcok) {Modes.stat_goodcrc++;}
                         else          {Modes.stat_badcrc++;}
                     } else {
                         Modes.stat_badcrc++;
                         Modes.stat_fixed++;
-                        if (mm.errorbit < MODES_LONG_MSG_BITS)
-                            {Modes.stat_single_bit_fix++;}
-                        else
-                            {Modes.stat_two_bits_fix++;}
+                        if (mm.correctedbits == 1) {
+				Modes.stat_single_bit_fix++;
+			} else if (mm.correctedbits == 2) {
+				Modes.stat_two_bits_fix++;
+			}
                     }
                 }
             }
@@ -2490,10 +2484,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     dumpRawMessage("Demodulated with 0 errors", msg, m, j);
                 else if (Modes.debug & MODES_DEBUG_BADCRC &&
                          mm.msgtype == 17 &&
-                         (!mm.crcok || mm.errorbit != -1))
+                         (!mm.crcok || mm.correctedbits != 0))
                     dumpRawMessage("Decoded with bad CRC", msg, m, j);
                 else if (Modes.debug & MODES_DEBUG_GOODCRC && mm.crcok &&
-                         mm.errorbit == -1)
+                         mm.correctedbits == 0)
                     dumpRawMessage("Decoded with good CRC", msg, m, j);
             }
 
