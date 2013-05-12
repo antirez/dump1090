@@ -11,31 +11,54 @@ if (localStorage['CenterLat']) { CenterLat = Number(localStorage['CenterLat']); 
 if (localStorage['CenterLon']) { CenterLon = Number(localStorage['CenterLon']); }
 if (localStorage['ZoomLvl'])   { ZoomLvl   = Number(localStorage['ZoomLvl']); }
 
-function getIconForPlane(plane) {
+function getIconForPlane(plane, deselect) {
+    var selected = false;
+    var track = 0;
     var r = 255, g = 255, b = 0;
     var maxalt = 40000; // Max altitude in the average case
-    var invalt = maxalt-plane.altitude;
-    var selected = (Selected == plane.hex);
-
+    var invalt = 0;
+    
+    // If there is plane object
+    if (plane) {
+        invalt = maxalt-plane.altitude;
+        if (Selected == plane.hex && !deselect) {
+            selected = true;
+        }
+        track = plane.track;
+    }
+    
     if (invalt < 0) invalt = 0;
     b = parseInt(255/maxalt*invalt);
+    
     return {
         strokeWeight: (selected ? 2 : 1),
         path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
         scale: 5,
         fillColor: 'rgb('+r+','+g+','+b+')',
         fillOpacity: 0.9,
-        rotation: plane.track
+        rotation: track
     };
 }
 
+/* Gets hex code of selected plane as string or nothing.     *
+ * Select not valid ICAO24 (hex) address to clear selection. */
 function selectPlane(selectedPlane) {
     if (selectedPlane.length) this.planehex = selectedPlane;
-    if (!Planes[this.planehex]) return;
+    
+    // Deselect all planes
+    if (!Planes[this.planehex]) {
+        Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected], true));
+        Selected = null;
+        refreshSelectedInfo();
+        refreshTableInfo();
+        return;
+    }
+    
     var old = Selected;
     Selected = this.planehex;
+    
     if (Planes[old]) {
-        /* Remove the highlight in the previously selected plane. */
+        // Remove the highlight in the previously selected plane.
         Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
     }
     Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
@@ -55,6 +78,7 @@ function refreshSelectedInfo() {
     var i = document.getElementById('selinfo');
     var p = Planes[Selected];
     
+    // If no plane is selected
     if (!p) {
         p = {};
         p.flight = "";
@@ -82,30 +106,36 @@ function refreshSelectedInfo() {
 }
 
 function refreshTableInfo() {
-    var i = document.getElementById('tabinfo');
-
     var html = '<table id="tableinfo" width="100%">';
     html += '<thead style="background-color: #CCCCCC;">';
-    html += '<td>Flight</td><td align="right">Squawk</td><td align="right">Altitude</td>';
-    html += '<td align="right">Speed</td><td align="right">Track</td><td align="right">Seen</td>';
-    html += '<td align="right">Msgs</td></thead>';
+    html += '<td>hex</td><td>Flight</td><td align="right">Squawk</td><td align="right">Altitude</td>';
+    html += '<td align="right">Speed</td><td align="right">Track</td>';
+    html += '<td align="right">Msgs</td><td align="right">Seen</td></thead>';
     for (var p in Planes) {
         if (p == Selected) {
-            html += '<tr style="background-color: #E0E0E0;">';
+            html += '<tr id="tableinforow" style="background-color: #E0E0E0;">';
         } else {
-            html += '<tr id="tableinforow" onClick="selectPlane(\''+p+'\');">';
+            html += '<tr id="tableinforow">';
         }
+        html += '<td>' + Planes[p].hex + '</td>';
         html += '<td>' + Planes[p].flight + '</td>';
         html += '<td align="right">' + Planes[p].squawk + '</td>';
         html += '<td align="right">' + Planes[p].altitude + '</td>';
         html += '<td align="right">' + Planes[p].speed + '</td>';
         html += '<td align="right">' + Planes[p].track + '</td>';
-        html += '<td align="right">' + Planes[p].seen + '</td>';
         html += '<td align="right">' + Planes[p].messages + '</td>';
+        html += '<td align="right">' + Planes[p].seen + '</td>';
         html += '</tr>';
     }
     html += '</table>';
-    i.innerHTML = html;
+    
+    document.getElementById('tabinfo').innerHTML = html;
+
+    // Click event for table - lags sometimes for some reason?
+    $('#tableinfo').find('tr').click( function(){
+      var hex = $(this).find('td:first').text();
+      selectPlane(hex);
+    });
 }
 
 function fetchData() {
@@ -258,7 +288,9 @@ function initialize() {
     });
     
     google.maps.event.addListener(Map, 'click', function() {
-        selectPlane("xyzxyz"); // Select not valid ICAO24 address to clear selection.
+        if (Selected) {
+            selectPlane("xyzxyz"); // Select not valid ICAO24 (hex) address to clear selection.
+        }
         Selected = null;
         refreshSelectedInfo();
         refreshTableInfo();
@@ -277,5 +309,6 @@ function initialize() {
     
     refreshGeneralInfo();
     refreshSelectedInfo();
+    refreshTableInfo();
     resizeMap();
 }
