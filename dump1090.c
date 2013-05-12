@@ -1388,6 +1388,128 @@ int fixBitErrors(unsigned char *msg, int bits) {
         }
 }
 
+/* Code for testing the timing: run all possible 1- and 2-bit error 
+ * the test message by all 1-bit errors. Run the old code against
+ * all of them, and new the code.
+ *
+ * Example measurements:
+ * Timing old vs. new crc correction code:
+ *    Old code: 1-bit errors on 112 msgs: 3934 usecs
+ *    New code: 1-bit errors on 112 msgs: 104 usecs
+ *    Old code: 2-bit errors on 6216 msgs: 407743 usecs
+ *    New code: 2-bit errors on 6216 msgs: 5176 usecs
+ * indicating a 37-fold resp. 78-fold improvement in speed for 1-bit resp.
+ * 2-bit error.
+ */
+unsigned char tmsg0[MODES_LONG_MSG_BYTES] = {
+        /* Test data: first ADS-B message from testfiles/modes1.bin */
+        0x8f, 0x4d, 0x20, 0x23, 0x58, 0x7f, 0x34, 0x5e,
+        0x35, 0x83, 0x7e, 0x22, 0x18, 0xb2
+};
+#define NTWOBITS (MODES_LONG_MSG_BITS*(MODES_LONG_MSG_BITS-1)/2)
+unsigned char tmsg1[MODES_LONG_MSG_BITS][MODES_LONG_MSG_BYTES];
+unsigned char tmsg2[NTWOBITS][MODES_LONG_MSG_BYTES];
+/* Init an array of cloned messages with all possible 1-bit errors present,
+ * applied to each message at the respective position
+ */
+void inittmsg1() {
+        int i, bytepos, mask;
+        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+                bytepos = i >> 3;
+                mask = 1 << (7 - (i & 7));
+                memcpy(&tmsg1[i][0], tmsg0, MODES_LONG_MSG_BYTES);
+                tmsg1[i][bytepos] ^= mask;
+        }
+}
+
+/* Run sanity check on all but first 5 messages / bits, as those bits
+ * are not corrected.
+ */
+void checktmsg1(FILE *out) {
+        int i, k;
+        uint32_t crc;
+        for (i = 5;  i < MODES_LONG_MSG_BITS;  i++) {
+                crc = modesChecksum(&tmsg1[i][0], MODES_LONG_MSG_BITS);
+                if (crc != 0) {
+                        fprintf(out, "CRC not fixed for "
+                                "positon %d\n", i);
+                        fprintf(out, "  MSG ");
+                        for (k = 0;  k < MODES_LONG_MSG_BYTES;  k++) {
+                                fprintf(out, "%02x", tmsg1[i][k]);
+                        }
+                        fprintf(out, "\n");
+                }
+        }
+}
+
+void inittmsg2() {
+        int i, j, n, bytepos0, bytepos1, mask0, mask1;
+        n = 0;
+        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+                bytepos0 = i >> 3;
+                mask0 = 1 << (7 - (i & 7));
+                for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
+                        bytepos1 = j >> 3;
+                        mask1 = 1 << (7 - (j & 7));
+                        memcpy(&tmsg2[n][0], tmsg0, MODES_LONG_MSG_BYTES);
+                        tmsg2[n][bytepos0] ^= mask0;
+                        tmsg2[n][bytepos1] ^= mask1;
+                        n += 1;
+                }
+        }
+}
+
+long difftvusec(struct timeval *t0, struct timeval *t1) {
+        long res = 0;
+        res = t1->tv_usec-t0->tv_usec;
+        res += (t1->tv_sec-t0->tv_sec)*1000000L;
+        return res;
+}
+
+/* the actual test code */
+void testAndTimeBitCorrection() {
+        struct timeval starttv, endtv;
+        int i;
+        /* Run timing on 1-bit errors */
+        printf("Timing old vs. new crc correction code:\n");
+        inittmsg1();
+        gettimeofday(&starttv, NULL);
+        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+                fixSingleBitErrors(&tmsg1[i][0], MODES_LONG_MSG_BITS);
+        }
+        gettimeofday(&endtv, NULL);
+        printf("   Old code: 1-bit errors on %d msgs: %ld usecs\n",
+               MODES_LONG_MSG_BITS, difftvusec(&starttv, &endtv));
+        checktmsg1(stdout);
+        /* Re-init */
+        inittmsg1();
+        gettimeofday(&starttv, NULL);
+        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+                fixBitErrors(&tmsg1[i][0], MODES_LONG_MSG_BITS);
+        }
+        gettimeofday(&endtv, NULL);
+        printf("   New code: 1-bit errors on %d msgs: %ld usecs\n",
+               MODES_LONG_MSG_BITS, difftvusec(&starttv, &endtv));
+        checktmsg1(stdout);
+        /* Run timing on 2-bit errors */
+        inittmsg2();
+        gettimeofday(&starttv, NULL);
+        for (i = 0;  i < NTWOBITS;  i++) {
+                fixSingleBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS);
+        }
+        gettimeofday(&endtv, NULL);
+        printf("   Old code: 2-bit errors on %d msgs: %ld usecs\n",
+               NTWOBITS, difftvusec(&starttv, &endtv));
+        /* Re-init */
+        inittmsg2();
+        gettimeofday(&starttv, NULL);
+        for (i = 0;  i < NTWOBITS;  i++) {
+                fixBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS);
+        }
+        gettimeofday(&endtv, NULL);
+        printf("   New code: 2-bit errors on %d msgs: %ld usecs\n",
+               NTWOBITS, difftvusec(&starttv, &endtv));
+}
 
 
 /* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
@@ -3942,6 +4064,9 @@ int main(int argc, char **argv) {
 
     // Initialization
     modesInit();
+    if (Modes.debug & MODES_DEBUG_BADCRC) {
+	    testAndTimeBitCorrection();
+    }
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
     } else if (Modes.filename == NULL) {
