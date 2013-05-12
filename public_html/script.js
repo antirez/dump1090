@@ -86,9 +86,9 @@ function refreshTableInfo() {
 
     var html = '<table id="tableinfo" width="100%">';
     html += '<thead style="background-color: #CCCCCC;">';
-    html += '<td>Flight</td><td>Squawk</td><td align="right">Altitude</td>';
-    html += '<td align="center">Speed</td><td align="center">Track</td><td>Seen</td>';
-    html += '<td>Msgs</td></thead>';
+    html += '<td>Flight</td><td align="right">Squawk</td><td align="right">Altitude</td>';
+    html += '<td align="right">Speed</td><td align="right">Track</td><td align="right">Seen</td>';
+    html += '<td align="right">Msgs</td></thead>';
     for (var p in Planes) {
         if (p == Selected) {
             html += '<tr style="background-color: #E0E0E0;">';
