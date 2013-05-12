@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.05.1105.13"
+#define MODES_DUMP1090_VERSION     "1.05.1205.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -1663,7 +1663,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 //
 void displayModesMessage(struct modesMessage *mm) {
     int j;
-    char * pTimeStamp;
+    unsigned char * pTimeStamp;
 
     // Handle only addresses mode first.
     if (Modes.onlyaddr) {
@@ -1674,7 +1674,7 @@ void displayModesMessage(struct modesMessage *mm) {
     // Show the raw message.
     if (Modes.mlat) {
         printf("@");
-        pTimeStamp = (char *) &mm->timestampMsg;
+        pTimeStamp = (unsigned char *) &mm->timestampMsg;
         for (j=5; j>=0;j--) {
             printf("%02X",pTimeStamp[j]);
         } 
@@ -3052,11 +3052,11 @@ void modesSendRawOutput(struct modesMessage *mm) {
     char *p = &Modes.rawOut[Modes.rawOutUsed];
     int  msgLen = mm->msgbits / 8;
     int j;
-    char * pTimeStamp;
+    unsigned char * pTimeStamp;
 
     if (Modes.mlat) {
         *p++ = '@';
-        pTimeStamp = (char *) &mm->timestampMsg;
+        pTimeStamp = (unsigned char *) &mm->timestampMsg;
         for (j = 5; j >= 0; j--) {
             sprintf(p, "%02X", pTimeStamp[j]);
             p += 2;
