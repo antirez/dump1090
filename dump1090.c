@@ -329,6 +329,7 @@ void modesSendSBSOutput(struct modesMessage *mm);
 void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
+void modesInitErrorInfo();
 int modesMessageLenByType(int type);
 
 /* ============================= Utility functions ========================== */
@@ -461,6 +462,9 @@ void modesInit(void) {
             Modes.maglut[(i*256)+q] = (uint16_t) ((mag < 65535) ? mag : 65535);
         }
     }
+
+    /* Prepare error correction tables */
+    modesInitErrorInfo();
 }
 
 /* =============================== RTLSDR handling ========================== */
@@ -1206,6 +1210,185 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
     }
     return (-1);
 }
+
+/* Code for introducing a less CPU-intensive method of correcting
+ * single bit errors.
+ *
+ * Makes use of the fact that the crc checksum is linear with respect to
+ * the bitwise xor operation, i.e.
+ *      crc(m^e) = (crc(m)^crc(e)
+ * where m and e are the message resp. error bit vectors.
+ *
+ * Call crc(e) the syndrome.
+ *
+ * The code below works by precomputing a table of (crc(e), e) for all
+ * possible error vectors e (here only single bit and double bit errors),
+ * search for the syndrome in the table, and correct the then known error.
+ * The error vector e is represented by one or two bit positions that are
+ * changed. If a second bit position is not used, it is -1.
+ *
+ * Run-time is binary search in a sorted table, plus some constant overhead,
+ * instead of running through all possible bit positions (resp. pairs of
+ * bit positions).
+ *
+ *
+ *
+ */
+struct errorinfo {
+        uint32_t syndrome;  /* CRC syndrome */
+        int pos0;           /* bit position of first error */
+        int pos1;           /* bit position of second error, or -1 */
+};
+
+#define NERRORINFO \
+        (MODES_LONG_MSG_BITS+MODES_LONG_MSG_BITS*(MODES_LONG_MSG_BITS-1)/2)
+struct errorinfo bitErrorTable[NERRORINFO];
+
+/* Compare function as needed for stdlib's qsort and bsearch functions */
+int cmpErrorInfo(const void *p0, const void *p1) {
+        struct errorinfo *e0 = (struct errorinfo*)p0;
+        struct errorinfo *e1 = (struct errorinfo*)p1;
+        if (e0->syndrome == e1->syndrome) {
+                return 0;
+        } else if (e0->syndrome < e1->syndrome) {
+                return -1;
+        } else {
+                return 1;
+        }
+}
+
+/* Compute the table of all syndromes for 1-bit and 2-bit error vectors */
+void modesInitErrorInfo() {
+        unsigned char msg[MODES_LONG_MSG_BYTES];
+        int i, j, n;
+        uint32_t crc;
+        n = 0;
+        memset(bitErrorTable, 0, sizeof(bitErrorTable));
+        /* First, insert infos about all possible single bit errors */
+        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+                int bytepos = (i >> 3);
+                int mask = 1 << (7 - (i & 7));
+                memset(msg, 0, MODES_LONG_MSG_BYTES);
+                msg[bytepos] ^= mask;
+                crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+                bitErrorTable[n].syndrome = crc;
+                bitErrorTable[n].pos0 = i;
+                bitErrorTable[n].pos1 = -1;
+                n += 1;
+        }
+        /* Add also all double bit errors */
+        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+                int bytepos0 = (i >> 3);
+                int mask0 = 1 << (7 - (i & 7));
+                memset(msg, 0, MODES_LONG_MSG_BYTES);
+                msg[bytepos0] ^= mask0;
+                for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
+                        int bytepos1 = (j >> 3);
+                        int mask1 = 1 << (7 - (j & 7));
+                        msg[bytepos1] ^= mask1;
+                        crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+                        if (n >= NERRORINFO) {
+                                /*
+                                fprintf(stderr,
+                                        "Internal error, too many "
+                                        "entries, fix NERRORINFO\n");
+                                */
+                                break;
+                        }
+                        bitErrorTable[n].syndrome = crc;
+                        bitErrorTable[n].pos0 = i;
+                        bitErrorTable[n].pos1 = j;
+                        n += 1;
+                }
+        }
+        qsort(bitErrorTable, NERRORINFO,
+              sizeof(struct errorinfo), cmpErrorInfo);
+        /* Test code: report if any syndrome appears at least twice. In this
+         * case the correction cannot be done without ambiguity.
+         * Tried it, does not happen for 1- and 2-bit errors. 
+         */
+        /*
+        for (i = 1;  i < NERRORINFO;  i++) {
+                if (bitErrorTable[i-1].syndrome
+                    == bitErrorTable[i].syndrome) {
+                        fprintf(stderr, "modesInitErrorInfo: "
+                                "Collision for syndrome %06x\n",
+                                (int)bitErrorTable[i].syndrome);
+                }
+        }
+        */
+        /*
+        for (i = 0;  i < NERRORINFO;  i++) {
+                printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
+                       bitErrorTable[i].syndrome,
+                       bitErrorTable[i].pos0, bitErrorTable[i].pos1);
+        }
+        */
+}
+
+/* Flip a bit, but make sure that the DF field (first 5 bits)
+ * is never changed
+ */
+int flipBit(unsigned char *msg, int nbits, int bit) {
+        int bytepos, mask;
+        if ((bit < 0) || (bit >= nbits)) {
+                return 0;
+        }
+        if (bit < 5) {
+                return 0;
+        }
+        bytepos = (bit >> 3);
+        mask = 1 << (7 - (bit & 7));
+        msg[bytepos] ^= mask;
+        return 1;
+}
+
+/* Search syndrome in table and, if an entry is found, flip the necessary
+ * bits. Make sure the indices fit into the array, and for 2-bit errors,
+ * are different.
+ * Return number of fixed bits.
+ */
+int fixBitErrors(unsigned char *msg, int bits) {
+        struct errorinfo *pei;
+        struct errorinfo ei;
+        int bitpos0, bitpos1, offset, res;
+        ei.syndrome = modesChecksum(msg, bits);
+        ei.pos0 = -1;
+        ei.pos1 = -1;
+        pei = bsearch(&ei, bitErrorTable, NERRORINFO,
+                     sizeof(struct errorinfo), cmpErrorInfo);
+        if (pei == NULL) {
+                /* Nothing found */
+                return 0;
+        }
+        offset = MODES_LONG_MSG_BITS-bits;
+        bitpos0 = pei->pos0;
+        bitpos1 = pei->pos1;
+        res = 0;
+        if (bitpos1 >= 0) { /* two-bit error pattern */
+                bitpos0 -= offset;
+                bitpos1 -= offset;
+                if ((bitpos0 < 0) || (bitpos0 >= bits) ||
+                    (bitpos1 < 0) || (bitpos1 >= bits)) {
+                        return res;
+                }
+                res +=flipBit(msg, bits, bitpos0);
+                if (bitpos0 != bitpos1) {
+                        res += flipBit(msg, bits, bitpos1);
+                        return res;
+                }
+                return res;
+        } else {
+                bitpos0 -= offset;
+                if ((bitpos0 < 0) || (bitpos0 >= bits)) {
+                        return res;
+                }
+                res += flipBit(msg, bits, bitpos0);
+                return res;
+        }
+}
+
+
 
 /* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
  * elements, that is assumed to be a power of two. */
