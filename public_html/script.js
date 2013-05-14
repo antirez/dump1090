@@ -75,8 +75,8 @@ function selectPlane(selectedPlane) {
 function refreshGeneralInfo() {
     var i = document.getElementById('geninfo');
 
-    i.innerHTML += PlanesOnMap + ' planes on map.<br>';
-    i.innerHTML  = PlanesOnGrid + ' planes on grid.';
+    i.innerHTML  = PlanesOnMap + ' planes on map.<br>';
+    i.innerHTML += PlanesOnGrid + ' planes on grid.';
 }
 
 function refreshSelectedInfo() {
@@ -178,8 +178,8 @@ function fetchData() {
 				// Declare our plane that we are working with from our old data set
 				var myplane = Planes[plane.hex];
 
-				// If the lat/long is not 0, we should make a marker for it
-				if (plane.lat != 0 && plane.lon != 0) {
+				// If the has valid position, we should make a marker for it
+				if (plane.validposition) {
 					if (myplane.marker != null) {
 						marker = myplane.marker;
 						var icon = marker.getIcon();
@@ -222,7 +222,7 @@ function fetchData() {
 			} else {
 				// This is a new plane
 				// Do we have a lat/long that is not 0?
-				if (plane.lat != 0 && plane.lon != 0) {
+				if (plane.validposition) {
 					// Add new plane to map
 					marker = new google.maps.Marker({
 						position: new google.maps.LatLng(plane.lat, plane.lon),
@@ -242,7 +242,7 @@ function fetchData() {
 			}
 
 			// If we have lat/long, we must have a marker, so lets set the marker title
-			if (plane.lat != 0 && plane.lon != 0) {
+			if (plane.validposition) {
 				if (plane.flight.length == 0) {
 					marker.setTitle(plane.hex)
 				} else {
