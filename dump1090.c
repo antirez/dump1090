@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.05.1205.13"
+#define MODES_DUMP1090_VERSION     "1.05.1305.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -327,6 +327,7 @@ void modesSendRawOutput(struct modesMessage *mm);
 void modesSendBeastOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm);
 void useModesMessage(struct modesMessage *mm);
+int fixBitErrors(unsigned char *msg, int bits);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 void modesInitErrorInfo();
@@ -2470,10 +2471,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                         Modes.stat_badcrc++;
                         Modes.stat_fixed++;
                         if (mm.correctedbits == 1) {
-				Modes.stat_single_bit_fix++;
-			} else if (mm.correctedbits == 2) {
-				Modes.stat_two_bits_fix++;
-			}
+                            Modes.stat_single_bit_fix++;
+                        } else if (mm.correctedbits == 2) {
+                            Modes.stat_two_bits_fix++;
+                        }
                     }
                 }
             }
