@@ -4,5 +4,6 @@ testfiles/*.bin
 misc
 frames.js
 .*.swp
-~*
-
+*~
+*.rej
+*.orig

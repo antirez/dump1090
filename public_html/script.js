@@ -11,154 +11,262 @@ if (localStorage['CenterLat']) { CenterLat = Number(localStorage['CenterLat']); 
 if (localStorage['CenterLon']) { CenterLon = Number(localStorage['CenterLon']); }
 if (localStorage['ZoomLvl'])   { ZoomLvl   = Number(localStorage['ZoomLvl']); }
 
-function getIconForPlane(plane) {
+function getIconForPlane(plane, deselect) {
+    var selected = false;
+    var track = 0;
     var r = 255, g = 255, b = 0;
     var maxalt = 40000; // Max altitude in the average case
-    var invalt = maxalt-plane.altitude;
-    var selected = (Selected == plane.hex);
-
+    var invalt = 0;
+    
+    // If there is plane object
+    if (plane) {
+        invalt = maxalt-plane.altitude;
+        if (Selected == plane.hex && !deselect) {
+            selected = true;
+        }
+        track = plane.track;
+    }
+    
     if (invalt < 0) invalt = 0;
     b = parseInt(255/maxalt*invalt);
+    
     return {
         strokeWeight: (selected ? 2 : 1),
         path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
         scale: 5,
         fillColor: 'rgb('+r+','+g+','+b+')',
         fillOpacity: 0.9,
-        rotation: plane.track
+        rotation: track
     };
 }
 
-function selectPlane() {
-    if (!Planes[this.planehex]) return;
+/* Gets hex code of selected plane as string or nothing.     *
+ * Select not valid ICAO24 (hex) address to clear selection. */
+function selectPlane(selectedPlane) {
+    if (selectedPlane.length) this.planehex = selectedPlane;
+    
+    // Deselect planes
+    if (!Planes[this.planehex]) {
+        if (Planes[Selected].marker) {
+            Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected], true));
+        }
+        Selected = null;
+        refreshSelectedInfo();
+        refreshTableInfo();
+        return;
+    }
+    
     var old = Selected;
     Selected = this.planehex;
-    if (Planes[old]) {
-        /* Remove the highlight in the previously selected plane. */
+    
+    if (Planes[old] && Planes[old].validposition) {
+        // Remove the highlight in the previously selected plane.
         Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
     }
-    Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
+    
+    if (Planes[Selected].validposition) {
+        Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
+    }
+    
     refreshSelectedInfo();
+    refreshTableInfo();
 }
 
 function refreshGeneralInfo() {
     var i = document.getElementById('geninfo');
 
-    i.innerHTML  = PlanesOnGrid + ' planes on grid.<br>';
-    i.innerHTML += PlanesOnMap + ' planes on map.';
+    i.innerHTML  = PlanesOnMap + ' planes on map.<br>';
+    i.innerHTML += PlanesOnGrid + ' planes on grid.';
 }
 
 function refreshSelectedInfo() {
     var i = document.getElementById('selinfo');
     var p = Planes[Selected];
-
-    if (!p) return;
-    var html = 'ICAO: '+p.hex+'<br>';
-    if (p.flight.length) {
-        html += '<b>'+p.flight+'</b><br>';
+    
+    // If no plane is selected
+    if (!p) {
+        p = {};
+        p.flight = "";
+        p.hex = "";
+        p.squawk = "";
+        p.altitude = "0";
+        p.speed = "0";
+        p.lat = "lat";
+        p.lon = "lon";
+        p.messages = "0";
+        p.seen = "0";
     }
-    html += 'Altitude: '+p.altitude+' feet<br>';
-    html += 'Speed: '+p.speed+' knots<br>';
-    html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
-    html += 'Messages: '+p.messages+'<br>';
-    html += 'Seen: '+p.seen+' sec<br>';
-    i.innerHTML = html;
-}
-
-function refreshTableInfo() {
-    var i = document.getElementById('tabinfo');
-
-    var html = '<table id="tableinfo" width="100%">';
-    html += '<thead style="background-color: #CCCCCC;"><td>Flight</td><td align="right">Altitude</td><td align="center">Speed</td><td align="center">Track</td><td>Lat</td><td>Long</td><td>Seen</td><td>Msgs</td></thead>';
-    for (var p in Planes) {
-        if (p == Selected) {
-            html += '<tr style="background-color: #F0F0F0;">';
-        } else {
-            html += '<tr>';
-        }
-        html += '<td>' + Planes[p].flight + '</td>';
-        html += '<td align="right">' + Planes[p].altitude + '</td>';
-        html += '<td align="center">' + Planes[p].speed + '</td>';
-        html += '<td align="center">' + Planes[p].track + '</td>';
-        html += '<td>' + Planes[p].lat + '</td>';
-        html += '<td>' + Planes[p].lon + '</td>';
-        html += '<td align="center">' + Planes[p].seen + '</td>';
-        html += '<td align="center">' + Planes[p].messages + '</td>';
-        html += '</tr>';
+    
+    var html = '<table id="selectedinfo">';
+    html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;</b></td></tr>';
+    html += '<tr><td>ICAO:</td><td>'+p.hex+'</td></tr>';
+    if (p.squawk != "0000") {
+        html += '<tr><td>Squawk:</td><td>'+p.squawk+'</td></tr>';
+    } else {
+        html += '<tr><td>Squawk:</td><td>n/a</td></tr>';
     }
+    html += '<tr><td>Altitude:</td><td>'+p.altitude+' feet</td></tr>';
+    html += '<tr><td>Speed:</td><td>'+p.speed+' knots</td></tr>';
+    if (p.validposition) {
+        html += '<tr><td>Coordinates:</td><td>'+p.lat+', '+p.lon+'</td></tr>';
+    } else {
+        html += '<tr><td>Coordinates:</td><td>n/a</td></tr>';
+    }
+    html += '<tr><td>Messages:</td><td>'+p.messages+'</td></tr>';
+    html += '<tr><td>Seen:</td><td>'+p.seen+' sec</td></tr>';
     html += '</table>';
     i.innerHTML = html;
 }
 
-function fetchData() {
-    $.getJSON('data.json', function(data) {
-        var stillhere = {}
-        PlanesOnMap = 0;
-        
-        for (var j=0; j < data.length; j++) {
-            var plane = data[j];
-            stillhere[plane.hex] = true;
-            plane.flight = $.trim(plane.flight);
-            
-            if (plane.lat != 0 && plane.lon != 0) {
-                // Show only planes with position
-                var marker = null;
-                PlanesOnMap++;
-                
-                if (Planes[plane.hex]) {
-                    // Move and refresh old plane on map
-                    var myplane = Planes[plane.hex];
-                    marker = myplane.marker;
-                    var icon = marker.getIcon();
-                    var newpos = new google.maps.LatLng(plane.lat, plane.lon);
-                    marker.setPosition(newpos);
-                    marker.setIcon(getIconForPlane(plane));
-                    myplane.altitude = plane.altitude;
-                    myplane.speed = plane.speed;
-                    myplane.lat = plane.lat;
-                    myplane.lon = plane.lon;
-                    myplane.track = plane.track;
-                    myplane.flight = plane.flight;
-                    myplane.seen = plane.seen;
-                    myplane.messages = plane.messages;
-                    if (myplane.hex == Selected)
-                        refreshSelectedInfo();
-                } else {
-                    // Add new plane to map
-                    marker = new google.maps.Marker({
-                        position: new google.maps.LatLng(plane.lat, plane.lon),
-                        map: Map,
-                        icon: getIconForPlane(plane)
-                    });
-                    plane.marker = marker;
-                    marker.planehex = plane.hex;
-                    Planes[plane.hex] = plane;
-
-                    // Trap clicks for this marker.
-                    google.maps.event.addListener(marker, 'click', selectPlane);
-                }
-                
-                if (plane.flight.length == 0) {
-                    marker.setTitle(plane.hex)
-                } else {
-                    marker.setTitle(plane.flight+' ('+plane.hex+')')
-                }
-            }
+function refreshTableInfo() {
+    var html = '<table id="tableinfo" width="100%">';
+    html += '<thead style="background-color: #CCCCCC;">';
+    html += '<td>hex</td><td>Flight</td><td align="right">Squawk</td><td align="right">Altitude</td>';
+    html += '<td align="right">Speed</td><td align="right">Track</td>';
+    html += '<td align="right">Msgs</td><td align="right">Seen</td></thead>';
+    for (var p in Planes) {
+        var specialStyle = "";
+        if (p == Selected) {
+            html += '<tr id="tableinforow" style="background-color: #E0E0E0;">';
+        } else {
+            html += '<tr id="tableinforow">';
         }
-
-        PlanesOnGrid = data.length;
-        
-        /* Remove idle planes. */
-        for (var p in Planes) {
-            if (!stillhere[p]) {
-                Planes[p].marker.setMap(null);
-                delete Planes[p];
-            }
+        if (Planes[p].validposition) {
+            specialStyle = 'bold';
         }
+        html += '<td class="' + specialStyle + '">' + Planes[p].hex + '</td>';
+        html += '<td class="' + specialStyle + '">' + Planes[p].flight + '</td>';
+        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].squawk + '</td>';
+        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].altitude + '</td>';
+        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].speed + '</td>';
+        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].track + '</td>';
+        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].messages + '</td>';
+        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].seen + '</td>';
+        html += '</tr>';
+    }
+    html += '</table>';
+    
+    document.getElementById('tabinfo').innerHTML = html;
 
-        refreshTableInfo() ;
-
+    // Click event for table - lags sometimes for some reason?
+    $('#tableinfo').find('tr').click( function(){
+      var hex = $(this).find('td:first').text();
+      selectPlane(hex);
     });
+}
+
+function fetchData() {
+	$.getJSON('data.json', function(data) {
+		// Planes that are still with us, and set map count to 0
+		var stillhere = {}
+		PlanesOnMap = 0;
+
+		// Loop through all the planes in the data packet
+		for (var j=0; j < data.length; j++) {
+
+			// Set plane to be this particular plane in the data set
+			var plane = data[j];
+			// Add to the still here list
+			stillhere[plane.hex] = true;
+			plane.flight = $.trim(plane.flight);
+
+			// Set the marker to null, for now
+			var marker = null;
+
+			// Either update the data or add it
+			if (Planes[plane.hex]) {
+				// Declare our plane that we are working with from our old data set
+				var myplane = Planes[plane.hex];
+
+				// If the has valid position, we should make a marker for it
+				if (plane.validposition) {
+					if (myplane.marker != null) {
+						marker = myplane.marker;
+						var icon = marker.getIcon();
+						var newpos = new google.maps.LatLng(plane.lat, plane.lon);
+						marker.setPosition(newpos);
+						marker.setIcon(getIconForPlane(plane));
+						PlanesOnMap++;
+					} else {
+						// Add new plane to map, dont ask me why this is needed here now...
+						marker = new google.maps.Marker({
+							position: new google.maps.LatLng(plane.lat, plane.lon),
+							map: Map,
+							icon: getIconForPlane(plane)
+						});
+						myplane.marker = marker;
+						marker.planehex = plane.hex;
+						PlanesOnMap++;
+
+						// Trap clicks for this marker.
+						google.maps.event.addListener(marker, 'click', selectPlane);
+					}
+				}
+
+				// Update all the other information
+				myplane.altitude = plane.altitude;
+				myplane.speed = plane.speed;
+				myplane.lat = plane.lat;
+				myplane.lon = plane.lon;
+				myplane.track = plane.track;
+				myplane.flight = plane.flight;
+				myplane.seen = plane.seen;
+				myplane.messages = plane.messages;
+				myplane.squawk = plane.squawk;
+				myplane.validposition = plane.validposition;
+				myplane.validtrack = plane.validtrack;
+
+				// If this is a selected plane, refresh its data outside of the table
+				if (myplane.hex == Selected)
+					refreshSelectedInfo();
+			} else {
+				// This is a new plane
+				// Do we have a lat/long that is not 0?
+				if (plane.validposition) {
+					// Add new plane to map
+					marker = new google.maps.Marker({
+						position: new google.maps.LatLng(plane.lat, plane.lon),
+						map: Map,
+						icon: getIconForPlane(plane)
+					});
+					plane.marker = marker;
+					marker.planehex = plane.hex;
+					PlanesOnMap++;
+
+					// Trap clicks for this marker.
+					google.maps.event.addListener(marker, 'click', selectPlane);
+				}
+
+				// Copy the plane into Planes
+				Planes[plane.hex] = plane;
+			}
+
+			// If we have lat/long, we must have a marker, so lets set the marker title
+			if (plane.validposition) {
+				if (plane.flight.length == 0) {
+					marker.setTitle(plane.hex)
+				} else {
+					marker.setTitle(plane.flight+' ('+plane.hex+')')
+				}
+			}
+
+		}
+
+		// How many planes have we heard from?
+		PlanesOnGrid = data.length;
+
+		/* Remove idle planes. */
+		for (var p in Planes) {
+			if (!stillhere[p]) {
+				if (Planes[p].marker != null)
+					Planes[p].marker.setMap(null);
+				delete Planes[p];
+			}
+		}
+
+		refreshTableInfo();
+		refreshSelectedInfo();
+	});
 }
 
 function checkTime(i) {
@@ -180,7 +288,7 @@ function printTime() {
     }
 }
 
-function placeFooter() {    
+function placeFooter() {
     var windHeight = $(window).height();
     var footerHeight = $('#info_footer').height();
     var offset = parseInt(windHeight) - parseInt(footerHeight);
@@ -200,7 +308,7 @@ function resetMap() {
     Map.setZoom(parseInt(localStorage['ZoomLvl']));
     Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']), parseInt(localStorage['CenterLon'])));
     Selected = null;
-    document.getElementById('selinfo').innerHTML = '';
+    refreshSelectedInfo();
 }
 
 function initialize() {
@@ -249,6 +357,15 @@ function initialize() {
     google.maps.event.addListener(Map, 'zoom_changed', function() {
         localStorage['ZoomLvl']  = Map.getZoom();
     });
+    
+    google.maps.event.addListener(Map, 'click', function() {
+        if (Selected) {
+            selectPlane("xyzxyz"); // Select not valid ICAO24 (hex) address to clear selection.
+        }
+        Selected = null;
+        refreshSelectedInfo();
+        refreshTableInfo();
+    });
 
     // Setup our timer to poll from the server.
     window.setInterval(function() {
@@ -260,4 +377,8 @@ function initialize() {
     window.setInterval(function() {
         printTime();
     }, 250);
+    
+    refreshGeneralInfo();
+    refreshSelectedInfo();
+    refreshTableInfo();
 }
