@@ -10,17 +10,16 @@
     <script type="text/javascript" src="script.js"></script>
   </head>
   <body onload="initialize()">
-    <div id="map_canvas"></div>
+    <div id="map_canvas" style="height:100%"></div>
     <div id="info">
       <div>
-        <h1>
-            Dump1090 - <span id="utcTime">00:00:00</span> UTC
-            <a href="#" onClick="resetMap();">Reset Map</a>
-        </h1>
+        <h1>Dump1090 - <span id="utcTime">00:00:00</span> UTC</h1>
         <p id="geninfo"></p>
         <p id="selinfo">Click on a plane for info.</p>
         <p id="tabinfo"></p>
       </div>
+      <div id="info_footer"><a href="#" onClick="resetMap();">Reset Map</a></div>
     </div>
   </body>
 </html>
+
