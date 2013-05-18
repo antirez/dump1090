@@ -1,11 +1,16 @@
-Map       = null;
-CenterLat = 45.0;
-CenterLon = 9.0;
-ZoomLvl   = 5;
-Planes    = {};
-PlanesOnMap  = 0;
-PlanesOnGrid = 0;
-Selected     = null;
+var Map       = null;
+var CenterLat = 45.0;
+var CenterLon = 9.0;
+var ZoomLvl   = 5;
+var Planes    = {};
+var PlanesOnMap  = 0;
+var PlanesOnGrid = 0;
+var Selected     = null;
+
+var iSortCol=-1;
+var bSortASC=true;
+var bDefaultSortASC=true;
+var iDefaultSortCol=3;
 
 if (localStorage['CenterLat']) { CenterLat = Number(localStorage['CenterLat']); }
 if (localStorage['CenterLon']) { CenterLon = Number(localStorage['CenterLon']); }
@@ -75,8 +80,8 @@ function selectPlane(selectedPlane) {
 function refreshGeneralInfo() {
     var i = document.getElementById('geninfo');
 
-    i.innerHTML  = PlanesOnMap + ' planes on map.<br>';
-    i.innerHTML += PlanesOnGrid + ' planes on grid.';
+    i.innerHTML  = PlanesOnMap + ' planes on the map.  ';
+    i.innerHTML += PlanesOnGrid + ' planes on the grid.';
 }
 
 function refreshSelectedInfo() {
@@ -119,40 +124,104 @@ function refreshSelectedInfo() {
 }
 
 function refreshTableInfo() {
-    var html = '<table id="tableinfo" width="100%">';
-    html += '<thead style="background-color: #CCCCCC;">';
-    html += '<td>hex</td><td>Flight</td><td align="right">Squawk</td><td align="right">Altitude</td>';
-    html += '<td align="right">Speed</td><td align="right">Track</td>';
-    html += '<td align="right">Msgs</td><td align="right">Seen</td></thead>';
-    for (var p in Planes) {
-        var specialStyle = "";
-        if (p == Selected) {
-            html += '<tr id="tableinforow" style="background-color: #E0E0E0;">';
-        } else {
-            html += '<tr id="tableinforow">';
-        }
-        if (Planes[p].validposition) {
-            specialStyle = 'bold';
-        }
-        html += '<td class="' + specialStyle + '">' + Planes[p].hex + '</td>';
-        html += '<td class="' + specialStyle + '">' + Planes[p].flight + '</td>';
-        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].squawk + '</td>';
-        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].altitude + '</td>';
-        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].speed + '</td>';
-        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].track + '</td>';
-        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].messages + '</td>';
-        html += '<td class="' + specialStyle + '" align="right">' + Planes[p].seen + '</td>';
-        html += '</tr>';
-    }
-    html += '</table>';
-    
-    document.getElementById('tabinfo').innerHTML = html;
+	var html = '<table id="tableinfo" width="100%">';
+	html += '<thead style="background-color: #CCCCCC;">';
+	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">hex</td>';
+	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
+	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" align="right">Squawk</td>';
+	html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" align="right">Altitude</td>';
+	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" align="right">Speed</td>';
+	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" align="right">Track</td>';
+	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'6\');" align="right">Msgs</td>';
+	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'7\');" align="right">Seen</td></thead>';
+	for (var p in Planes) {
+		var specialStyle = "";
+		if (p == Selected) {
+			html += '<tr id="tableinforow" style="background-color: #E0E0E0;">';
+		} else {
+			html += '<tr id="tableinforow">';
+		}
+		if (Planes[p].validposition) {
+			specialStyle = 'bold';
+		}
+		html += '<td class="' + specialStyle + '">' + Planes[p].hex + '</td>';
+		html += '<td class="' + specialStyle + '">' + Planes[p].flight + '</td>';
+		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].squawk + '</td>';
+		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].altitude + '</td>';
+		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].speed + '</td>';
+		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].track + '</td>';
+		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].messages + '</td>';
+		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].seen + '</td>';
+		html += '</tr>';
+	}
+	html += '</table>';
 
-    // Click event for table - lags sometimes for some reason?
-    $('#tableinfo').find('tr').click( function(){
-      var hex = $(this).find('td:first').text();
-      selectPlane(hex);
-    });
+	document.getElementById('tabinfo').innerHTML = html;
+
+	// Click event for table - lags sometimes for some reason?
+	$('#tableinfo').find('tr').click( function(){
+		var hex = $(this).find('td:first').text();
+		selectPlane(hex);
+	});
+
+	sortTable("tableinfo");
+}
+
+// Credit goes to a co-worker that needed a similar functions for something else
+// we get a copy of it free ;)
+function setASC_DESC(iCol) {
+	if(iSortCol==iCol) {
+		bSortASC=!bSortASC;
+	} else {
+		bSortASC=bDefaultSortASC;
+	}
+}
+
+function sortTable(szTableID,iCol) { 
+	//if iCol was not provided, and iSortCol is not set, assign default value
+	if (typeof iCol==='undefined'){
+		if(iSortCol!=-1){
+			var iCol=iSortCol;
+		} else {
+			var iCol=iDefaultSortCol;
+		}
+	}
+
+	//retrieve passed table element
+	var oTbl=document.getElementById(szTableID).tBodies[0];
+	var aStore=[];
+
+	//If supplied col # is greater than the actual number of cols, set sel col = to last col
+	if (oTbl.rows[0].cells.length<=iCol)
+		iCol=(oTbl.rows[0].cells.length-1);
+
+	//store the col #
+	iSortCol=iCol;
+
+	//determine if we are delaing with numerical, or alphanumeric content
+	bNumeric=!isNaN(parseFloat(oTbl.rows[0].cells[iSortCol].textContent||oTbl.rows[0].cells[iSortCol].innerText))?true:false;
+
+	//loop through the rows, storing each one inro aStore
+	for (var i=0,iLen=oTbl.rows.length;i<iLen;i++){
+		var oRow=oTbl.rows[i];
+		vColData=bNumeric?parseFloat(oRow.cells[iSortCol].textContent||oRow.cells[iSortCol].innerText):String(oRow.cells[iSortCol].textContent||oRow.cells[iSortCol].innerText);
+		aStore.push([vColData,oRow]);
+	}
+
+	//sort aStore ASC/DESC based on value of bSortASC
+	if(bNumeric){//numerical sort
+		aStore.sort(function(x,y){return bSortASC?x[0]-y[0]:y[0]-x[0];});
+	}else{//alpha sort
+		aStore.sort();
+		if(!bSortASC)
+			aStore.reverse();
+	}
+
+	//rewrite the table rows to the passed table element
+	for(var i=0,iLen=aStore.length;i<iLen;i++){
+		oTbl.appendChild(aStore[i][1]);
+	}
+	aStore=null;
 }
 
 function fetchData() {

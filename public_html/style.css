@@ -1,5 +1,5 @@
 html { height: 100% }
-body { height: 100%; margin: 0; padding: 0 }
+body { height: 100%; margin: 0; padding: 0; font-size: small;}
 #map_canvas { 
 height: 100%;
 margin-right:390px;
@@ -18,15 +18,12 @@ font-family:Helvetica;
 #info div {
 padding:0px;
 padding-left:10px;
+padding-right:10px;
 margin:0px;
 }
 #info div h1 {
 margin-top:10px;
 font-size:16px;
-}
-#info div p {
-font-size:14px;
-color:#333;
 }
 #info_footer {
 position: absolute;
@@ -34,6 +31,10 @@ display: none;
 text-align: center;
 padding:0px;
 margin:0px;
+}
+#tabinfo{
+height: 400px;
+overflow-y: auto;
 }
 #tableinfo {
 font-size: x-small;
@@ -45,4 +46,3 @@ cursor: pointer;
 #tableinforow .bold {
 font-weight:bold;
 }
-
