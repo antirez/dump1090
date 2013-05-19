@@ -125,7 +125,7 @@ function refreshSelectedInfo() {
 
 function refreshTableInfo() {
 	var html = '<table id="tableinfo" width="100%">';
-	html += '<thead style="background-color: #CCCCCC;">';
+	html += '<thead style="background-color: #CCCCCC; cursor: pointer;">';
 	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">hex</td>';
 	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
 	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" align="right">Squawk</td>';
