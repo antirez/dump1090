@@ -103,7 +103,13 @@ function refreshSelectedInfo() {
     }
     
     var html = '<table id="selectedinfo">';
-    html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;</b></td></tr>';
+    if (p.flight != "") {
+        html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;&nbsp;</b>';
+        html += '[<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
+        html += 'flightNumber='+p.flight+'" target="_blank">FlightStats</a>]</td></tr>';
+    } else {
+        html += '<tr><td colspan=2><b>&nbsp;</b></td></tr>';
+    }
     html += '<tr><td>ICAO:</td><td>'+p.hex+'</td></tr>';
     if (p.squawk != "0000") {
         html += '<tr><td>Squawk:</td><td>'+p.squawk+'</td></tr>';
