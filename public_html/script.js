@@ -103,7 +103,13 @@ function refreshSelectedInfo() {
     }
     
     var html = '<table id="selectedinfo">';
-    html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;</b></td></tr>';
+    if (p.flight != "") {
+        html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;&nbsp;</b>';
+        html += '[<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
+        html += 'flightNumber='+p.flight+'" target="_blank">FlightStats</a>]</td></tr>';
+    } else {
+        html += '<tr><td colspan=2><b>&nbsp;</b></td></tr>';
+    }
     html += '<tr><td>ICAO:</td><td>'+p.hex+'</td></tr>';
     if (p.squawk != "0000") {
         html += '<tr><td>Squawk:</td><td>'+p.squawk+'</td></tr>';
@@ -125,7 +131,7 @@ function refreshSelectedInfo() {
 
 function refreshTableInfo() {
 	var html = '<table id="tableinfo" width="100%">';
-	html += '<thead style="background-color: #CCCCCC;">';
+	html += '<thead style="background-color: #CCCCCC; cursor: pointer;">';
 	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">hex</td>';
 	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
 	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" align="right">Squawk</td>';
