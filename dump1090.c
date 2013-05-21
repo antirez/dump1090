@@ -1328,10 +1328,10 @@ void modesInitErrorInfo() {
         }
         */
 }
-
-/* Flip a bit, but make sure that the DF field (first 5 bits)
- * is never changed
- */
+//
+// Flip a bit, but make sure that the DF field (first 5 bits)
+// is never changed
+/*
 int flipBit(unsigned char *msg, int nbits, int bit) {
         int bytepos, mask;
         if ((bit < 0) || (bit >= nbits)) {
@@ -1345,50 +1345,41 @@ int flipBit(unsigned char *msg, int nbits, int bit) {
         msg[bytepos] ^= mask;
         return 1;
 }
-
-/* Search syndrome in table and, if an entry is found, flip the necessary
- * bits. Make sure the indices fit into the array, and for 2-bit errors,
- * are different.
- * Return number of fixed bits.
- */
+*/
+// Search syndrome in table and, if an entry is found, flip the necessary
+// bits. Make sure the indices fit into the array, and for 2-bit errors,
+// are different.
+// Return number of fixed bits.
+//
 int fixBitErrors(unsigned char *msg, int bits) {
-        struct errorinfo *pei;
-        struct errorinfo ei;
-        int bitpos0, bitpos1, offset, res;
-        ei.syndrome = modesChecksum(msg, bits);
-        ei.pos0 = -1;
-        ei.pos1 = -1;
-        pei = bsearch(&ei, bitErrorTable, NERRORINFO,
-                     sizeof(struct errorinfo), cmpErrorInfo);
-        if (pei == NULL) {
-                /* Nothing found */
-                return 0;
+    struct errorinfo *pei;
+    struct errorinfo ei;
+    int bitpos0, bitpos1, offset, res;
+    ei.syndrome = modesChecksum(msg, bits);
+    ei.pos0 = -1;
+    ei.pos1 = -1;
+    pei = bsearch(&ei, bitErrorTable, NERRORINFO,
+                  sizeof(struct errorinfo), cmpErrorInfo);
+    if (pei == NULL) {
+        return 0; // No syndrome found
+    }
+    res = 0;
+    offset = MODES_LONG_MSG_BITS-bits;
+    bitpos0 = pei->pos0 - offset;
+    if ((bitpos0 < 0) || (bitpos0 >= bits)) {
+        return 0;
+    }
+    msg[(bitpos0 >> 3)] ^= (1 << (7 - (bitpos0 & 7)));
+    res++;
+    if (pei->pos1 >= 0) { /* two-bit error pattern */
+        bitpos1 = pei->pos1 - offset;
+        if ((bitpos1 < 0) || (bitpos1 >= bits)) {
+            return 0;
         }
-        offset = MODES_LONG_MSG_BITS-bits;
-        bitpos0 = pei->pos0;
-        bitpos1 = pei->pos1;
-        res = 0;
-        if (bitpos1 >= 0) { /* two-bit error pattern */
-                bitpos0 -= offset;
-                bitpos1 -= offset;
-                if ((bitpos0 < 0) || (bitpos0 >= bits) ||
-                    (bitpos1 < 0) || (bitpos1 >= bits)) {
-                        return res;
-                }
-                res +=flipBit(msg, bits, bitpos0);
-                if (bitpos0 != bitpos1) {
-                        res += flipBit(msg, bits, bitpos1);
-                        return res;
-                }
-                return res;
-        } else {
-                bitpos0 -= offset;
-                if ((bitpos0 < 0) || (bitpos0 >= bits)) {
-                        return res;
-                }
-                res += flipBit(msg, bits, bitpos0);
-                return res;
-        }
+        msg[(bitpos1 >> 3)] ^= (1 << (7 - (bitpos1 & 7)));
+        res++;
+    }
+    return res;
 }
 
 /* Code for testing the timing: run all possible 1- and 2-bit error 
