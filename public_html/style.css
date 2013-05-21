@@ -26,12 +26,9 @@ margin:0px;
 margin-top:10px;
 font-size:16px;
 }
-#info_footer {
-position: absolute;
-display: none;
-text-align: center;
-padding:0px;
-margin:0px;
+#info_settings {
+position:   absolute;
+display:    none;
 }
 #tabinfo{
 height: 400px;
