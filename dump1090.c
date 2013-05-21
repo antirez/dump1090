@@ -1707,7 +1707,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->msgtype         = msg[0] >> 3; // Downlink Format
     mm->msgbits         = modesMessageLenByType(mm->msgtype);
     mm->correctedbits   = 0; // No errors fixed
-    mm->phase_corrected =  0;
+    mm->phase_corrected = 0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
     if ((mm->crc) && (Modes.fix_errors) &&  (mm->msgtype == 17)) {
@@ -1723,9 +1723,12 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         // IID against known good IID's. That's a TODO.
         //
         mm->correctedbits = fixBitErrors(msg, mm->msgbits);
-        //if ((mm->errorbit == -1) && (Modes.aggressive)) {
-        //    mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits);
-        //}
+        // If we correct, validate ICAO addr to help filter birthday paradox solutions.
+        if (mm->correctedbits) {
+            uint32_t addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+            if (!ICAOAddressWasRecentlySeen(addr))
+                mm->correctedbits = 0;
+        }
     }
     //
     // Note that most of the other computation happens *after* we fix the 
