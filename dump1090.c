@@ -1974,7 +1974,7 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 
     // Show the raw message.
-    if (Modes.mlat) {
+    if (Modes.mlat && mm->timestampMsg) {
         printf("@");
         pTimeStamp = (unsigned char *) &mm->timestampMsg;
         for (j=5; j>=0;j--) {
@@ -2465,7 +2465,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             // Update statistics
             if (Modes.stats) {
-                if (mm.crcok || use_correction) {
+                if (mm.crcok || use_correction || !mm.crc) {
                     if (errors == 0) Modes.stat_demodulated++;
                     if (mm.correctedbits == 0) {
                         if (mm.crcok) {Modes.stat_goodcrc++;}
@@ -2542,7 +2542,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 // processing and visualization
 //
 void useModesMessage(struct modesMessage *mm) {
-    if ((Modes.check_crc == 0) || (mm->crcok)) {
+    if ((Modes.check_crc == 0) || (mm->crcok) || (mm->crc == 0)) { // not checking, ok or fixed
 
         // Track aircrafts if...
         if ( (Modes.interactive)          //       in interactive mode
@@ -2916,7 +2916,9 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
 struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     struct aircraft *a, *aux;
 
-    if (Modes.check_crc && mm->crcok == 0) return NULL;
+    // Return if (checking crc) AND (not crcok) AND (not fixed)
+    if (Modes.check_crc && (mm->crcok == 0) && mm->crc) 
+        return NULL;
 
     // Loookup our aircraft or create a new one
     a = interactiveFindAircraft(mm->addr);
@@ -3357,7 +3359,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
     int j;
     unsigned char * pTimeStamp;
 
-    if (Modes.mlat) {
+    if (Modes.mlat && mm->timestampMsg) {
         *p++ = '@';
         pTimeStamp = (unsigned char *) &mm->timestampMsg;
         for (j = 5; j >= 0; j--) {
@@ -3429,7 +3431,7 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     p += sprintf(p, "MSG,%d,111,11111,%06X,111111,", msgType, mm->addr); 
 
     // Fields 7 & 8 are the current time and date
-    if (mm->timestampMsg != (uint64_t)(-1)) {                     // Make sure the records' timestamp is valid before outputing it
+    if (mm->timestampMsg) {                                       // Make sure the records' timestamp is valid before outputing it
         epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
         offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
         offset   = offset / 12000;                                // convert to milliseconds
@@ -3559,7 +3561,7 @@ int decodeHexMessage(struct client *c) {
     // Mixing of data from two or more different receivers and publishing
     // as coming from one would lead to corrupt mlat data
     // Non timemarked internet data has indeterminate delay
-    mm.timestampMsg = -1;
+    mm.timestampMsg =  0;
     mm.signalLevel  = -1;
 
     // Remove spaces on the left and on the right
@@ -3572,7 +3574,7 @@ int decodeHexMessage(struct client *c) {
 
     // Turn the message into binary.
     // Accept *-AVR raw @-AVR/BEAST timeS+raw %-AVR timeS+raw (CRC good) <-BEAST timeS+sigL+raw
-    // and some AVR recorer that we can understand
+    // and some AVR records that we can understand
     if (hex[l-1] != ';') {return (0);} // not complete - abort
 
     switch(hex[0]) {
@@ -3581,11 +3583,9 @@ int decodeHexMessage(struct client *c) {
             hex += 15; l -= 16; // Skip <, timestamp and siglevel, and ;
             break;}
 
-        case '@':
-        case '%':
-        case '#':
-        case '$': {
-            hex += 13; l -= 14; // Skip @,%,#,$, and timestamp, and ;
+        case '@':     // No CRC check
+        case '%': {   // CRC is OK
+            hex += 13; l -= 14; // Skip @,%, and timestamp, and ;
             break;}
 
         case '*':
