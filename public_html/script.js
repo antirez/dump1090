@@ -363,17 +363,25 @@ function printTime() {
     }
 }
 
-function placeFooter() {
-    var windHeight = $(window).height();
-    var footerHeight = $('#info_footer').height();
-    var offset = parseInt(windHeight) - parseInt(footerHeight);
+function placeSettings() {
+    // Settings link
+    var marginLeft = $('#header').width() - $('#info_settings').width();
+    $('#info_settings').css('left', marginLeft);
+    $('#info_settings').css('top', parseInt($('#utcTime').offset().top));
     
-    var footerWidth = parseInt($('#info_footer').width());
-    var infoWidth = parseInt($('#info').width());
-    var marginLeft = parseInt((infoWidth / 2) - (footerWidth / 2));
-    
-    $('#info_footer').css('top', offset);
-    $('#info_footer').css('margin-left', marginLeft);
+    // Settings area
+    $('#info_settings_area').css('top', parseInt($('#geninfo').offset().top));
+    $('#info_settings_area').css('left', 5);
+    $('#info_settings_area').css('width', parseInt($('#info').width() - 40));
+}
+
+function toggleSettings() {
+    if ($('#info_settings_area').css('display') != 'none') {
+        $('#info_settings_area').hide(350);
+    } else {
+        // Open settings
+        $('#info_settings_area').show(350);
+    }
 }
 
 function resetMap() {
@@ -381,7 +389,8 @@ function resetMap() {
     localStorage['CenterLon'] = 9.0;
     localStorage['ZoomLvl']   = 5;
     Map.setZoom(parseInt(localStorage['ZoomLvl']));
-    Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']), parseInt(localStorage['CenterLon'])));
+    Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']),
+            parseInt(localStorage['CenterLon'])));
     Selected = null;
     refreshSelectedInfo();
 }
@@ -413,14 +422,14 @@ function initialize() {
         maxZoom: 18
     }));
     
-    // show footer at info-area
+    // show settings at info-area
     $(function(){
         $(window).resize(function(e){
-            placeFooter();
+            placeSettings();
         });
-        placeFooter();
+        placeSettings();
         // hide it before it's positioned
-        $('#info_footer').css('display','inline');
+        $('#info_settings').css('display','inline');
     });
     
     // Listener for newly created Map
