@@ -18,7 +18,12 @@
         <p id="selinfo">Click on a plane for info.</p>
         <div id="tabinfo"></div>
       </div>
-      <div id="info_settings">[<a href="#" onClick="#resetMap();">Settings</a>]</div>
+      <div id="info_settings">[<a href="#" onClick="toggleSettings();">Settings</a>]</div>
+      <div id="info_settings_area">
+        <h2>Settings</h2>
+        <input type="button" value="Reset Map" onClick="resetMap();toggleSettings();">
+        <input type="button" value="OK" style="position:absolute;bottom:0;right:2px;" onClick="toggleSettings();">
+      </div>
     </div>
   </body>
 </html>

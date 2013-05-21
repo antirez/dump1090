@@ -364,10 +364,24 @@ function printTime() {
 }
 
 function placeSettings() {
-    $('#info_settings').css('top', parseInt($('#utcTime').offset().top));
-    
+    // Settings link
     var marginLeft = $('#header').width() - $('#info_settings').width();
     $('#info_settings').css('left', marginLeft);
+    $('#info_settings').css('top', parseInt($('#utcTime').offset().top));
+    
+    // Settings area
+    $('#info_settings_area').css('top', parseInt($('#geninfo').offset().top));
+    $('#info_settings_area').css('left', 5);
+    $('#info_settings_area').css('width', parseInt($('#info').width() - 40));
+}
+
+function toggleSettings() {
+    if ($('#info_settings_area').css('display') != 'none') {
+        $('#info_settings_area').hide(350);
+    } else {
+        // Open settings
+        $('#info_settings_area').show(350);
+    }
 }
 
 function resetMap() {
