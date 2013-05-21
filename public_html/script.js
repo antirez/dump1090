@@ -1,173 +1,447 @@
-var Map       = null;
-var CenterLat = 45.0;
-var CenterLon = 9.0;
-var ZoomLvl   = 5;
-var Planes    = {};
-var PlanesOnMap  = 0;
-var PlanesOnGrid = 0;
-var Selected     = null;
+// Define our global variables
+var GoogleMap     = null;
+var CenterLat     = 45.0;
+var CenterLon     = 9.0;
+var ZoomLvl       = 5;
+var Planes        = {};
+var PlanesOnMap   = 0;
+var PlanesOnTable = 0;
+var PlanesToReap  = 0;
+var SelectedPlane = null;
+var planeObject   = null;
 
 var iSortCol=-1;
 var bSortASC=true;
 var bDefaultSortASC=true;
 var iDefaultSortCol=3;
 
-if (localStorage['CenterLat']) { CenterLat = Number(localStorage['CenterLat']); }
-if (localStorage['CenterLon']) { CenterLon = Number(localStorage['CenterLon']); }
-if (localStorage['ZoomLvl'])   { ZoomLvl   = Number(localStorage['ZoomLvl']); }
+planeObject = {
+	oldlat		: null,
+	oldlon		: null,
+	oldalt		: null,
 
-function getIconForPlane(plane, deselect) {
-    var selected = false;
-    var track = 0;
-    var r = 255, g = 255, b = 0;
-    var maxalt = 40000; // Max altitude in the average case
-    var invalt = 0;
-    
-    // If there is plane object
-    if (plane) {
-        invalt = maxalt-plane.altitude;
-        if (Selected == plane.hex && !deselect) {
-            selected = true;
-        }
-        track = plane.track;
-    }
-    
-    if (invalt < 0) invalt = 0;
-    b = parseInt(255/maxalt*invalt);
-    
-    return {
-        strokeWeight: (selected ? 2 : 1),
-        path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-        scale: 5,
-        fillColor: 'rgb('+r+','+g+','+b+')',
-        fillOpacity: 0.9,
-        rotation: track
-    };
+	// Basic location information
+	altitude	: null,
+	speed		: null,
+	track		: null,
+	latitude	: null,
+	longitude	: null,
+	
+	// Info about the plane
+	flight		: null,
+	squawk		: null,
+	icao		: null,	
+
+	// Data packet numbers
+	messages	: null,
+	seen		: null,
+
+	// Vaild...
+	vPosition	: false,
+	vTrack		: false,
+
+	// GMap Details
+	marker		: null,
+	trackdata	: null,
+
+	// When was this last updated?
+	updated		: null,
+	reapable	: false,
+
+	// Appends data to the running track so we can get a visual tail on the plane
+	// Only useful for a long running browser session.
+	funcAddToTrack	: function(){
+			// TODO: Write this function out
+		},
+
+	// Should create an icon for us to use on the map...
+	funcGetIcon	: function() {
+			var selected = false;
+			var r = 255, g = 255, b = 0;
+
+			return {
+				strokeWeight: (selected ? 2 : 1),
+				path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+				scale: 5,
+				fillColor: 'rgb('+r+','+g+','+b+')',
+				fillOpacity: 0.9,
+				rotation: this.track
+			};
+		},
+
+	// TODO: Trigger actions of a selecting a plane
+	funcSelectPlane	: function(selectedPlane){
+			
+		},
+
+	// Update our data
+	funcUpdateData	: function(data){
+			// So we can find out if we moved
+			var oldlat 	= this.latitude;
+			var oldlon	= this.longitude;
+			var oldalt	= this.altitude;
+
+			// Update all of our data
+			this.updated	= new Date().getTime();
+			this.altitude	= data.altitude;
+			this.speed	= data.speed;
+			this.track	= data.track;
+			this.latitude	= data.lat;
+			this.longitude	= data.lon;
+			this.flight	= data.flight;
+			this.squawk	= data.squawk;
+			this.icao	= data.hex;
+			this.messages	= data.messages;
+			this.seen	= data.seen;
+
+            // If no packet in over 58 seconds, consider the plane reapable
+            // This way we can hold it, but not show it just in case the plane comes back
+			if (this.seen > 58) {
+				this.reapable = true;
+				if (this.marker) {
+					this.marker.setMap(null);
+					this.marker = null;
+				}
+				if (SelectedPlane == this.icao) {
+					SelectedPlane = null;
+				}
+			} else {
+				if (this.reapable == true) {
+					console.log(this.icao + ' has come back into range before the reaper!');
+				}
+				this.reapable = false;
+			}
+
+			// Is the position valid?
+			if ((data.validposition == 1) && (this.reapable == false)) {
+				this.vPosition = true;
+
+				// Detech if the plane has moved
+				changeLat = false;
+				changeLon = false;
+				changeAlt = false;
+				if (oldlat != this.latitude) {
+					changeLat = true;
+				}
+				if (oldlon != this.longitude) {
+					changeLon = true;
+				}
+				if (oldalt != this.altitude) {
+					changeLon = true;
+				}
+				if ((changeLat == true) || (changeLon == true) || (changeAlt == true)) {
+					this.funcAddToTrack();
+				}
+				this.marker = this.funcUpdateMarker();
+				PlanesOnMap++;
+			} else {
+				this.vPosition = false;
+			}
+
+			// Do we have a valid track for the plane?
+			if (data.validtrack == 1)
+				this.vTrack = true;
+			else
+				this.vTrack = false;
+		},
+
+	// Update our marker on the map
+	funcUpdateMarker: function() {
+			if (this.marker) {
+				this.marker.setPosition(new google.maps.LatLng(this.latitude, this.longitude));
+				this.marker.setIcon(this.funcGetIcon());
+			} else {
+				this.marker = new google.maps.Marker({
+					position: new google.maps.LatLng(this.latitude, this.longitude),
+					map: GoogleMap,
+					icon: this.funcGetIcon(),
+					visable: true,
+				});
+
+				// Trap clicks for this marker.
+				google.maps.event.addListener(this.marker, 'click', this.funcSelectPlane);
+			}
+
+			// Setting the marker title
+			if (this.flight.length == 0) {
+				this.marker.setTitle(this.hex);
+			} else {
+				this.marker.setTitle(this.flight+' ('+this.icao+')');
+			}
+			return this.marker;
+		},
+};
+
+function fetchData() {
+	$.getJSON('/dump1090/data.json', function(data) {
+		PlanesOnMap = 0
+		
+		// Loop through all the planes in the data packet
+		for (var j=0; j < data.length; j++) {
+			// Do we already have this plane object in Planes?
+			// If not make it.
+			if (Planes[data[j].hex]) {
+				var plane = Planes[data[j].hex];
+			} else {
+				var plane = jQuery.extend(true, {}, planeObject);
+			}
+
+			// Call the function update
+			plane.funcUpdateData(data[j]);
+			
+			// Copy the plane into Planes
+			Planes[plane.icao] = plane;
+		}
+
+		PlanesOnTable = data.length;
+	});
 }
 
-/* Gets hex code of selected plane as string or nothing.     *
- * Select not valid ICAO24 (hex) address to clear selection. */
-function selectPlane(selectedPlane) {
-    if (selectedPlane.length) this.planehex = selectedPlane;
-    
-    // Deselect planes
-    if (!Planes[this.planehex]) {
-        if (Planes[Selected].marker) {
-            Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected], true));
-        }
-        Selected = null;
-        refreshSelectedInfo();
-        refreshTableInfo();
-        return;
-    }
-    
-    var old = Selected;
-    Selected = this.planehex;
-    
-    if (Planes[old] && Planes[old].validposition) {
-        // Remove the highlight in the previously selected plane.
-        Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
-    }
-    
-    if (Planes[Selected].validposition) {
-        Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
-    }
-    
-    refreshSelectedInfo();
-    refreshTableInfo();
+// Initalizes the map and starts up our timers to call various functions
+function initialize() {
+	// Make a list of all the available map IDs
+	var mapTypeIds = [];
+	for(var type in google.maps.MapTypeId) {
+		mapTypeIds.push(google.maps.MapTypeId[type]);
+	}
+	// Push OSM on to the end
+	mapTypeIds.push("OSM");
+	mapTypeIds.push("dark_map");
+
+	// Styled Map to outline airports and highways
+	var styles = [
+		{
+			"stylers": [
+				{ "visibility": "simplified" },
+				{ "weight": 1 },
+				{ "invert_lightness": true }
+			]
+		},{
+			"featureType": "road",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "transit",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "transit.station.airport",
+			"stylers": [
+				{ "visibility": "on" },
+				{ "invert_lightness": true },
+				{ "gamma": 0.43 }
+			]
+		},{
+			"featureType": "poi",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "road.highway.controlled_access",
+			"stylers": [
+				{ "visibility": "simplified" }
+			]
+		}
+	]
+
+	// Add our styled map
+	var styledMap = new google.maps.StyledMapType(styles, {name: "Dark Map"});
+
+	// Define the Google Map
+	var mapOptions = {
+		center: new google.maps.LatLng(CenterLat, CenterLon),
+		zoom: ZoomLvl,
+		mapTypeId: google.maps.MapTypeId.ROADMAP,
+		mapTypeControlOptions: {
+			mapTypeIds: mapTypeIds,
+		}
+	};
+
+	GoogleMap = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+
+	//Define OSM map type pointing at the OpenStreetMap tile server
+	GoogleMap.mapTypes.set("OSM", new google.maps.ImageMapType({
+		getTileUrl: function(coord, zoom) {
+			return "http://tile.openstreetmap.org/" + zoom + "/" + coord.x + "/" + coord.y + ".png";
+		},
+		tileSize: new google.maps.Size(256, 256),
+		name: "OpenStreetMap",
+		maxZoom: 18
+	}));
+
+	GoogleMap.mapTypes.set("dark_map", styledMap);
+
+	// Setup our timer to poll from the server.
+	window.setInterval(function() {
+		fetchData();
+		refreshTableInfo();
+		refreshSelected()
+		reaper();
+	}, 1000);
+
+	// Faster timer, smoother things
+	//window.setInterval(function() {
+	//	printTime();
+	//}, 250);
 }
 
-function refreshGeneralInfo() {
-    var i = document.getElementById('geninfo');
+// This looks for planes to reap out of the master Planes variable
+function reaper() {
+	PlanesToReap = 0;
+	// When did the reaper start?
+	reaptime = new Date().getTime();
+	// Loop the planes
+	for (var reap in Planes) {
+		// Is this plane possibly reapable?
+		if (Planes[reap].reapable == true) {
+			// Has it not been seen for 5 minutes?
+			// This way we still have it if it returns before then
+			// Due to loss of signal or other reasons
+			if ((reaptime - Planes[reap].updated) > 300000) {
+				// Reap it.
+				delete Planes[reap];
+			}
+			PlanesToReap++;
+		}
+	};
+} 
 
-    i.innerHTML  = PlanesOnMap + ' planes on the map.  ';
-    i.innerHTML += PlanesOnGrid + ' planes on the grid.';
+// Refresh the detail window about the plane
+function refreshSelected() {
+	if ((SelectedPlane != "ICAO") && (SelectedPlane != null)) {
+		var selected = Planes[SelectedPlane];
+		if (selected.flight == "") {
+			selected.flight="N/A (" + selected.icao + ")";
+		}
+		var html = '<table id="selectedinfo" width="100%">';
+		html += '<tr><td colspan="2" id="selectedinfotitle"><b>' + selected.flight + '</b><td></tr>';
+		// Lets hope we never see this... Aircraft Hijacking
+		if (selected.squawk == 7500) {
+			html += '<tr><td colspan="2"id="selectedinfotitle">Squawking: Aircraft Hijacking</td>'
+		}
+		// Radio Failure
+		if (selected.squawk == 7600) {
+			html += '<tr><td colspan="2" id="selectedinfotitle">Squawking: Communication Loss (Radio Failure)</td>'
+		}
+		// Emergancy
+		if (selected.squawk == 7700) {
+			html += '<tr><td colspan="2" id="selectedinfotitle">Squawking: Emergancy</td>'
+		}
+		html += '<tr><td>Altitude: ' + selected.altitude + '</td><td>Squawk: ' + selected.squawk + '</td></tr>';
+		html += '<tr><td>Track: ' + selected.track + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')</td><td>ICAO (hex): ' + selected.icao + '</td></tr>';
+		html += '<tr><td colspan="2" align="center">Lat/Long: ' + selected.latitude + ', ' + selected.longitude + '</td></tr>';
+		html += '</table>';
+	} else {
+		var html = '';
+	}
+	document.getElementById('plane_detail').innerHTML = html;
 }
 
-function refreshSelectedInfo() {
-    var i = document.getElementById('selinfo');
-    var p = Planes[Selected];
-    
-    // If no plane is selected
-    if (!p) {
-        p = {};
-        p.flight = "";
-        p.hex = "";
-        p.squawk = "";
-        p.altitude = "0";
-        p.speed = "0";
-        p.lat = "lat";
-        p.lon = "lon";
-        p.messages = "0";
-        p.seen = "0";
-    }
-    
-    var html = '<table id="selectedinfo">';
-    if (p.flight != "") {
-        html += '<tr><td colspan=2><b>'+p.flight+'&nbsp;&nbsp;</b>';
-        html += '[<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
-        html += 'flightNumber='+p.flight+'" target="_blank">FlightStats</a>]</td></tr>';
-    } else {
-        html += '<tr><td colspan=2><b>&nbsp;</b></td></tr>';
-    }
-    html += '<tr><td>ICAO:</td><td>'+p.hex+'</td></tr>';
-    if (p.squawk != "0000") {
-        html += '<tr><td>Squawk:</td><td>'+p.squawk+'</td></tr>';
-    } else {
-        html += '<tr><td>Squawk:</td><td>n/a</td></tr>';
-    }
-    html += '<tr><td>Altitude:</td><td>'+p.altitude+' feet</td></tr>';
-    html += '<tr><td>Speed:</td><td>'+p.speed+' knots</td></tr>';
-    if (p.validposition) {
-        html += '<tr><td>Coordinates:</td><td>'+p.lat+', '+p.lon+'</td></tr>';
-    } else {
-        html += '<tr><td>Coordinates:</td><td>n/a</td></tr>';
-    }
-    html += '<tr><td>Messages:</td><td>'+p.messages+'</td></tr>';
-    html += '<tr><td>Seen:</td><td>'+p.seen+' sec</td></tr>';
-    html += '</table>';
-    i.innerHTML = html;
+// Right now we have no means to validate the speed is good
+// Want to return (n/a) when we dont have it
+// TODO: Edit C code to add a valid speed flag
+// TODO: Edit js code to use said flag
+function normalizeSpeed(speed, valid) {
+	return speed	
 }
 
+// Returns back a long string, short string, and the track if we have a vaild track path
+function normalizeTrack(track, valid){
+	x = []
+	if ((track > -1) && (track < 22.5)) {
+		x = ["North", "N", track]
+	}
+	if ((track > 22.5) && (track < 67.5)) {
+		x = ["North East", "NE", track]
+	}
+	if ((track > 67.5) && (track < 112.5)) {
+		x = ["East", "E", track]
+	}
+	if ((track > 112.5) && (track < 157.5)) {
+		x = ["South East", "SE", track]
+	}
+	if ((track > 157.5) && (track < 202.5)) {
+		x = ["South", "S", track]
+	}
+	if ((track > 202.5) && (track < 247.5)) {
+		x = ["South West", "SW", track]
+	}
+	if ((track > 247.5) && (track < 292.5)) {
+		x = ["West", "W", track]
+	}
+	if ((track > 292.5) && (track < 337.5)) {
+		x = ["North West", "NW", track]
+	}
+	if ((track > 337.5) && (track < 361)) {
+		x = ["North", "N", track]
+	}
+	if (!valid) {
+		x = [" ", "n/a", ""]
+	}
+	return x
+}
+
+// Refeshes the larger table of all the planes
 function refreshTableInfo() {
 	var html = '<table id="tableinfo" width="100%">';
-	html += '<thead style="background-color: #CCCCCC; cursor: pointer;">';
-	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">hex</td>';
+	html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
+	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">ICAO</td>';
 	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
 	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" align="right">Squawk</td>';
 	html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" align="right">Altitude</td>';
 	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" align="right">Speed</td>';
 	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" align="right">Track</td>';
 	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'6\');" align="right">Msgs</td>';
-	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'7\');" align="right">Seen</td></thead>';
-	for (var p in Planes) {
-		var specialStyle = "";
-		if (p == Selected) {
-			html += '<tr id="tableinforow" style="background-color: #E0E0E0;">';
-		} else {
-			html += '<tr id="tableinforow">';
+	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'7\');" align="right">Seen</td></thead><tbody>';
+	for (var tablep in Planes) {
+		var tableplane = Planes[tablep]
+		if (!tableplane.reapable) {
+			var specialStyle = "";
+			// Is this the plane we selected?
+			if (tableplane.icao == SelectedPlane) {
+				specialStyle += " selected";
+			}
+			// Lets hope we never see this... Aircraft Hijacking
+			if (tableplane.squawk == 7500) {
+				specialStyle += " squawk7500";
+			}
+			// Radio Failure
+			if (tableplane.squawk == 7600) {
+				specialStyle += " squawk7600";
+			}
+			// Emergancy
+			if (tableplane.squawk == 7700) {
+				specialStyle += " squawk7700";
+			}
+			if (tableplane.vPosition == true)
+				html += '<tr class="plane_table_row vPosition' + specialStyle + '">';
+			else
+				html += '<tr class="plane_table_row ' + specialStyle + '">';
+			html += '<td>' + tableplane.icao + '</td>';
+			html += '<td>' + tableplane.flight + '</td>';
+			html += '<td align="right">' + tableplane.squawk + '</td>';
+			html += '<td align="right">' + tableplane.altitude + '</td>';
+			html += '<td align="right">' + tableplane.speed + '</td>';
+			html += '<td align="right">' + normalizeTrack(tableplane.track, tableplane.vTrack)[2] + ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')</td>';
+			html += '<td align="right">' + tableplane.messages + '</td>';
+			html += '<td align="right">' + tableplane.seen + '</td>';
+			html += '</tr>';
 		}
-		if (Planes[p].validposition) {
-			specialStyle = 'bold';
-		}
-		html += '<td class="' + specialStyle + '">' + Planes[p].hex + '</td>';
-		html += '<td class="' + specialStyle + '">' + Planes[p].flight + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].squawk + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].altitude + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].speed + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].track + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].messages + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].seen + '</td>';
-		html += '</tr>';
 	}
-	html += '</table>';
+	html += '</tbody></table>';
 
-	document.getElementById('tabinfo').innerHTML = html;
+	document.getElementById('planes_table').innerHTML = html;
 
-	// Click event for table - lags sometimes for some reason?
-	$('#tableinfo').find('tr').click( function(){
+	// Click event for table
+	$('#planes_table').find('tr').click( function(){
 		var hex = $(this).find('td:first').text();
-		selectPlane(hex);
+		if (hex != "ICAO") {
+			selectPlaneByHex(hex);
+			refreshTableInfo()
+			refreshSelected()
+		}
 	});
 
 	sortTable("tableinfo");
@@ -230,239 +504,6 @@ function sortTable(szTableID,iCol) {
 	aStore=null;
 }
 
-function fetchData() {
-	$.getJSON('data.json', function(data) {
-		// Planes that are still with us, and set map count to 0
-		var stillhere = {}
-		PlanesOnMap = 0;
-
-		// Loop through all the planes in the data packet
-		for (var j=0; j < data.length; j++) {
-
-			// Set plane to be this particular plane in the data set
-			var plane = data[j];
-			// Add to the still here list
-			stillhere[plane.hex] = true;
-			plane.flight = $.trim(plane.flight);
-
-			// Set the marker to null, for now
-			var marker = null;
-
-			// Either update the data or add it
-			if (Planes[plane.hex]) {
-				// Declare our plane that we are working with from our old data set
-				var myplane = Planes[plane.hex];
-
-				// If the has valid position, we should make a marker for it
-				if (plane.validposition) {
-					if (myplane.marker != null) {
-						marker = myplane.marker;
-						var icon = marker.getIcon();
-						var newpos = new google.maps.LatLng(plane.lat, plane.lon);
-						marker.setPosition(newpos);
-						marker.setIcon(getIconForPlane(plane));
-						PlanesOnMap++;
-					} else {
-						// Add new plane to map, dont ask me why this is needed here now...
-						marker = new google.maps.Marker({
-							position: new google.maps.LatLng(plane.lat, plane.lon),
-							map: Map,
-							icon: getIconForPlane(plane)
-						});
-						myplane.marker = marker;
-						marker.planehex = plane.hex;
-						PlanesOnMap++;
-
-						// Trap clicks for this marker.
-						google.maps.event.addListener(marker, 'click', selectPlane);
-					}
-				}
-
-				// Update all the other information
-				myplane.altitude = plane.altitude;
-				myplane.speed = plane.speed;
-				myplane.lat = plane.lat;
-				myplane.lon = plane.lon;
-				myplane.track = plane.track;
-				myplane.flight = plane.flight;
-				myplane.seen = plane.seen;
-				myplane.messages = plane.messages;
-				myplane.squawk = plane.squawk;
-				myplane.validposition = plane.validposition;
-				myplane.validtrack = plane.validtrack;
-
-				// If this is a selected plane, refresh its data outside of the table
-				if (myplane.hex == Selected)
-					refreshSelectedInfo();
-			} else {
-				// This is a new plane
-				// Do we have a lat/long that is not 0?
-				if (plane.validposition) {
-					// Add new plane to map
-					marker = new google.maps.Marker({
-						position: new google.maps.LatLng(plane.lat, plane.lon),
-						map: Map,
-						icon: getIconForPlane(plane)
-					});
-					plane.marker = marker;
-					marker.planehex = plane.hex;
-					PlanesOnMap++;
-
-					// Trap clicks for this marker.
-					google.maps.event.addListener(marker, 'click', selectPlane);
-				}
-
-				// Copy the plane into Planes
-				Planes[plane.hex] = plane;
-			}
-
-			// If we have lat/long, we must have a marker, so lets set the marker title
-			if (plane.validposition) {
-				if (plane.flight.length == 0) {
-					marker.setTitle(plane.hex)
-				} else {
-					marker.setTitle(plane.flight+' ('+plane.hex+')')
-				}
-			}
-
-		}
-
-		// How many planes have we heard from?
-		PlanesOnGrid = data.length;
-
-		/* Remove idle planes. */
-		for (var p in Planes) {
-			if (!stillhere[p]) {
-				if (Planes[p].marker != null)
-					Planes[p].marker.setMap(null);
-				delete Planes[p];
-			}
-		}
-
-		refreshTableInfo();
-		refreshSelectedInfo();
-	});
-}
-
-function checkTime(i) {
-    if (i < 10) {
-        return "0" + i;
-    }
-    return i;
-}
-
-function printTime() {
-    var currentTime = new Date();
-    var hours = checkTime(currentTime.getUTCHours());
-    var minutes = checkTime(currentTime.getUTCMinutes());
-    var seconds = checkTime(currentTime.getUTCSeconds());
-    
-    if (document.getElementById) {
-        document.getElementById('utcTime').innerHTML =
-            hours + ":" + minutes + ":" + seconds;
-    }
-}
-
-function placeSettings() {
-    // Settings link
-    var marginLeft = $('#header').width() - $('#info_settings').width();
-    $('#info_settings').css('left', marginLeft);
-    $('#info_settings').css('top', parseInt($('#utcTime').offset().top));
-    
-    // Settings area
-    $('#info_settings_area').css('top', parseInt($('#geninfo').offset().top));
-    $('#info_settings_area').css('left', 5);
-    $('#info_settings_area').css('width', parseInt($('#info').width() - 40));
-}
-
-function toggleSettings() {
-    if ($('#info_settings_area').css('display') != 'none') {
-        $('#info_settings_area').hide(350);
-    } else {
-        // Open settings
-        $('#info_settings_area').show(350);
-    }
-}
-
-function resetMap() {
-    localStorage['CenterLat'] = 45.0;
-    localStorage['CenterLon'] = 9.0;
-    localStorage['ZoomLvl']   = 5;
-    Map.setZoom(parseInt(localStorage['ZoomLvl']));
-    Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']),
-            parseInt(localStorage['CenterLon'])));
-    Selected = null;
-    refreshSelectedInfo();
-}
-
-function initialize() {
-    var mapTypeIds = [];
-    for(var type in google.maps.MapTypeId) {
-        mapTypeIds.push(google.maps.MapTypeId[type]);
-    }
-    mapTypeIds.push("OSM");
-
-    var mapOptions = {
-        center: new google.maps.LatLng(CenterLat, CenterLon),
-        zoom: ZoomLvl,
-        mapTypeId: google.maps.MapTypeId.ROADMAP,
-        mapTypeControlOptions: {
-            mapTypeIds: mapTypeIds,
-        }
-    };
-    Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
-
-    //Define OSM map type pointing at the OpenStreetMap tile server
-    Map.mapTypes.set("OSM", new google.maps.ImageMapType({
-        getTileUrl: function(coord, zoom) {
-           return "http://tile.openstreetmap.org/" + zoom + "/" + coord.x + "/" + coord.y + ".png";
-        },
-        tileSize: new google.maps.Size(256, 256),
-        name: "OpenStreetMap",
-        maxZoom: 18
-    }));
-    
-    // show settings at info-area
-    $(function(){
-        $(window).resize(function(e){
-            placeSettings();
-        });
-        placeSettings();
-        // hide it before it's positioned
-        $('#info_settings').css('display','inline');
-    });
-    
-    // Listener for newly created Map
-    google.maps.event.addListener(Map, 'center_changed', function() {
-        localStorage['CenterLat'] = Map.getCenter().lat();
-        localStorage['CenterLon'] = Map.getCenter().lng();
-    });
-    
-    google.maps.event.addListener(Map, 'zoom_changed', function() {
-        localStorage['ZoomLvl']  = Map.getZoom();
-    });
-    
-    google.maps.event.addListener(Map, 'click', function() {
-        if (Selected) {
-            selectPlane("xyzxyz"); // Select not valid ICAO24 (hex) address to clear selection.
-        }
-        Selected = null;
-        refreshSelectedInfo();
-        refreshTableInfo();
-    });
-
-    // Setup our timer to poll from the server.
-    window.setInterval(function() {
-        fetchData();
-        refreshGeneralInfo();
-    }, 1000);
-    
-    // Faster timer, smoother things
-    window.setInterval(function() {
-        printTime();
-    }, 250);
-    
-    refreshGeneralInfo();
-    refreshSelectedInfo();
-    refreshTableInfo();
+function selectPlaneByHex(hex) {
+	SelectedPlane = hex;
 }

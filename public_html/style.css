@@ -1,68 +1,17 @@
-html { height: 100%; }
-body { height: 100%; margin: 0; padding: 0; font-size: small;}
-a { color: blue; }
+html, body { margin: 0; padding: 0; background-color: #ffffff; font-family: Tahoma, Sans-Serif; font-size: 10pt; overflow: auto; }
+div#map_container     { float: left; width: 100%; height: 100%; }
+div#map_canvas        { height: 100%; margin-right: 420px; }
 
-#map_canvas { 
-    height: 100%;
-    margin-right: 390px;
-}
+div#sidebar_container { float: left; width: 410px; margin-left: -410px; height: 100%; overflow: auto; }
 
-#info {
-    position: absolute;
-    width: 390px;
-    height: 100%;
-    bottom: 0px;
-    right: 0px;
-    top: 0px;
-    background-color: white;
-    border-left: 1px #666 solid;
-    font-family: Helvetica, Sans-serif, Arial;
-}
+#tableinfo { font-size: x-small; font-family: monospace; }
 
-#info div {
-    padding: 0px;
-    padding-left: 10px;
-    padding-right: 10px;
-    margin: 0px;
-}
+.vPosition { font-weight: bold; background-color: #f5fff5; }
+.squawk7500 { font-weight: bold; background-color: #ff5555; }
+.squawk7600 { font-weight: bold; background-color: #00ffff; }
+.squawk7700 { font-weight: bold; background-color: #ffff00; }
+.selected { font-weight: bold; background-color: #dddddd; }
+.plane_table_row { cursor: pointer; }
 
-#info div h1 {
-    margin-top: 10px;
-    font-size: 16px;
-}
-
-#info div h2 {
-    margin-top: 10px;
-    font-size: 14px;
-}
-
-#info_settings {
-    position:   absolute;
-    display:    none;
-}
-
-#info_settings_area {
-    position: absolute;
-    display: none;
-    background-color: white;
-    border: 1px solid gray;
-}
-
-#tabinfo{
-    height: 400px;
-    overflow-y: auto;
-}
-
-#tableinfo {
-    font-size: x-small;
-    font-family: monospace;
-}
-
-#tableinforow {
-    cursor: pointer;
-
-}
-
-#tableinforow .bold {
-    font-weight:bold;
-}
+#selectedinfotitle { font-size: larger; }
+#selectedinfo { font-size: small; }
