@@ -1126,6 +1126,7 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
         pCRCTable++;
         theByte = theByte << 1; 
     }
+
     rem = (msg[0] << 16) | (msg[1] << 8) | msg[2]; // message checksum
     return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum syndrome.
 }
@@ -1268,9 +1269,9 @@ void modesInitErrorInfo() {
         n = 0;
         memset(bitErrorTable, 0, sizeof(bitErrorTable));
         memset(msg, 0, MODES_LONG_MSG_BYTES);
-
-        /* Add all possible single and double bit errors */
-        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
+        // Add all possible single and double bit errors
+        // don't include errors in first 5 bits (DF type)
+        for (i = 5;  i < MODES_LONG_MSG_BITS;  i++) {
                 int bytepos0 = (i >> 3);
                 int mask0 = 1 << (7 - (i & 7));
                 msg[bytepos0] ^= mask0;          // create error0
@@ -1279,7 +1280,9 @@ void modesInitErrorInfo() {
                 bitErrorTable[n].pos0 = i;
                 bitErrorTable[n].pos1 = -1;
                 n += 1;
-                for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
+
+                if (Modes.aggressive) {
+                    for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
                         int bytepos1 = (j >> 3);
                         int mask1 = 1 << (7 - (j & 7));
                         msg[bytepos1] ^= mask1;  // create error1
@@ -1297,6 +1300,7 @@ void modesInitErrorInfo() {
                         bitErrorTable[n].pos1 = j;
                         n += 1;
                         msg[bytepos1] ^= mask1;  // revert error1
+                    }
                 }
                 msg[bytepos0] ^= mask0;          // revert error0
         }
