@@ -347,7 +347,8 @@ static uint64_t mstime(void) {
 
 void sigintHandler(int dummy) {
     MODES_NOTUSED(dummy);
-    Modes.exit = 1;      // Signal to threads that we are done
+    signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
+    Modes.exit = 1;           // Signal to threads that we are done
 }
 
 /* =============================== Initialization =========================== */
@@ -549,6 +550,7 @@ void readDataFromFile(void) {
         ssize_t nread, toread;
         unsigned char *p;
 
+        if (Modes.exit == 1) break;
         if (Modes.data_ready) {
             pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
             continue;
@@ -596,7 +598,11 @@ void *readerThreadEntryPoint(void *arg) {
     } else {
         readDataFromFile();
     }
-    return NULL;
+    /* Signal to the other thread that new data is ready - dummy really so threads don't mutually lock */
+    Modes.data_ready = 1;
+    pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    pthread_exit(NULL);
 }
 
 /* ============================== Debugging ================================= */
@@ -3188,14 +3194,14 @@ void snipMode(int level) {
 }
 
 /* ============================= Networking =================================
- * Note: here we risregard any kind of good coding practice in favor of
+ * Note: here we disregard any kind of good coding practice in favor of
  * extreme simplicity, that is:
  *
  * 1) We only rely on the kernel buffers for our I/O without any kind of
  *    user space buffering.
  * 2) We don't register any kind of event handler, from time to time a
  *    function gets called and we accept new connections. All the rest is
- *    handled via non-blocking I/O and manually pullign clients to see if
+ *    handled via non-blocking I/O and manually polling clients to see if
  *    they have something new to share with us when reading is needed.
  */
 
@@ -3357,7 +3363,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
             sprintf(p, "%02X", pTimeStamp[j]);
             p += 2;
         }
-    Modes.rawOutUsed += 12; // additional 12 characters for timestamp
+        Modes.rawOutUsed += 12; // additional 12 characters for timestamp
     } else
         *p++ = '*';
 
@@ -4136,7 +4142,12 @@ int main(int argc, char **argv) {
         printf("%d total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
-    rtlsdr_cancel_async(Modes.dev);  // Cancel rtlsdr_read_async will cause data input thread to terminate cleanly
-    rtlsdr_close(Modes.dev);
-    exit (0);
+    if (Modes.filename == NULL) {
+        rtlsdr_cancel_async(Modes.dev);  // Cancel rtlsdr_read_async will cause data input thread to terminate cleanly
+        rtlsdr_close(Modes.dev);
+    }
+    pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup
+    pthread_mutex_destroy(&Modes.data_mutex);
+    pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
+    pthread_exit(0);
 }
