@@ -366,8 +366,7 @@ function printTime() {
 function placeSettings() {
     $('#info_settings').css('top', parseInt($('#utcTime').offset().top));
     
-    var marginLeft = $('#info').width() - $('#info_settings').width();
-    marginLeft -= parseInt($('#info_settings').width() / 3); // Little air around
+    var marginLeft = $('#header').width() - $('#info_settings').width();
     $('#info_settings').css('left', marginLeft);
 }
 
