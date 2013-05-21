@@ -1115,16 +1115,19 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
     uint32_t * pCRCTable = &modes_checksum_table[offset];
     int j;
 
+    // We don't really need to include the checksum itself
+    bits -= 24;
     for(j = 0; j < bits; j++) {
         if ((j & 7) == 0)
-            {theByte = *msg++; rem = (rem << 8) | theByte;}
+            theByte = *msg++;
 
         // If bit is set, xor with corresponding table entry.
         if (theByte & 0x80) {crc ^= *pCRCTable;} 
         pCRCTable++;
         theByte = theByte << 1; 
     }
-    return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum.
+    rem = (msg[0] << 16) | (msg[1] << 8) | msg[2]; // message checksum
+    return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum syndrome.
 }
 //
 // Given the Downlink Format (DF) of the message, return the message length in bits.
