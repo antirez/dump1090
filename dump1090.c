@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.06.1405.13"
+#define MODES_DUMP1090_VERSION     "1.06.2105.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -1258,28 +1258,22 @@ void modesInitErrorInfo() {
         uint32_t crc;
         n = 0;
         memset(bitErrorTable, 0, sizeof(bitErrorTable));
-        /* First, insert infos about all possible single bit errors */
-        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
-                int bytepos = (i >> 3);
-                int mask = 1 << (7 - (i & 7));
-                memset(msg, 0, MODES_LONG_MSG_BYTES);
-                msg[bytepos] ^= mask;
-                crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
-                bitErrorTable[n].syndrome = crc;
-                bitErrorTable[n].pos0 = i;
-                bitErrorTable[n].pos1 = -1;
-                n += 1;
-        }
-        /* Add also all double bit errors */
+        memset(msg, 0, MODES_LONG_MSG_BYTES);
+
+        /* Add all possible single and double bit errors */
         for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
                 int bytepos0 = (i >> 3);
                 int mask0 = 1 << (7 - (i & 7));
-                memset(msg, 0, MODES_LONG_MSG_BYTES);
-                msg[bytepos0] ^= mask0;
+                msg[bytepos0] ^= mask0;          // create error0
+                crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+                bitErrorTable[n].syndrome = crc;      // single bit error case
+                bitErrorTable[n].pos0 = i;
+                bitErrorTable[n].pos1 = -1;
+                n += 1;
                 for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
                         int bytepos1 = (j >> 3);
                         int mask1 = 1 << (7 - (j & 7));
-                        msg[bytepos1] ^= mask1;
+                        msg[bytepos1] ^= mask1;  // create error1
                         crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
                         if (n >= NERRORINFO) {
                                 /*
@@ -1289,11 +1283,13 @@ void modesInitErrorInfo() {
                                 */
                                 break;
                         }
-                        bitErrorTable[n].syndrome = crc;
+                        bitErrorTable[n].syndrome = crc;    // two bit error case
                         bitErrorTable[n].pos0 = i;
                         bitErrorTable[n].pos1 = j;
                         n += 1;
+                        msg[bytepos1] ^= mask1;  // revert error1
                 }
+                msg[bytepos0] ^= mask0;          // revert error0
         }
         qsort(bitErrorTable, NERRORINFO,
               sizeof(struct errorinfo), cmpErrorInfo);
