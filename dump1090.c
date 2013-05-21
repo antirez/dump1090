@@ -1748,14 +1748,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->crcok = (mm->crc == 0);
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
 
-        if        (0 != mm->correctedbits) {
-            // DF 17 : if (error corrected) force crc = 0 but do not try to add this address 
-            //         to the whitelist of recently seen ICAO addresses.
-            mm->crc = 0;
-
-        } else if (0 == mm->crc) {
-            // DF 17 : if uncorrected and crc == 0 add this address to the whitelist of 
-            //         recently seen ICAO addresses.
+        if (0 == mm->crc) {
+            // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
 
@@ -2465,7 +2459,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             // Update statistics
             if (Modes.stats) {
-                if (mm.crcok || use_correction || !mm.crc) {
+                if (mm.crcok || use_correction || mm.correctedbits) {
                     if (errors == 0) Modes.stat_demodulated++;
                     if (mm.correctedbits == 0) {
                         if (mm.crcok) {Modes.stat_goodcrc++;}
@@ -2542,7 +2536,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 // processing and visualization
 //
 void useModesMessage(struct modesMessage *mm) {
-    if ((Modes.check_crc == 0) || (mm->crcok) || (mm->crc == 0)) { // not checking, ok or fixed
+    if ((Modes.check_crc == 0) || (mm->crcok) || (mm->correctedbits)) { // not checking, ok or fixed
 
         // Track aircrafts if...
         if ( (Modes.interactive)          //       in interactive mode
@@ -2917,7 +2911,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     struct aircraft *a, *aux;
 
     // Return if (checking crc) AND (not crcok) AND (not fixed)
-    if (Modes.check_crc && (mm->crcok == 0) && mm->crc) 
+    if (Modes.check_crc && (mm->crcok == 0) && (mm->correctedbits == 0)) 
         return NULL;
 
     // Loookup our aircraft or create a new one
