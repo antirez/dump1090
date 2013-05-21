@@ -296,7 +296,7 @@ struct modesMessage {
     int  ca;                    // Responder capabilities
     int  iid;
 
-    // DF 17
+    // DF 17, DF 18
     int  metype;                // Extended squitter message type.
     int  mesub;                 // Extended squitter message subtype.
     int  heading;               // Reported by aircraft, or computed from from EW and NS velocity
@@ -1653,6 +1653,18 @@ char *ca_str[8] = {
     /* 7 */ "Level 7 ???"
 };
 
+// DF 18 Control field table.
+char *cf_str[8] = {
+    /* 0 */ "ADS-B ES/NT device with ICAO 24-bit address",
+    /* 1 */ "ADS-B ES/NT device with other address",
+    /* 2 */ "Fine format TIS-B",
+    /* 3 */ "Coarse format TIS-B",
+    /* 4 */ "TIS-B managment message",
+    /* 5 */ "TIS-B relay of ADS-B message with other address",
+    /* 6 */ "ADS-B rebroadcast using DF-17 message format",
+    /* 7 */ "Reserved"
+};
+
 /* Flight status table. */
 char *fs_str[8] = {
     /* 0 */ "Normal, Airborne",
@@ -1710,7 +1722,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->phase_corrected = 0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
-    if ((mm->crc) && (Modes.fix_errors) &&  (mm->msgtype == 17)) {
+    if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
 //  if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
         //
         // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to 
@@ -1738,6 +1750,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->crcok = (mm->crc < 80);
         mm->iid   =  mm->crc;
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+        mm->ca    = (msg[0] & 0x07); // Responder capabilities
 
         if (0 == mm->crc) {
             // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
@@ -1747,9 +1760,20 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     } else if (mm->msgtype == 17) { // DF 17
         mm->crcok = (mm->crc == 0);
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+        mm->ca    = (msg[0] & 0x07); // Responder capabilities
 
         if (0 == mm->crc) {
             // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
+            addRecentlySeenICAOAddr(mm->addr);
+        }
+
+    } else if (mm->msgtype == 18) { // DF 18
+        mm->crcok = (mm->crc == 0);
+        mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+        mm->ca    = (msg[0] & 0x07); // Control Field
+
+        if (0 == mm->crc) {
+            // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
 
@@ -1770,8 +1794,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     }
 
     // Fields for DF11, DF17
-    if (mm->msgtype == 11  || mm->msgtype == 17) {
-        mm->ca = msg[0] & 0x07;                     // Responder capabilities
+    if (mm->msgtype == 11 || mm->msgtype == 17) {
         if (mm->ca == 4) {
             mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
         } else if (mm->ca == 5) {
@@ -1810,8 +1833,9 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         }
     }
 
-    // Fields for DF17 squitter
-    if (mm->msgtype == 17) {
+    // Fields for DF17, DF18_CF0, DF18_CF1, DF18_CF6 squitters
+    if (  (mm->msgtype == 17) 
+      || ((mm->msgtype == 18) && ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)) )) {
          int metype = mm->metype = msg[4] >> 3;   // Extended squitter message type
          int mesub  = mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
 
@@ -2104,6 +2128,65 @@ void displayModesMessage(struct modesMessage *mm) {
 
     } else if (mm->msgtype == 18) { // DF 18 
         printf("DF 18: Extended Squitter.\n");
+        printf("  Control Field : %d (%s)\n", mm->ca, cf_str[mm->ca]);
+        if ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)) {
+            if (mm->ca == 1) {
+                printf("  Other Address : %06x\n", mm->addr);
+            } else {
+                printf("  ICAO Address  : %06x\n", mm->addr);
+            }
+            printf("  Extended Squitter  Type: %d\n", mm->metype);
+            printf("  Extended Squitter  Sub : %d\n", mm->mesub);
+            printf("  Extended Squitter  Name: %s\n", getMEDescription(mm->metype, mm->mesub));
+
+            // Decode the extended squitter message
+            if (mm->metype >= 1 && mm->metype <= 4) { // Aircraft identification
+                printf("    Aircraft Type  : %c%d\n", ('A' + 4 - mm->metype), mm->mesub);
+                printf("    Identification : %s\n", mm->flight);
+
+          //} else if (mm->metype >= 5 && mm->metype <= 8) { // Surface position
+
+            } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Baro
+                printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
+                printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
+                printf("    Altitude : %d feet\n", mm->altitude);
+                if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                    printf("    Latitude : %f\n", mm->fLat);
+                    printf("    Longitude: %f\n", mm->fLon);
+                } else {
+                    printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+                    printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+                }
+
+            } else if (mm->metype == 19) { // Airborne Velocity
+                if (mm->mesub == 1 || mm->mesub == 2) {
+                    printf("    EW status         : %s\n", (mm->bFlags & MODES_ACFLAGS_EWSPEED_VALID)  ? "Valid" : "Unavailable");
+                    printf("    EW velocity       : %d\n", mm->ew_velocity);
+                    printf("    NS status         : %s\n", (mm->bFlags & MODES_ACFLAGS_NSSPEED_VALID)  ? "Valid" : "Unavailable");
+                    printf("    NS velocity       : %d\n", mm->ns_velocity);
+                    printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
+                    printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
+                    printf("    Vertical rate     : %d\n", mm->vert_rate);
+
+                } else if (mm->mesub == 3 || mm->mesub == 4) {
+                    printf("    Heading status    : %s\n", (mm->bFlags & MODES_ACFLAGS_HEADING_VALID)  ? "Valid" : "Unavailable");
+                    printf("    Heading           : %d\n", mm->heading);
+                    printf("    Airspeed status   : %s\n", (mm->bFlags & MODES_ACFLAGS_SPEED_VALID)    ? "Valid" : "Unavailable");
+                    printf("    Airspeed          : %d\n", mm->velocity);
+                    printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
+                    printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
+                    printf("    Vertical rate     : %d\n", mm->vert_rate);
+
+                } else {
+                    printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
+                }
+
+          //} else if (mm->metype >= 20 && mm->metype <= 22) { // Airborne position GNSS
+
+            } else {
+                printf("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
+            }
+        }             
 
     } else if (mm->msgtype == 19) { // DF 19
         printf("DF 19: Military Extended Squitter.\n");
