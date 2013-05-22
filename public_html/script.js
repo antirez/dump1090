@@ -145,7 +145,7 @@ planeObject = {
 					changeLon = true;
 				}
 				if (oldalt != this.altitude) {
-					changeLon = true;
+					changeAlt = true;
 				}
 				if ((changeLat == true) || (changeLon == true) || (changeAlt == true)) {
 					this.funcAddToTrack();
