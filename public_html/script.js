@@ -388,9 +388,12 @@ function resetMap() {
     localStorage['CenterLat'] = 45.0;
     localStorage['CenterLon'] = 9.0;
     localStorage['ZoomLvl']   = 5;
+    CenterLat = 45.0;
+    CenterLon = 9.0;
+    ZoomLvl   = 5;
     Map.setZoom(parseInt(localStorage['ZoomLvl']));
-    Map.setCenter(new google.maps.LatLng(parseInt(localStorage['CenterLat']),
-            parseInt(localStorage['CenterLon'])));
+    Map.setCenter(new google.maps.LatLng(parseFloat(localStorage['CenterLat']),
+            parseFloat(localStorage['CenterLon'])));
     Selected = null;
     refreshSelectedInfo();
 }
