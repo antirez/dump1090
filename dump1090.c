@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.06.1405.13"
+#define MODES_DUMP1090_VERSION     "1.06.2105.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -296,7 +296,7 @@ struct modesMessage {
     int  ca;                    // Responder capabilities
     int  iid;
 
-    // DF 17
+    // DF 17, DF 18
     int  metype;                // Extended squitter message type.
     int  mesub;                 // Extended squitter message subtype.
     int  heading;               // Reported by aircraft, or computed from from EW and NS velocity
@@ -347,7 +347,8 @@ static uint64_t mstime(void) {
 
 void sigintHandler(int dummy) {
     MODES_NOTUSED(dummy);
-    Modes.exit = 1;      // Signal to threads that we are done
+    signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
+    Modes.exit = 1;           // Signal to threads that we are done
 }
 
 /* =============================== Initialization =========================== */
@@ -549,6 +550,7 @@ void readDataFromFile(void) {
         ssize_t nread, toread;
         unsigned char *p;
 
+        if (Modes.exit == 1) break;
         if (Modes.data_ready) {
             pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
             continue;
@@ -596,7 +598,11 @@ void *readerThreadEntryPoint(void *arg) {
     } else {
         readDataFromFile();
     }
-    return NULL;
+    /* Signal to the other thread that new data is ready - dummy really so threads don't mutually lock */
+    Modes.data_ready = 1;
+    pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    pthread_exit(NULL);
 }
 
 /* ============================== Debugging ================================= */
@@ -1109,16 +1115,20 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
     uint32_t * pCRCTable = &modes_checksum_table[offset];
     int j;
 
+    // We don't really need to include the checksum itself
+    bits -= 24;
     for(j = 0; j < bits; j++) {
         if ((j & 7) == 0)
-            {theByte = *msg++; rem = (rem << 8) | theByte;}
+            theByte = *msg++;
 
         // If bit is set, xor with corresponding table entry.
         if (theByte & 0x80) {crc ^= *pCRCTable;} 
         pCRCTable++;
         theByte = theByte << 1; 
     }
-    return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum.
+
+    rem = (msg[0] << 16) | (msg[1] << 8) | msg[2]; // message checksum
+    return ((crc ^ rem) & 0x00FFFFFF); // 24 bit checksum syndrome.
 }
 //
 // Given the Downlink Format (DF) of the message, return the message length in bits.
@@ -1258,28 +1268,24 @@ void modesInitErrorInfo() {
         uint32_t crc;
         n = 0;
         memset(bitErrorTable, 0, sizeof(bitErrorTable));
-        /* First, insert infos about all possible single bit errors */
-        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
-                int bytepos = (i >> 3);
-                int mask = 1 << (7 - (i & 7));
-                memset(msg, 0, MODES_LONG_MSG_BYTES);
-                msg[bytepos] ^= mask;
+        memset(msg, 0, MODES_LONG_MSG_BYTES);
+        // Add all possible single and double bit errors
+        // don't include errors in first 5 bits (DF type)
+        for (i = 5;  i < MODES_LONG_MSG_BITS;  i++) {
+                int bytepos0 = (i >> 3);
+                int mask0 = 1 << (7 - (i & 7));
+                msg[bytepos0] ^= mask0;          // create error0
                 crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
-                bitErrorTable[n].syndrome = crc;
+                bitErrorTable[n].syndrome = crc;      // single bit error case
                 bitErrorTable[n].pos0 = i;
                 bitErrorTable[n].pos1 = -1;
                 n += 1;
-        }
-        /* Add also all double bit errors */
-        for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
-                int bytepos0 = (i >> 3);
-                int mask0 = 1 << (7 - (i & 7));
-                memset(msg, 0, MODES_LONG_MSG_BYTES);
-                msg[bytepos0] ^= mask0;
-                for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
+
+                if (Modes.aggressive) {
+                    for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
                         int bytepos1 = (j >> 3);
                         int mask1 = 1 << (7 - (j & 7));
-                        msg[bytepos1] ^= mask1;
+                        msg[bytepos1] ^= mask1;  // create error1
                         crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
                         if (n >= NERRORINFO) {
                                 /*
@@ -1289,11 +1295,14 @@ void modesInitErrorInfo() {
                                 */
                                 break;
                         }
-                        bitErrorTable[n].syndrome = crc;
+                        bitErrorTable[n].syndrome = crc;    // two bit error case
                         bitErrorTable[n].pos0 = i;
                         bitErrorTable[n].pos1 = j;
                         n += 1;
+                        msg[bytepos1] ^= mask1;  // revert error1
+                    }
                 }
+                msg[bytepos0] ^= mask0;          // revert error0
         }
         qsort(bitErrorTable, NERRORINFO,
               sizeof(struct errorinfo), cmpErrorInfo);
@@ -1319,10 +1328,10 @@ void modesInitErrorInfo() {
         }
         */
 }
-
-/* Flip a bit, but make sure that the DF field (first 5 bits)
- * is never changed
- */
+//
+// Flip a bit, but make sure that the DF field (first 5 bits)
+// is never changed
+/*
 int flipBit(unsigned char *msg, int nbits, int bit) {
         int bytepos, mask;
         if ((bit < 0) || (bit >= nbits)) {
@@ -1336,50 +1345,41 @@ int flipBit(unsigned char *msg, int nbits, int bit) {
         msg[bytepos] ^= mask;
         return 1;
 }
-
-/* Search syndrome in table and, if an entry is found, flip the necessary
- * bits. Make sure the indices fit into the array, and for 2-bit errors,
- * are different.
- * Return number of fixed bits.
- */
+*/
+// Search syndrome in table and, if an entry is found, flip the necessary
+// bits. Make sure the indices fit into the array, and for 2-bit errors,
+// are different.
+// Return number of fixed bits.
+//
 int fixBitErrors(unsigned char *msg, int bits) {
-        struct errorinfo *pei;
-        struct errorinfo ei;
-        int bitpos0, bitpos1, offset, res;
-        ei.syndrome = modesChecksum(msg, bits);
-        ei.pos0 = -1;
-        ei.pos1 = -1;
-        pei = bsearch(&ei, bitErrorTable, NERRORINFO,
-                     sizeof(struct errorinfo), cmpErrorInfo);
-        if (pei == NULL) {
-                /* Nothing found */
-                return 0;
+    struct errorinfo *pei;
+    struct errorinfo ei;
+    int bitpos0, bitpos1, offset, res;
+    ei.syndrome = modesChecksum(msg, bits);
+    ei.pos0 = -1;
+    ei.pos1 = -1;
+    pei = bsearch(&ei, bitErrorTable, NERRORINFO,
+                  sizeof(struct errorinfo), cmpErrorInfo);
+    if (pei == NULL) {
+        return 0; // No syndrome found
+    }
+    res = 0;
+    offset = MODES_LONG_MSG_BITS-bits;
+    bitpos0 = pei->pos0 - offset;
+    if ((bitpos0 < 0) || (bitpos0 >= bits)) {
+        return 0;
+    }
+    msg[(bitpos0 >> 3)] ^= (1 << (7 - (bitpos0 & 7)));
+    res++;
+    if (pei->pos1 >= 0) { /* two-bit error pattern */
+        bitpos1 = pei->pos1 - offset;
+        if ((bitpos1 < 0) || (bitpos1 >= bits)) {
+            return 0;
         }
-        offset = MODES_LONG_MSG_BITS-bits;
-        bitpos0 = pei->pos0;
-        bitpos1 = pei->pos1;
-        res = 0;
-        if (bitpos1 >= 0) { /* two-bit error pattern */
-                bitpos0 -= offset;
-                bitpos1 -= offset;
-                if ((bitpos0 < 0) || (bitpos0 >= bits) ||
-                    (bitpos1 < 0) || (bitpos1 >= bits)) {
-                        return res;
-                }
-                res +=flipBit(msg, bits, bitpos0);
-                if (bitpos0 != bitpos1) {
-                        res += flipBit(msg, bits, bitpos1);
-                        return res;
-                }
-                return res;
-        } else {
-                bitpos0 -= offset;
-                if ((bitpos0 < 0) || (bitpos0 >= bits)) {
-                        return res;
-                }
-                res += flipBit(msg, bits, bitpos0);
-                return res;
-        }
+        msg[(bitpos1 >> 3)] ^= (1 << (7 - (bitpos1 & 7)));
+        res++;
+    }
+    return res;
 }
 
 /* Code for testing the timing: run all possible 1- and 2-bit error 
@@ -1653,6 +1653,18 @@ char *ca_str[8] = {
     /* 7 */ "Level 7 ???"
 };
 
+// DF 18 Control field table.
+char *cf_str[8] = {
+    /* 0 */ "ADS-B ES/NT device with ICAO 24-bit address",
+    /* 1 */ "ADS-B ES/NT device with other address",
+    /* 2 */ "Fine format TIS-B",
+    /* 3 */ "Coarse format TIS-B",
+    /* 4 */ "TIS-B managment message",
+    /* 5 */ "TIS-B relay of ADS-B message with other address",
+    /* 6 */ "ADS-B rebroadcast using DF-17 message format",
+    /* 7 */ "Reserved"
+};
+
 /* Flight status table. */
 char *fs_str[8] = {
     /* 0 */ "Normal, Airborne",
@@ -1707,10 +1719,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->msgtype         = msg[0] >> 3; // Downlink Format
     mm->msgbits         = modesMessageLenByType(mm->msgtype);
     mm->correctedbits   = 0; // No errors fixed
-    mm->phase_corrected =  0;
+    mm->phase_corrected = 0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
-    if ((mm->crc) && (Modes.fix_errors) &&  (mm->msgtype == 17)) {
+    if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
 //  if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
         //
         // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to 
@@ -1723,9 +1735,12 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         // IID against known good IID's. That's a TODO.
         //
         mm->correctedbits = fixBitErrors(msg, mm->msgbits);
-        //if ((mm->errorbit == -1) && (Modes.aggressive)) {
-        //    mm->errorbit = fixTwoBitsErrors(msg, mm->msgbits);
-        //}
+        // If we correct, validate ICAO addr to help filter birthday paradox solutions.
+        if (mm->correctedbits) {
+            uint32_t addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+            if (!ICAOAddressWasRecentlySeen(addr))
+                mm->correctedbits = 0;
+        }
     }
     //
     // Note that most of the other computation happens *after* we fix the 
@@ -1735,6 +1750,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->crcok = (mm->crc < 80);
         mm->iid   =  mm->crc;
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+        mm->ca    = (msg[0] & 0x07); // Responder capabilities
 
         if (0 == mm->crc) {
             // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
@@ -1744,15 +1760,20 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     } else if (mm->msgtype == 17) { // DF 17
         mm->crcok = (mm->crc == 0);
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+        mm->ca    = (msg[0] & 0x07); // Responder capabilities
 
-        if        (0 != mm->correctedbits) {
-            // DF 17 : if (error corrected) force crc = 0 but do not try to add this address 
-            //         to the whitelist of recently seen ICAO addresses.
-            mm->crc = 0;
+        if (0 == mm->crc) {
+            // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
+            addRecentlySeenICAOAddr(mm->addr);
+        }
 
-        } else if (0 == mm->crc) {
-            // DF 17 : if uncorrected and crc == 0 add this address to the whitelist of 
-            //         recently seen ICAO addresses.
+    } else if (mm->msgtype == 18) { // DF 18
+        mm->crcok = (mm->crc == 0);
+        mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+        mm->ca    = (msg[0] & 0x07); // Control Field
+
+        if (0 == mm->crc) {
+            // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
 
@@ -1773,8 +1794,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     }
 
     // Fields for DF11, DF17
-    if (mm->msgtype == 11  || mm->msgtype == 17) {
-        mm->ca = msg[0] & 0x07;                     // Responder capabilities
+    if (mm->msgtype == 11 || mm->msgtype == 17) {
         if (mm->ca == 4) {
             mm->bFlags |= MODES_ACFLAGS_AOG_VALID | MODES_ACFLAGS_AOG;
         } else if (mm->ca == 5) {
@@ -1813,8 +1833,9 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         }
     }
 
-    // Fields for DF17 squitter
-    if (mm->msgtype == 17) {
+    // Fields for DF17, DF18_CF0, DF18_CF1, DF18_CF6 squitters
+    if (  (mm->msgtype == 17) 
+      || ((mm->msgtype == 18) && ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)) )) {
          int metype = mm->metype = msg[4] >> 3;   // Extended squitter message type
          int mesub  = mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
 
@@ -1971,7 +1992,7 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 
     // Show the raw message.
-    if (Modes.mlat) {
+    if (Modes.mlat && mm->timestampMsg) {
         printf("@");
         pTimeStamp = (unsigned char *) &mm->timestampMsg;
         for (j=5; j>=0;j--) {
@@ -2107,6 +2128,65 @@ void displayModesMessage(struct modesMessage *mm) {
 
     } else if (mm->msgtype == 18) { // DF 18 
         printf("DF 18: Extended Squitter.\n");
+        printf("  Control Field : %d (%s)\n", mm->ca, cf_str[mm->ca]);
+        if ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)) {
+            if (mm->ca == 1) {
+                printf("  Other Address : %06x\n", mm->addr);
+            } else {
+                printf("  ICAO Address  : %06x\n", mm->addr);
+            }
+            printf("  Extended Squitter  Type: %d\n", mm->metype);
+            printf("  Extended Squitter  Sub : %d\n", mm->mesub);
+            printf("  Extended Squitter  Name: %s\n", getMEDescription(mm->metype, mm->mesub));
+
+            // Decode the extended squitter message
+            if (mm->metype >= 1 && mm->metype <= 4) { // Aircraft identification
+                printf("    Aircraft Type  : %c%d\n", ('A' + 4 - mm->metype), mm->mesub);
+                printf("    Identification : %s\n", mm->flight);
+
+          //} else if (mm->metype >= 5 && mm->metype <= 8) { // Surface position
+
+            } else if (mm->metype >= 9 && mm->metype <= 18) { // Airborne position Baro
+                printf("    F flag   : %s\n", (mm->msg[6] & 0x04) ? "odd" : "even");
+                printf("    T flag   : %s\n", (mm->msg[6] & 0x08) ? "UTC" : "non-UTC");
+                printf("    Altitude : %d feet\n", mm->altitude);
+                if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                    printf("    Latitude : %f\n", mm->fLat);
+                    printf("    Longitude: %f\n", mm->fLon);
+                } else {
+                    printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+                    printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
+                }
+
+            } else if (mm->metype == 19) { // Airborne Velocity
+                if (mm->mesub == 1 || mm->mesub == 2) {
+                    printf("    EW status         : %s\n", (mm->bFlags & MODES_ACFLAGS_EWSPEED_VALID)  ? "Valid" : "Unavailable");
+                    printf("    EW velocity       : %d\n", mm->ew_velocity);
+                    printf("    NS status         : %s\n", (mm->bFlags & MODES_ACFLAGS_NSSPEED_VALID)  ? "Valid" : "Unavailable");
+                    printf("    NS velocity       : %d\n", mm->ns_velocity);
+                    printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
+                    printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
+                    printf("    Vertical rate     : %d\n", mm->vert_rate);
+
+                } else if (mm->mesub == 3 || mm->mesub == 4) {
+                    printf("    Heading status    : %s\n", (mm->bFlags & MODES_ACFLAGS_HEADING_VALID)  ? "Valid" : "Unavailable");
+                    printf("    Heading           : %d\n", mm->heading);
+                    printf("    Airspeed status   : %s\n", (mm->bFlags & MODES_ACFLAGS_SPEED_VALID)    ? "Valid" : "Unavailable");
+                    printf("    Airspeed          : %d\n", mm->velocity);
+                    printf("    Vertical status   : %s\n", (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) ? "Valid" : "Unavailable");
+                    printf("    Vertical rate src : %d\n", ((mm->msg[8] >> 4) & 1));
+                    printf("    Vertical rate     : %d\n", mm->vert_rate);
+
+                } else {
+                    printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
+                }
+
+          //} else if (mm->metype >= 20 && mm->metype <= 22) { // Airborne position GNSS
+
+            } else {
+                printf("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
+            }
+        }             
 
     } else if (mm->msgtype == 19) { // DF 19
         printf("DF 19: Military Extended Squitter.\n");
@@ -2462,7 +2542,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             // Update statistics
             if (Modes.stats) {
-                if (mm.crcok || use_correction) {
+                if (mm.crcok || use_correction || mm.correctedbits) {
                     if (errors == 0) Modes.stat_demodulated++;
                     if (mm.correctedbits == 0) {
                         if (mm.crcok) {Modes.stat_goodcrc++;}
@@ -2539,7 +2619,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 // processing and visualization
 //
 void useModesMessage(struct modesMessage *mm) {
-    if ((Modes.check_crc == 0) || (mm->crcok)) {
+    if ((Modes.check_crc == 0) || (mm->crcok) || (mm->correctedbits)) { // not checking, ok or fixed
 
         // Track aircrafts if...
         if ( (Modes.interactive)          //       in interactive mode
@@ -2913,7 +2993,9 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
 struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     struct aircraft *a, *aux;
 
-    if (Modes.check_crc && mm->crcok == 0) return NULL;
+    // Return if (checking crc) AND (not crcok) AND (not fixed)
+    if (Modes.check_crc && (mm->crcok == 0) && (mm->correctedbits == 0)) 
+        return NULL;
 
     // Loookup our aircraft or create a new one
     a = interactiveFindAircraft(mm->addr);
@@ -3192,14 +3274,14 @@ void snipMode(int level) {
 }
 
 /* ============================= Networking =================================
- * Note: here we risregard any kind of good coding practice in favor of
+ * Note: here we disregard any kind of good coding practice in favor of
  * extreme simplicity, that is:
  *
  * 1) We only rely on the kernel buffers for our I/O without any kind of
  *    user space buffering.
  * 2) We don't register any kind of event handler, from time to time a
  *    function gets called and we accept new connections. All the rest is
- *    handled via non-blocking I/O and manually pullign clients to see if
+ *    handled via non-blocking I/O and manually polling clients to see if
  *    they have something new to share with us when reading is needed.
  */
 
@@ -3354,14 +3436,14 @@ void modesSendRawOutput(struct modesMessage *mm) {
     int j;
     unsigned char * pTimeStamp;
 
-    if (Modes.mlat) {
+    if (Modes.mlat && mm->timestampMsg) {
         *p++ = '@';
         pTimeStamp = (unsigned char *) &mm->timestampMsg;
         for (j = 5; j >= 0; j--) {
             sprintf(p, "%02X", pTimeStamp[j]);
             p += 2;
         }
-    Modes.rawOutUsed += 12; // additional 12 characters for timestamp
+        Modes.rawOutUsed += 12; // additional 12 characters for timestamp
     } else
         *p++ = '*';
 
@@ -3426,7 +3508,7 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     p += sprintf(p, "MSG,%d,111,11111,%06X,111111,", msgType, mm->addr); 
 
     // Fields 7 & 8 are the current time and date
-    if (mm->timestampMsg != (uint64_t)(-1)) {                     // Make sure the records' timestamp is valid before outputing it
+    if (mm->timestampMsg) {                                       // Make sure the records' timestamp is valid before outputing it
         epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
         offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
         offset   = offset / 12000;                                // convert to milliseconds
@@ -3556,7 +3638,7 @@ int decodeHexMessage(struct client *c) {
     // Mixing of data from two or more different receivers and publishing
     // as coming from one would lead to corrupt mlat data
     // Non timemarked internet data has indeterminate delay
-    mm.timestampMsg = -1;
+    mm.timestampMsg =  0;
     mm.signalLevel  = -1;
 
     // Remove spaces on the left and on the right
@@ -3569,7 +3651,7 @@ int decodeHexMessage(struct client *c) {
 
     // Turn the message into binary.
     // Accept *-AVR raw @-AVR/BEAST timeS+raw %-AVR timeS+raw (CRC good) <-BEAST timeS+sigL+raw
-    // and some AVR recorer that we can understand
+    // and some AVR records that we can understand
     if (hex[l-1] != ';') {return (0);} // not complete - abort
 
     switch(hex[0]) {
@@ -3578,11 +3660,9 @@ int decodeHexMessage(struct client *c) {
             hex += 15; l -= 16; // Skip <, timestamp and siglevel, and ;
             break;}
 
-        case '@':
-        case '%':
-        case '#':
-        case '$': {
-            hex += 13; l -= 14; // Skip @,%,#,$, and timestamp, and ;
+        case '@':     // No CRC check
+        case '%': {   // CRC is OK
+            hex += 13; l -= 14; // Skip @,%, and timestamp, and ;
             break;}
 
         case '*':
@@ -4140,7 +4220,12 @@ int main(int argc, char **argv) {
         printf("%d total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
-    rtlsdr_cancel_async(Modes.dev);  // Cancel rtlsdr_read_async will cause data input thread to terminate cleanly
-    rtlsdr_close(Modes.dev);
-    exit (0);
+    if (Modes.filename == NULL) {
+        rtlsdr_cancel_async(Modes.dev);  // Cancel rtlsdr_read_async will cause data input thread to terminate cleanly
+        rtlsdr_close(Modes.dev);
+    }
+    pthread_cond_destroy(&Modes.data_cond);     // Thread cleanup
+    pthread_mutex_destroy(&Modes.data_mutex);
+    pthread_join(Modes.reader_thread,NULL);     // Wait on reader thread exit
+    pthread_exit(0);
 }
