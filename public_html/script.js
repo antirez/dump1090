@@ -1,8 +1,8 @@
 // Define our global variables
 var GoogleMap     = null;
-var CenterLat     = 45.0;
-var CenterLon     = 9.0;
-var ZoomLvl       = 5;
+var CenterLat     = 35.21928;
+var CenterLon     = -80.94406;
+var ZoomLvl       = 9;
 var Planes        = {};
 var PlanesOnMap   = 0;
 var PlanesOnTable = 0;
@@ -42,7 +42,9 @@ planeObject = {
 
 	// GMap Details
 	marker		: null,
-	trackdata	: null,
+	lines		: [],
+	trackdata	: new Array(),
+	trackline	: new Array(),
 
 	// When was this last updated?
 	updated		: null,
@@ -52,6 +54,18 @@ planeObject = {
 	// Only useful for a long running browser session.
 	funcAddToTrack	: function(){
 			// TODO: Write this function out
+			this.trackdata.push([this.latitude, this.longitude, this.altitude, this.track, this.speed]);
+			this.trackline.push(new google.maps.LatLng(this.latitude, this.longitude));
+		},
+
+	// This is to remove the line from the screen if we deselect the plane
+	funcClearLine	: function() {
+			console.log("Clearing line for: " + this.icao);
+			if (this.line) {
+				this.line.setMap(null);
+				this.line = null;
+				x = 2 + 2;
+			}
 		},
 
 	// Should create an icon for us to use on the map...
@@ -71,7 +85,7 @@ planeObject = {
 
 	// TODO: Trigger actions of a selecting a plane
 	funcSelectPlane	: function(selectedPlane){
-			
+			selectPlaneByHex(this.icao);
 		},
 
 	// Update our data
@@ -102,6 +116,10 @@ planeObject = {
 					this.marker.setMap(null);
 					this.marker = null;
 				}
+				if (this.line) {
+					this.line.setMap(null);
+					this.line = null;
+				}
 				if (SelectedPlane == this.icao) {
 					SelectedPlane = null;
 				}
@@ -131,6 +149,9 @@ planeObject = {
 				}
 				if ((changeLat == true) || (changeLon == true) || (changeAlt == true)) {
 					this.funcAddToTrack();
+					if (this.icao == SelectedPlane) {
+						this.line = this.funcUpdateLines();
+					}
 				}
 				this.marker = this.funcUpdateMarker();
 				PlanesOnMap++;
@@ -158,6 +179,9 @@ planeObject = {
 					visable: true,
 				});
 
+				// This is so we can match icao address
+				this.marker.icao = this.icao;
+
 				// Trap clicks for this marker.
 				google.maps.event.addListener(this.marker, 'click', this.funcSelectPlane);
 			}
@@ -169,6 +193,26 @@ planeObject = {
 				this.marker.setTitle(this.flight+' ('+this.icao+')');
 			}
 			return this.marker;
+		},
+
+	// Update our planes tail line,
+	// TODO: Make this multi colored based on options
+	//		altitude (default) or speed
+	funcUpdateLines: function() {
+			if (this.line) {
+				var path = this.line.getPath();
+				path.push(new google.maps.LatLng(this.latitude, this.longitude));
+			} else {
+				console.log("Starting new line");
+				this.line = new google.maps.Polyline({
+					strokeColor: '#000000',
+					strokeOpacity: 1.0,
+					strokeWeight: 3,
+					map: GoogleMap,
+					path: this.trackline,
+				});
+			}
+			return this.line;
 		},
 };
 
@@ -211,10 +255,19 @@ function initialize() {
 	// Styled Map to outline airports and highways
 	var styles = [
 		{
+			"featureType": "administrative",
 			"stylers": [
-				{ "visibility": "simplified" },
-				{ "weight": 1 },
-				{ "invert_lightness": true }
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "landscape",
+			"stylers": [
+				{ "visibility": "off" }
+			]
+		},{
+			"featureType": "poi",
+			"stylers": [
+				{ "visibility": "off" }
 			]
 		},{
 			"featureType": "road",
@@ -227,21 +280,37 @@ function initialize() {
 				{ "visibility": "off" }
 			]
 		},{
+			"featureType": "landscape",
+			"stylers": [
+				{ "visibility": "on" },
+				{ "weight": 8 },
+				{ "color": "#000000" }
+			]
+		},{
+			"featureType": "water",
+			"stylers": [
+			{ "lightness": -74 }
+			]
+		},{
 			"featureType": "transit.station.airport",
 			"stylers": [
 				{ "visibility": "on" },
+				{ "weight": 8 },
 				{ "invert_lightness": true },
-				{ "gamma": 0.43 }
+				{ "lightness": 27 }
 			]
 		},{
-			"featureType": "poi",
+			"featureType": "road.highway",
+			"stylers": [
+				{ "visibility": "simplified" },
+				{ "invert_lightness": true },
+				{ "gamma": 0.3 }
+			]
+		},{
+			"featureType": "road",
+			"elementType": "labels",
 			"stylers": [
 				{ "visibility": "off" }
-			]
-		},{
-			"featureType": "road.highway.controlled_access",
-			"stylers": [
-				{ "visibility": "simplified" }
 			]
 		}
 	]
@@ -505,5 +574,8 @@ function sortTable(szTableID,iCol) {
 }
 
 function selectPlaneByHex(hex) {
+	x = 2 + 2;
+	Planes[SelectedPlane].funcClearLine();
 	SelectedPlane = hex;
+
 }
