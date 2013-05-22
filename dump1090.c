@@ -998,7 +998,6 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
   if ((ModeABits < 3) || (ModeABits & 0xFFFF8808) || (ModeAErrs) )
     {return (ModeABits = 0);}
 
-  memset(mm, 0, sizeof(*mm));
   fSig            = (fSig + 0x7F) >> 8;
   mm->signalLevel = ((fSig < 255) ? fSig : 255);
 
@@ -1718,8 +1717,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     // Get the message type ASAP as other operations depend on this
     mm->msgtype         = msg[0] >> 3; // Downlink Format
     mm->msgbits         = modesMessageLenByType(mm->msgtype);
-    mm->correctedbits   = 0; // No errors fixed
-    mm->phase_corrected = 0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
     if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
@@ -2288,10 +2285,13 @@ void applyPhaseCorrection(uint16_t *pPayload) {
  * size 'mlen' bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it. */
 void detectModeS(uint16_t *m, uint32_t mlen) {
+    struct modesMessage mm;
     unsigned char msg[MODES_LONG_MSG_BYTES], *pMsg;
     uint16_t aux[MODES_LONG_MSG_SAMPLES];
     uint32_t j;
     int use_correction = 0;
+
+    memset(&mm, 0, sizeof(mm));
 
     /* The Mode S preamble is made of impulses of 0.5 microseconds at
      * the following time offsets:
@@ -2318,7 +2318,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      */
     for (j = 0; j < mlen; j++) {
         int high, i, errors, errors56, errorsTy; 
-        int good_message = 0;
         uint16_t *pPreamble, *pPayload, *pPtr;
         uint8_t  theByte, theErrs;
         int msglen, scanlen, sigStrength;
@@ -2326,12 +2325,18 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
 
+        // Rather than clear the whole mm structure, just clear the parts which are required. The clear
+        // is required for every bit of the input stream, and we don't want to be memset-ing the whole
+        // modesMessage structure two million times per second if we don't have to..
+        mm.bFlags          =
+        mm.crcok           = 
+        mm.correctedbits   = 0;
+
         if (!use_correction)  // This is not a re-try with phase correction
             {                 // so try to find a new preamble
 
             if (Modes.mode_ac) 
                 {
-                struct modesMessage mm;
                 int ModeA = detectModeA(pPreamble, &mm);
 
                 if (ModeA) // We have found a valid ModeA/C in the data                    
@@ -2529,13 +2534,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         if ( (msglen) 
           && (sigStrength >  MODES_MSG_SQUELCH_LEVEL) 
           && (errors      <= MODES_MSG_ENCODER_ERRS) ) {
-            struct modesMessage mm;
-            memset(&mm, 0, sizeof(mm));
 
             // Set initial mm structure details
             mm.timestampMsg = Modes.timestampBlk + (j*6);
             sigStrength    = (sigStrength + 0x7F) >> 8;
             mm.signalLevel = ((sigStrength < 255) ? sigStrength : 255);
+            mm.phase_corrected = use_correction;
 
             // Decode the received message
             decodeModesMessage(&mm, msg);
@@ -2575,9 +2579,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             // Skip this message if we are sure it's fine
             if (mm.crcok) {
                 j += (MODES_PREAMBLE_US+msglen)*2;
-                good_message = 1;
-                if (use_correction)
-                    mm.phase_corrected = 1;
             }
 
             // Pass data to the next layer
@@ -2591,7 +2592,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         }
 
         // Retry with phase correction if possible.
-        if (!good_message && !use_correction && j && detectOutOfPhase(pPreamble)) {
+        if (!mm.crcok && !mm.correctedbits && !use_correction && j && detectOutOfPhase(pPreamble)) {
             use_correction = 1; j--;
         } else {
             use_correction = 0; 
