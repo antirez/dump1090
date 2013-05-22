@@ -5,6 +5,10 @@
 		<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false"></script>
 		<!-- <script type="text/javascript" src="planeObject.js"></script> -->
 		<script type="text/javascript" src="script.js"></script>
+		<script type="text/javascript" src="coolclock/excanvas.js"></script>
+		<script type="text/javascript" src="coolclock/coolclock.js"></script>
+		<script type="text/javascript" src="coolclock/moreskins.js"></script>
+		
 	</head>
 	<body onload="initialize()">
 		<div id="map_container">
@@ -13,7 +17,18 @@
 		<div id="container_splitter"></div>
 		<div id="sidebar_container">
 			<div id="sidebar_canvas">
-				<div id="timestamps"></div>
+				<div id="timestamps" style="align: center">
+					<table width="100%"><tr>
+						<td>Local Time</td>
+						<td>
+							<canvas id="localclock" class="CoolClock:classic:40"></canvas>
+						</td>
+						<td>GMT Time</td>
+						<td>
+							<canvas id="gmtclock" class="CoolClock:classic:40::0"></canvas>
+						</td>
+					</tr></table>
+				</div>
 				<div id="plane_detail"></div>
 				<div id="options"></div>
 				<div id="planes_table"></div>

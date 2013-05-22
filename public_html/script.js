@@ -64,7 +64,6 @@ planeObject = {
 			if (this.line) {
 				this.line.setMap(null);
 				this.line = null;
-				x = 2 + 2;
 			}
 		},
 
@@ -108,8 +107,8 @@ planeObject = {
 			this.messages	= data.messages;
 			this.seen	= data.seen;
 
-            // If no packet in over 58 seconds, consider the plane reapable
-            // This way we can hold it, but not show it just in case the plane comes back
+			// If no packet in over 58 seconds, consider the plane reapable
+			// This way we can hold it, but not show it just in case the plane comes back
 			if (this.seen > 58) {
 				this.reapable = true;
 				if (this.marker) {
@@ -147,7 +146,8 @@ planeObject = {
 				if (oldalt != this.altitude) {
 					changeAlt = true;
 				}
-				if ((changeLat == true) || (changeLon == true) || (changeAlt == true)) {
+				// Right now we only care about lat/long, if alt is updated only, oh well
+				if ((changeLat == true) || (changeLon == true)) {
 					this.funcAddToTrack();
 					if (this.icao == SelectedPlane) {
 						this.line = this.funcUpdateLines();
@@ -574,8 +574,12 @@ function sortTable(szTableID,iCol) {
 }
 
 function selectPlaneByHex(hex) {
-	x = 2 + 2;
-	Planes[SelectedPlane].funcClearLine();
+	if (SelectedPlane != null) {
+		Planes[SelectedPlane].funcClearLine();
+	}
 	SelectedPlane = hex;
+	if (Planes[SelectedPlane].marker) {
+		Planes[SelectedPlane].funcUpdateLines();
+	}
 
 }
