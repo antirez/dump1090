@@ -1,7 +1,14 @@
+// "Constant" variables - Since there is no constants in make sure
+// not to change these CONST_ variables.
+var CONST_CENTERLAT = 45.0; // 45.0
+var CONST_CENTERLON = 9.0; // 9.0
+var CONST_ZOOMLVL   = 5; //5
+
+// Global variables
 var Map       = null;
-var CenterLat = 45.0;
-var CenterLon = 9.0;
-var ZoomLvl   = 5;
+var CenterLat = CONST_CENTERLAT;
+var CenterLon = CONST_CENTERLON;
+var ZoomLvl   = CONST_ZOOMLVL;
 var Planes    = {};
 var PlanesOnMap  = 0;
 var PlanesOnGrid = 0;
@@ -385,12 +392,12 @@ function toggleSettings() {
 }
 
 function resetMap() {
-    localStorage['CenterLat'] = 45.0;
-    localStorage['CenterLon'] = 9.0;
-    localStorage['ZoomLvl']   = 5;
-    CenterLat = 45.0;
-    CenterLon = 9.0;
-    ZoomLvl   = 5;
+    localStorage['CenterLat'] = CONST_CENTERLAT;
+    localStorage['CenterLon'] = CONST_CENTERLON;
+    localStorage['ZoomLvl']   = CONST_ZOOMLVL;
+    CenterLat = CONST_CENTERLAT;
+    CenterLon = CONST_CENTERLON;
+    ZoomLvl   = CONST_ZOOMLVL;
     Map.setZoom(parseInt(localStorage['ZoomLvl']));
     Map.setCenter(new google.maps.LatLng(parseFloat(localStorage['CenterLat']),
             parseFloat(localStorage['CenterLon'])));
