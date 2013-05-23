@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.06.2105.13"
+#define MODES_DUMP1090_VERSION     "1.06.2205.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -227,6 +227,7 @@ struct {
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
+    int phase_enhance;              /* Enable phase enhancement if true */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
     int raw;                        /* Raw output format. */
@@ -264,7 +265,10 @@ struct {
 
     /* Statistics */
     unsigned int stat_valid_preamble;
-    unsigned int stat_demodulated;
+    unsigned int stat_demodulated0;
+    unsigned int stat_demodulated1;
+    unsigned int stat_demodulated2;
+    unsigned int stat_demodulated3;
     unsigned int stat_goodcrc;
     unsigned int stat_badcrc;
     unsigned int stat_fixed;
@@ -273,6 +277,15 @@ struct {
     unsigned int stat_http_requests;
     unsigned int stat_sbs_connections;
     unsigned int stat_out_of_phase;
+    unsigned int stat_ph_demodulated0;
+    unsigned int stat_ph_demodulated1;
+    unsigned int stat_ph_demodulated2;
+    unsigned int stat_ph_demodulated3;
+    unsigned int stat_ph_goodcrc;
+    unsigned int stat_ph_badcrc;
+    unsigned int stat_ph_fixed;
+    unsigned int stat_ph_single_bit_fix;
+    unsigned int stat_ph_two_bits_fix;
     unsigned int stat_DF_Len_Corrected;
     unsigned int stat_DF_Type_Corrected;
     unsigned int stat_ModeAC;
@@ -998,7 +1011,6 @@ int detectModeA(uint16_t *m, struct modesMessage *mm)
   if ((ModeABits < 3) || (ModeABits & 0xFFFF8808) || (ModeAErrs) )
     {return (ModeABits = 0);}
 
-  memset(mm, 0, sizeof(*mm));
   fSig            = (fSig + 0x7F) >> 8;
   mm->signalLevel = ((fSig < 255) ? fSig : 255);
 
@@ -1718,8 +1730,6 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     // Get the message type ASAP as other operations depend on this
     mm->msgtype         = msg[0] >> 3; // Downlink Format
     mm->msgbits         = modesMessageLenByType(mm->msgtype);
-    mm->correctedbits   = 0; // No errors fixed
-    mm->phase_corrected = 0;
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
     if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
@@ -2288,10 +2298,13 @@ void applyPhaseCorrection(uint16_t *pPayload) {
  * size 'mlen' bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it. */
 void detectModeS(uint16_t *m, uint32_t mlen) {
+    struct modesMessage mm;
     unsigned char msg[MODES_LONG_MSG_BYTES], *pMsg;
     uint16_t aux[MODES_LONG_MSG_SAMPLES];
     uint32_t j;
     int use_correction = 0;
+
+    memset(&mm, 0, sizeof(mm));
 
     /* The Mode S preamble is made of impulses of 0.5 microseconds at
      * the following time offsets:
@@ -2318,7 +2331,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      */
     for (j = 0; j < mlen; j++) {
         int high, i, errors, errors56, errorsTy; 
-        int good_message = 0;
         uint16_t *pPreamble, *pPayload, *pPtr;
         uint8_t  theByte, theErrs;
         int msglen, scanlen, sigStrength;
@@ -2326,12 +2338,18 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         pPreamble = &m[j];
         pPayload  = &m[j+MODES_PREAMBLE_SAMPLES];
 
+        // Rather than clear the whole mm structure, just clear the parts which are required. The clear
+        // is required for every bit of the input stream, and we don't want to be memset-ing the whole
+        // modesMessage structure two million times per second if we don't have to..
+        mm.bFlags          =
+        mm.crcok           = 
+        mm.correctedbits   = 0;
+
         if (!use_correction)  // This is not a re-try with phase correction
             {                 // so try to find a new preamble
 
             if (Modes.mode_ac) 
                 {
-                struct modesMessage mm;
                 int ModeA = detectModeA(pPreamble, &mm);
 
                 if (ModeA) // We have found a valid ModeA/C in the data                    
@@ -2529,13 +2547,12 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         if ( (msglen) 
           && (sigStrength >  MODES_MSG_SQUELCH_LEVEL) 
           && (errors      <= MODES_MSG_ENCODER_ERRS) ) {
-            struct modesMessage mm;
-            memset(&mm, 0, sizeof(mm));
 
             // Set initial mm structure details
             mm.timestampMsg = Modes.timestampBlk + (j*6);
             sigStrength    = (sigStrength + 0x7F) >> 8;
             mm.signalLevel = ((sigStrength < 255) ? sigStrength : 255);
+            mm.phase_corrected = use_correction;
 
             // Decode the received message
             decodeModesMessage(&mm, msg);
@@ -2543,10 +2560,41 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             // Update statistics
             if (Modes.stats) {
                 if (mm.crcok || use_correction || mm.correctedbits) {
-                    if (errors == 0) Modes.stat_demodulated++;
+
+                    if (use_correction) {
+                        switch (errors) {
+                            case 0: {Modes.stat_ph_demodulated0++; break;}
+                            case 1: {Modes.stat_ph_demodulated1++; break;}
+                            case 2: {Modes.stat_ph_demodulated2++; break;}
+                            default:{Modes.stat_ph_demodulated3++; break;}
+                        }
+                    } else {
+                        switch (errors) {
+                            case 0: {Modes.stat_demodulated0++; break;}
+                            case 1: {Modes.stat_demodulated1++; break;}
+                            case 2: {Modes.stat_demodulated2++; break;}
+                            default:{Modes.stat_demodulated3++; break;}
+                        }
+                    }
+
                     if (mm.correctedbits == 0) {
-                        if (mm.crcok) {Modes.stat_goodcrc++;}
-                        else          {Modes.stat_badcrc++;}
+                        if (use_correction) {
+                            if (mm.crcok) {Modes.stat_ph_goodcrc++;}
+                            else          {Modes.stat_ph_badcrc++;}
+                        } else {
+                            if (mm.crcok) {Modes.stat_goodcrc++;}
+                            else          {Modes.stat_badcrc++;}
+                        }
+
+                    } else if (use_correction) {
+                        Modes.stat_ph_badcrc++;
+                        Modes.stat_ph_fixed++;
+                        if (mm.correctedbits == 1) {
+                            Modes.stat_ph_single_bit_fix++;
+                        } else if (mm.correctedbits == 2) {
+                            Modes.stat_ph_two_bits_fix++;
+                        }
+
                     } else {
                         Modes.stat_badcrc++;
                         Modes.stat_fixed++;
@@ -2575,9 +2623,6 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             // Skip this message if we are sure it's fine
             if (mm.crcok) {
                 j += (MODES_PREAMBLE_US+msglen)*2;
-                good_message = 1;
-                if (use_correction)
-                    mm.phase_corrected = 1;
             }
 
             // Pass data to the next layer
@@ -2590,8 +2635,8 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             }
         }
 
-        // Retry with phase correction if possible.
-        if (!good_message && !use_correction && j && detectOutOfPhase(pPreamble)) {
+        // Retry with phase correction if enabled, necessary and possible.
+        if (Modes.phase_enhance && !mm.crcok && !mm.correctedbits && !use_correction && j && detectOutOfPhase(pPreamble)) {
             use_correction = 1; j--;
         } else {
             use_correction = 0; 
@@ -3985,6 +4030,7 @@ void showHelp(void) {
 "--fix                    Enable single-bits error correction using CRC\n"
 "--no-fix                 Disable single-bits error correction using CRC\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged)\n"
+"--phase-enhance          Enable phase enhancement\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...)\n"
 "--mlat                   display raw messages in Beast ascii mode\n"
 "--stats                  With --ifile print stats at exit. No other output\n"
@@ -4063,6 +4109,8 @@ int main(int argc, char **argv) {
             Modes.aggressive = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
             Modes.check_crc = 0;
+        } else if (!strcmp(argv[j],"--phase-enhance")) {
+            Modes.phase_enhance = 1;
         } else if (!strcmp(argv[j],"--raw")) {
             Modes.raw = 1;
         } else if (!strcmp(argv[j],"--net")) {
@@ -4206,18 +4254,30 @@ int main(int argc, char **argv) {
     // If --stats were given, print statistics
     if (Modes.stats) {
         printf("\n\n");
-        printf("%d ModeA/C detected\n",                         Modes.stat_ModeAC);
-        printf("%d valid preambles\n",                          Modes.stat_valid_preamble);
-        printf("%d DF-?? fields corrected for length\n",        Modes.stat_DF_Len_Corrected);
-        printf("%d DF-?? fields corrected for type\n",          Modes.stat_DF_Type_Corrected);
-        printf("%d demodulated again after phase correction\n", Modes.stat_out_of_phase);
-        printf("%d demodulated with zero errors\n",             Modes.stat_demodulated);
-        printf("%d with good crc\n",                            Modes.stat_goodcrc);
-        printf("%d with bad crc\n",                             Modes.stat_badcrc);
-        printf("%d errors corrected\n",                         Modes.stat_fixed);
-        printf("%d single bit errors\n",                        Modes.stat_single_bit_fix);
-        printf("%d two bits errors\n",                          Modes.stat_two_bits_fix);
-        printf("%d total usable messages\n",                    Modes.stat_goodcrc + Modes.stat_fixed);
+        printf("%d ModeA/C detected\n",                           Modes.stat_ModeAC);
+        printf("%d valid Mode-S preambles\n",                     Modes.stat_valid_preamble);
+        printf("%d DF-?? fields corrected for length\n",          Modes.stat_DF_Len_Corrected);
+        printf("%d DF-?? fields corrected for type\n",            Modes.stat_DF_Type_Corrected);
+        printf("%d demodulated with 0 errors\n",                  Modes.stat_demodulated0);
+        printf("%d demodulated with 1 error\n",                   Modes.stat_demodulated1);
+        printf("%d demodulated with 2 errors\n",                  Modes.stat_demodulated2);
+        printf("%d demodulated with > 2 errors\n",                Modes.stat_demodulated3);
+        printf("%d with good crc\n",                              Modes.stat_goodcrc);
+        printf("%d with bad crc\n",                               Modes.stat_badcrc);
+        printf("%d errors corrected\n",                           Modes.stat_fixed);
+        printf("%d single bit errors\n",                          Modes.stat_single_bit_fix);
+        printf("%d two bits errors\n",                            Modes.stat_two_bits_fix);
+        printf("%d phase enhancement attempts\n",                 Modes.stat_out_of_phase);
+        printf("%d phase enhanced demodulated with 0 errors\n",   Modes.stat_ph_demodulated0);
+        printf("%d phase enhanced demodulated with 1 error\n",    Modes.stat_ph_demodulated1);
+        printf("%d phase enhanced demodulated with 2 errors\n",   Modes.stat_ph_demodulated2);
+        printf("%d phase enhanced demodulated with > 2 errors\n", Modes.stat_ph_demodulated3);
+        printf("%d phase enhanced with good crc\n",               Modes.stat_ph_goodcrc);
+        printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
+        printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
+        printf("%d phase enhanced single bit errors\n",           Modes.stat_ph_single_bit_fix);
+        printf("%d phase enhanced two bits errors\n",             Modes.stat_ph_two_bits_fix);
+        printf("%d total usable messages\n",                      Modes.stat_goodcrc + Modes.stat_ph_goodcrc + Modes.stat_fixed + Modes.stat_ph_fixed);
     }
 
     if (Modes.filename == NULL) {
