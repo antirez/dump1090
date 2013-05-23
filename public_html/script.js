@@ -1,8 +1,12 @@
+if (typeof(developerSettings) === 'undefined') { // If not developers
+
 // "Constant" variables - Since there is no constants in make sure
 // not to change these CONST_ variables.
 var CONST_CENTERLAT = 45.0; // 45.0
 var CONST_CENTERLON = 9.0; // 9.0
 var CONST_ZOOMLVL   = 5; //5
+
+} // End of !developerSettings
 
 // Global variables
 var Map       = null;
