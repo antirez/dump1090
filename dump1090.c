@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.06.2305.13"
+#define MODES_DUMP1090_VERSION     "1.07.2305.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -146,11 +146,13 @@
 #define MODES_INTERACTIVE_TTL 60                /* TTL before being removed */
 
 #define MODES_NET_MAX_FD 1024
-#define MODES_NET_OUTPUT_SBS_PORT 30003
-#define MODES_NET_OUTPUT_RAW_PORT 30002
-#define MODES_NET_INPUT_RAW_PORT 30001
-#define MODES_NET_HTTP_PORT 8080
-#define MODES_CLIENT_BUF_SIZE 1024
+#define MODES_NET_INPUT_RAW_PORT    30001
+#define MODES_NET_OUTPUT_RAW_PORT   30002
+#define MODES_NET_OUTPUT_SBS_PORT   30003
+#define MODES_NET_INPUT_BEAST_PORT  30004
+#define MODES_NET_OUTPUT_BEAST_PORT 30005
+#define MODES_NET_HTTP_PORT          8080
+#define MODES_CLIENT_BUF_SIZE  1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #ifndef HTMLPATH
@@ -229,9 +231,13 @@ struct {
     int sbsos;                      /* SBS output listening socket. */
     int ros;                        /* Raw output listening socket. */
     int ris;                        /* Raw input listening socket. */
+    int bos;                        /* Beast output listening socket */
+    int bis;                        /* Beast input listening socket */
     int https;                      /* HTTP listening socket. */
     char * rawOut;                  /* Buffer for building raw output data */
     int rawOutUsed;                 /* How much if the buffer is currently used */
+    char *beastOut;                 /* Buffer for building beast output data */
+    int beastOutUsed;               /* How much if the buffer is currently used */
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
@@ -250,6 +256,8 @@ struct {
     int net_output_raw_rate_count;  /* Rate (in 64mS increments) of output raw data */     
     int net_output_raw_port;        /* Raw output TCP port. */
     int net_input_raw_port;         /* Raw input TCP port. */
+    int net_output_beast_port;      /* Beast output TCP port */
+    int net_input_beast_port;       /* Beast input TCP port */
     int net_http_port;              /* HTTP port. */
     int quiet;                      /* Suppress stdout */
     int interactive;                /* Interactive mode */
@@ -286,6 +294,8 @@ struct {
 							
     unsigned int stat_http_requests;
     unsigned int stat_sbs_connections;
+    unsigned int stat_raw_connections;
+    unsigned int stat_beast_connections;
     unsigned int stat_out_of_phase;
     unsigned int stat_ph_demodulated0;
     unsigned int stat_ph_demodulated1;
@@ -316,6 +326,7 @@ struct modesMessage {
     uint32_t      addr;                           // ICAO Address from bytes 1 2 and 3
     int           phase_corrected;                // True if phase correction was applied
     uint64_t      timestampMsg;                   // Timestamp of the message
+    int           remote;                         // If set this message is from a remote station
     unsigned char signalLevel;                    // Signal Amplitude
 
     // DF 11
@@ -353,7 +364,7 @@ void modesSendRawOutput(struct modesMessage *mm);
 void modesSendBeastOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm);
 void useModesMessage(struct modesMessage *mm);
-int fixBitErrors(unsigned char *msg, int bits, int maxfixable, int *bitpos);
+int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 void modesInitErrorInfo();
@@ -384,17 +395,19 @@ void modesInitConfig(void) {
     memset(&Modes, 0, sizeof(Modes));
 
     // Now initialise things that should not be 0/NULL to their defaults
-    Modes.gain                = MODES_MAX_GAIN;
-    Modes.freq                = MODES_DEFAULT_FREQ;
-    Modes.check_crc           = 1;
-    Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
-    Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
-    Modes.net_input_raw_port  = MODES_NET_INPUT_RAW_PORT;
-    Modes.net_http_port       = MODES_NET_HTTP_PORT;
-    Modes.interactive_rows    = MODES_INTERACTIVE_ROWS;
-    Modes.interactive_ttl     = MODES_INTERACTIVE_TTL;
-    Modes.fUserLat            = MODES_USER_LATITUDE_DFLT;
-    Modes.fUserLon            = MODES_USER_LONGITUDE_DFLT;
+    Modes.gain                  = MODES_MAX_GAIN;
+    Modes.freq                  = MODES_DEFAULT_FREQ;
+    Modes.check_crc             = 1;
+    Modes.net_output_sbs_port   = MODES_NET_OUTPUT_SBS_PORT;
+    Modes.net_output_raw_port   = MODES_NET_OUTPUT_RAW_PORT;
+    Modes.net_input_raw_port    = MODES_NET_INPUT_RAW_PORT;
+    Modes.net_output_beast_port = MODES_NET_OUTPUT_BEAST_PORT;
+    Modes.net_input_beast_port  = MODES_NET_INPUT_BEAST_PORT;
+    Modes.net_http_port         = MODES_NET_HTTP_PORT;
+    Modes.interactive_rows      = MODES_INTERACTIVE_ROWS;
+    Modes.interactive_ttl       = MODES_INTERACTIVE_TTL;
+    Modes.fUserLat              = MODES_USER_LATITUDE_DFLT;
+    Modes.fUserLon              = MODES_USER_LONGITUDE_DFLT;
 }
 
 void modesInit(void) {
@@ -408,6 +421,7 @@ void modesInit(void) {
          ((Modes.data       = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE)                                         ) == NULL) ||
          ((Modes.magnitude  = (uint16_t *) malloc(MODES_ASYNC_BUF_SIZE+MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE) ) == NULL) ||
          ((Modes.maglut     = (uint16_t *) malloc(sizeof(uint16_t) * 256 * 256)                                 ) == NULL) ||
+         ((Modes.beastOut   = (char     *) malloc(MODES_RAWOUT_BUF_SIZE)                                        ) == NULL) ||
          ((Modes.rawOut     = (char     *) malloc(MODES_RAWOUT_BUF_SIZE)                                        ) == NULL) ) 
     {
         fprintf(stderr, "Out of memory allocating data buffer.\n");
@@ -2649,13 +2663,19 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
     }
 
     //Send any remaining partial raw buffers now
-    if (Modes.rawOutUsed)
+    if (Modes.rawOutUsed || Modes.beastOutUsed)
       {
       Modes.net_output_raw_rate_count++;
       if (Modes.net_output_raw_rate_count > Modes.net_output_raw_rate)
         {
-        modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
-        Modes.rawOutUsed = 0;
+        if (Modes.rawOutUsed) {
+            modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
+            Modes.rawOutUsed = 0;
+        }
+        if (Modes.beastOutUsed) {
+            modesSendAllClients(Modes.bos, Modes.beastOut, Modes.beastOutUsed);
+            Modes.beastOutUsed = 0;
+        }
         Modes.net_output_raw_rate_count = 0;
         }
       }
@@ -2684,19 +2704,10 @@ void useModesMessage(struct modesMessage *mm) {
             displayModesMessage(mm);
         }
 
-        // Feed SBS output clients
-        if (Modes.stat_sbs_connections) {
-            modesSendSBSOutput(mm);
-        }
-
-        // Send data to connected network clients
-        if (Modes.net) {
-            if (Modes.beast) {
-                modesSendBeastOutput(mm);
-            } else {
-                modesSendRawOutput(mm);
-            }
-        }
+        // Feed output clients
+        if (Modes.stat_sbs_connections)   {modesSendSBSOutput(mm);}
+        if (Modes.stat_beast_connections) {modesSendBeastOutput(mm);}
+        if (Modes.stat_raw_connections)   {modesSendRawOutput(mm);}
     }
 }
 
@@ -3346,9 +3357,11 @@ void modesInitNet(void) {
         char *descr;
         int *socket;
         int port;
-    } services[4] = {
+    } services[6] = {
         {"Raw TCP output", &Modes.ros, Modes.net_output_raw_port},
         {"Raw TCP input", &Modes.ris, Modes.net_input_raw_port},
+        {"Beast TCP output", &Modes.bos, Modes.net_output_beast_port},
+        {"Beast TCP input", &Modes.bis, Modes.net_input_beast_port},
         {"HTTP server", &Modes.https, Modes.net_http_port},
         {"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port}
     };
@@ -3357,7 +3370,7 @@ void modesInitNet(void) {
     memset(Modes.clients,0,sizeof(Modes.clients));
     Modes.maxfd = -1;
 
-    for (j = 0; j < 4; j++) {
+    for (j = 0; j < 6; j++) {
         int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
@@ -3378,12 +3391,14 @@ void modesAcceptClients(void) {
     int fd, port;
     unsigned int j;
     struct client *c;
-    int services[4];
+    int services[6];
 
     services[0] = Modes.ros;
     services[1] = Modes.ris;
-    services[2] = Modes.https;
-    services[3] = Modes.sbsos;
+    services[2] = Modes.bos;
+    services[3] = Modes.bis;
+    services[4] = Modes.https;
+    services[5] = Modes.sbsos;
 
     for (j = 0; j < sizeof(services)/sizeof(int); j++) {
         fd = anetTcpAccept(Modes.aneterr, services[j], NULL, &port);
@@ -3404,6 +3419,8 @@ void modesAcceptClients(void) {
 
         if (Modes.maxfd < fd) Modes.maxfd = fd;
         if (services[j] == Modes.sbsos) Modes.stat_sbs_connections++;
+        if (services[j] == Modes.ros)   Modes.stat_raw_connections++;
+        if (services[j] == Modes.bos)   Modes.stat_beast_connections++;
 
         j--; /* Try again with the same listening port. */
 
@@ -3415,6 +3432,15 @@ void modesAcceptClients(void) {
 /* On error free the client, collect the structure, adjust maxfd if needed. */
 void modesFreeClient(int fd) {
     close(fd);
+    if (Modes.clients[fd]->service == Modes.sbsos) {
+        if (Modes.stat_sbs_connections) Modes.stat_sbs_connections--;
+    }
+    else if (Modes.clients[fd]->service == Modes.ros) {
+        if (Modes.stat_raw_connections) Modes.stat_raw_connections--;
+    }
+    else if (Modes.clients[fd]->service == Modes.bos) {
+        if (Modes.stat_beast_connections) Modes.stat_beast_connections--;
+    }
     free(Modes.clients[fd]);
     Modes.clients[fd] = NULL;
 
@@ -3451,7 +3477,7 @@ void modesSendAllClients(int service, void *msg, int len) {
 
 /* Write raw output in Beast Binary format with Timestamp to TCP clients */
 void modesSendBeastOutput(struct modesMessage *mm) {
-    char *p = &Modes.rawOut[Modes.rawOutUsed];
+    char *p = &Modes.beastOut[Modes.beastOutUsed];
     int  msgLen = mm->msgbits / 8;
     char * pTimeStamp;
     int  j;
@@ -3475,11 +3501,11 @@ void modesSendBeastOutput(struct modesMessage *mm) {
 
     memcpy(p, mm->msg, msgLen);
 
-    Modes.rawOutUsed += (msgLen + 9);
-    if (Modes.rawOutUsed >= Modes.net_output_raw_size)
+    Modes.beastOutUsed += (msgLen + 9);
+    if (Modes.beastOutUsed >= Modes.net_output_raw_size)
       {
-      modesSendAllClients(Modes.ros, Modes.rawOut, Modes.rawOutUsed);
-      Modes.rawOutUsed = 0;
+      modesSendAllClients(Modes.bos, Modes.beastOut, Modes.beastOutUsed);
+      Modes.beastOutUsed = 0;
       Modes.net_output_raw_rate_count = 0;
       }
 }
@@ -3665,42 +3691,80 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     p += sprintf(p, "\r\n");
     modesSendAllClients(Modes.sbsos, msg, p-msg);
 }
+//
+// This function decodes a Beast binary format message
+// 
+// The message is passed to the higher level layers, so it feeds
+// the selected screen output, the network output and so forth.
+// 
+// If the message looks invalid it is silently discarded.
+//
+// The function always returns 0 (success) to the caller as there is no 
+// case where we want broken messages here to close the client connection.
+int decodeBinMessage(struct client *c, char *p) {
+    int msgLen = 0;
+    unsigned char msg[MODES_LONG_MSG_BYTES];
+    struct modesMessage mm;
+    MODES_NOTUSED(c);
+    memset(&mm, 0, sizeof(mm));
 
-/* Turn an hex digit into its 4 bit decimal value.
- * Returns -1 if the digit is not in the 0-F range. */
+    if ((*p == '1') && (Modes.mode_ac)) { // skip ModeA/C unless user enables --modes-ac
+        msgLen = MODEAC_MSG_BYTES;
+    } else if (*p == '2') {
+        msgLen = MODES_SHORT_MSG_BYTES;
+    } else if (*p == '3') {
+        msgLen = MODES_LONG_MSG_BYTES;
+    }
+
+    if (msgLen) {
+        // Mark messages received over the internet as remote so that we don't try to
+        // pass them off as being received by this instance when forwarding them
+        mm.remote      =    1;
+        p += 7;                 // Skip the timestamp       
+        mm.signalLevel = *p++;  // Grab the signal level
+        memcpy(msg, p, msgLen); // and the data
+
+        if (msgLen == MODEAC_MSG_BYTES) { // ModeA or ModeC
+            decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1])); 
+        } else {
+            decodeModesMessage(&mm, msg);
+        }
+    
+        useModesMessage(&mm);
+    }
+    return (0);
+}
+//
+// Turn an hex digit into its 4 bit decimal value.
+// Returns -1 if the digit is not in the 0-F range.
 int hexDigitVal(int c) {
     c = tolower(c);
     if (c >= '0' && c <= '9') return c-'0';
     else if (c >= 'a' && c <= 'f') return c-'a'+10;
     else return -1;
 }
-
-/* This function decodes a string representing a Mode S message in
- * raw hex format like: *8D4B969699155600E87406F5B69F;
- * The string is supposed to be at the start of the client buffer
- * and null-terminated.
- * 
- * The message is passed to the higher level layers, so it feeds
- * the selected screen output, the network output and so forth.
- * 
- * If the message looks invalid is silently discarded.
- *
- * The function always returns 0 (success) to the caller as there is
- * no case where we want broken messages here to close the client
- * connection. */
-int decodeHexMessage(struct client *c) {
-    char *hex = c->buf;
+//
+// This function decodes a string representing message in raw hex format
+// like: *8D4B969699155600E87406F5B69F; The string is null-terminated.
+// 
+// The message is passed to the higher level layers, so it feeds
+// the selected screen output, the network output and so forth.
+// 
+// If the message looks invalid it is silently discarded.
+//
+// The function always returns 0 (success) to the caller as there is no 
+// case where we want broken messages here to close the client connection.
+int decodeHexMessage(struct client *c, char *hex) {
     int l = strlen(hex), j;
     unsigned char msg[MODES_LONG_MSG_BYTES];
     struct modesMessage mm;
+    MODES_NOTUSED(c);
     memset(&mm, 0, sizeof(mm));
 
-    // Always mark the timestamp as invalid for packets received over the internet
-    // Mixing of data from two or more different receivers and publishing
-    // as coming from one would lead to corrupt mlat data
-    // Non timemarked internet data has indeterminate delay
-    mm.timestampMsg =  0;
-    mm.signalLevel  = -1;
+    // Mark messages received over the internet as remote so that we don't try to
+    // pass them off as being received by this instance when forwarding them
+    mm.remote      =    1;
+    mm.signalLevel = 0xFF;
 
     // Remove spaces on the left and on the right
     while(l && isspace(hex[l-1])) {
@@ -3736,7 +3800,15 @@ int decodeHexMessage(struct client *c) {
             break;}
     }
 
-    if ( (l < 4) || (l > MODES_LONG_MSG_BYTES*2) ) return (0); // Too short or long message... broken
+    if ( (l != (MODEAC_MSG_BYTES      * 2)) 
+      && (l != (MODES_SHORT_MSG_BYTES * 2)) 
+      && (l != (MODES_LONG_MSG_BYTES  * 2)) )
+        {return (0);} // Too short or long message... broken
+
+    if ( (0 == Modes.mode_ac) 
+      && (l == (MODEAC_MSG_BYTES * 2)) ) 
+        {return (0);} // Right length for ModeA/C, but not enabled
+
     for (j = 0; j < l; j += 2) {
         int high = hexDigitVal(hex[j]);
         int low  = hexDigitVal(hex[j+1]);
@@ -3745,8 +3817,11 @@ int decodeHexMessage(struct client *c) {
         msg[j/2] = (high << 4) | low;
     }
 
-    if (l < 5) {decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));} // ModeA or ModeC
-    else       {decodeModesMessage(&mm, msg);}
+    if (l == (MODEAC_MSG_BYTES * 2)) {  // ModeA or ModeC
+        decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));
+    } else {       // Assume ModeS
+        decodeModesMessage(&mm, msg);
+    }
 
     useModesMessage(&mm);
     return (0);
@@ -3766,6 +3841,11 @@ char *aircraftsToJson(int *len) {
         int altitude = a->altitude, speed = a->speed;
         int position = 0;
         int track = 0;
+
+        if (a->modeACflags & MODEAC_MSG_FLAG) { // skip any fudged ICAO records Mode A/C
+            a = a->next;
+            continue;
+        }
         
         /* Convert units to metric if --metric was specified. */
         if (Modes.metric) {
@@ -3823,11 +3903,11 @@ char *aircraftsToJson(int *len) {
  *
  * Returns 1 on error to signal the caller the client connection should
  * be closed. */
-int handleHTTPRequest(struct client *c) {
+int handleHTTPRequest(struct client *c, char *p) {
     char hdr[512];
     int clen, hdrlen;
     int httpver, keepalive;
-    char *p, *url, *content;
+    char *url, *content;
     char ctype[48];
     char getFile[1024];
     char *ext;
@@ -3836,17 +3916,17 @@ int handleHTTPRequest(struct client *c) {
         printf("\nHTTP request: %s\n", c->buf);
 
     // Minimally parse the request.
-    httpver = (strstr(c->buf, "HTTP/1.1") != NULL) ? 11 : 10;
+    httpver = (strstr(p, "HTTP/1.1") != NULL) ? 11 : 10;
     if (httpver == 10) {
         // HTTP 1.0 defaults to close, unless otherwise specified.
-        keepalive = strstr(c->buf, "Connection: keep-alive") != NULL;
+        keepalive = strstr(p, "Connection: keep-alive") != NULL;
     } else if (httpver == 11) {
         // HTTP 1.1 defaults to keep-alive, unless close is specified.
-        keepalive = strstr(c->buf, "Connection: close") == NULL;
+        keepalive = strstr(p, "Connection: close") == NULL;
     }
 
     // Identify he URL.
-    p = strchr(c->buf,' ');
+    p = strchr(p,' ');
     if (!p) return 1; /* There should be the method and a space... */
     url = ++p; /* Now this should point to the requested URL. */
     p = strchr(p, ' ');
@@ -3930,77 +4010,110 @@ int handleHTTPRequest(struct client *c) {
     Modes.stat_http_requests++;
     return !keepalive;
 }
-
-/* This function polls the clients using read() in order to receive new
- * messages from the net.
- *
- * The message is supposed to be separated by the next message by the
- * separator 'sep', that is a null-terminated C string.
- *
- * Every full message received is decoded and passed to the higher layers
- * calling the function 'handler'.
- *
- * The handelr returns 0 on success, or 1 to signal this function we
- * should close the connection with the client in case of non-recoverable
- * errors. */
+//
+// This function polls the clients using read() in order to receive new
+// messages from the net.
+//
+// The message is supposed to be separated from the next message by the
+// separator 'sep', which is a null-terminated C string.
+//
+// Every full message received is decoded and passed to the higher layers
+// calling the function's 'handler'.
+//
+// The handler returns 0 on success, or 1 to signal this function we should
+// close the connection with the client in case of non-recoverable errors.
 void modesReadFromClient(struct client *c, char *sep,
-                         int(*handler)(struct client *))
-{
+                         int(*handler)(struct client *, char *)) {
+    int left;
+    int nread;
+    int fullmsg;
+    char *s, *e;
+
     while(1) {
-        int left = MODES_CLIENT_BUF_SIZE - c->buflen;
-        int nread = read(c->fd, c->buf+c->buflen, left);
-        int fullmsg = 0;
-        int i;
-        char *p;
+
+        fullmsg = 0;
+        left = MODES_CLIENT_BUF_SIZE - c->buflen;
+        // If our buffer is full discard it, this is some badly formatted shit
+        if (left == 0) {
+            c->buflen = 0;
+            left = MODES_CLIENT_BUF_SIZE;
+            // If there is garbage, read more to discard it ASAP
+        }
+        nread = read(c->fd, c->buf+c->buflen, left);
 
         if (nread <= 0) {
-            if (nread == 0 || errno != EAGAIN) {
-                /* Error, or end of file. */
+            if (nread == 0 || errno != EAGAIN) { // Error, or end of file
                 modesFreeClient(c->fd);
             }
-            break; /* Serve next client. */
+            break; // Serve next client
         }
         c->buflen += nread;
 
-        /* Always null-term so we are free to use strstr() */
+        // Always null-term so we are free to use strstr() (it won't affect binary case)
         c->buf[c->buflen] = '\0';
 
-        /* If there is a complete message there must be the separator 'sep'
-         * in the buffer, note that we full-scan the buffer at every read
-         * for simplicity. */
-        while ((p = strstr(c->buf, sep)) != NULL) {
-            i = p - c->buf; /* Turn it as an index inside the buffer. */
-            c->buf[i] = '\0'; /* Te handler expects null terminated strings. */
-            /* Call the function to process the message. It returns 1
-             * on error to signal we should close the client connection. */
-            if (handler(c)) {
-                modesFreeClient(c->fd);
-                return;
+        e = s = c->buf;                                // Start with the start of buffer, first message
+
+        if (c->service == Modes.bis) {
+            // This is the Bease Binary scanning case.
+            // If there is a complete message still in the buffer, there must be the separator 'sep'
+            // in the buffer, note that we full-scan the buffer at every read for simplicity.
+
+            left = c->buflen;                                  // Length of valid search for memchr()
+            while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) {    // In reality the first byte of buffer 'should' be 0x1a
+                s++;                                           // skip the 0x1a
+                if        (*s == '1') {
+                    e = s + MODEAC_MSG_BYTES      + 8;         // point past remainder of message
+                } else if (*s == '2') {
+                    e = s + MODES_SHORT_MSG_BYTES + 8;
+                } else if (*s == '3') {
+                    e = s + MODES_LONG_MSG_BYTES  + 8;
+                } else {
+                    e = s;                                     // Not a valid beast message, skip
+                    left = &(c->buf[c->buflen]) - e;
+                    continue;
+                }
+                left = &(c->buf[c->buflen]) - e;
+                if (left < 0) {                                // Incomplete message in buffer
+                    e = s - 1;                                 // point back at last found 0x1a.
+                    break;
+                }
+                // Have a 0x1a followed by 1, 2 or 3 - pass message less 0x1a to handler.
+                if (handler(c, s)) {
+                    modesFreeClient(c->fd);          
+                    return;
+                }
+                fullmsg = 1;
             }
-            /* Move what's left at the start of the buffer. */
-            i += strlen(sep); /* The separator is part of the previous msg. */
-            memmove(c->buf,c->buf+i,c->buflen-i);
-            c->buflen -= i;
-            c->buf[c->buflen] = '\0';
-            /* Maybe there are more messages inside the buffer.
-             * Start looping from the start again. */
-            fullmsg = 1;
+            s = e;     // For the buffer remainder below
+
+        } else {
+            // This is the ASCII scanning case, AVR RAW or HTTP at present
+            // If there is a complete message still in the buffer, there must be the separator 'sep'
+            // in the buffer, note that we full-scan the buffer at every read for simplicity.
+
+            while ((e = strstr(s, sep)) != NULL) { // end of first message if found
+                *e = '\0';                         // The handler expects null terminated strings
+                if (handler(c, s)) {               // Pass message to handler. 
+                    modesFreeClient(c->fd);        // Handler returns 1 on error to signal we .
+                    return;                        // should close the client connection
+                }
+                s = e + strlen(sep);               // Move to start of next message
+                fullmsg = 1;
+            }
         }
-        /* If our buffer is full discard it, this is some badly
-         * formatted shit. */
-        if (c->buflen == MODES_CLIENT_BUF_SIZE) {
-            c->buflen = 0;
-            /* If there is garbage, read more to discard it ASAP. */
-            continue;
+        
+        if (fullmsg) { // We processed something - so 
+            c->buflen = &(c->buf[c->buflen]) - s;  // The unprocessed buffer length
+            memmove(c->buf, s, c->buflen);         // move what's remaining to the start of the buffer
+        } else { // If no message was decoded process the next client
+            break;
         }
-        /* If no message was decoded process the next client, otherwise
-         * read more data from the same client. */
-        if (!fullmsg) break;
     }
 }
-
-/* Read data from clients. This function actually delegates a lower-level
- * function that depends on the kind of service (raw, http, ...). */
+//
+// Read data from clients. This function actually delegates a lower-level
+// function that depends on the kind of service (raw, http, ...).
 void modesReadFromClients(void) {
     int j;
     struct client *c;
@@ -4009,6 +4122,8 @@ void modesReadFromClients(void) {
         if ((c = Modes.clients[j]) == NULL) continue;
         if (c->service == Modes.ris)
             modesReadFromClient(c,"\n",decodeHexMessage);
+        else if (c->service == Modes.bis)
+            modesReadFromClient(c,"",decodeBinMessage);
         else if (c->service == Modes.https)
             modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
     }
@@ -4035,12 +4150,14 @@ void showHelp(void) {
 "--modeac                 Enable decoding of SSR Modes 3/A & 3/C\n"
 "--net-beast              TCP raw output in Beast binary format\n"
 "--net-only               Enable just networking, no RTL device or file used\n"
+"--net-http-port <port>   HTTP server port (default: 8080)\n"
+"--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
+"--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
+"--net-sbs-port <port>    TCP BaseStation output listen port (default: 30003)\n"
+"--net-bi-port <port>     TCP Beast input listen port  (default: 30004)\n"
+"--net-bo-port <port>     TCP Beast output listen port (default: 30005)\n"
 "--net-ro-size <size>     TCP raw output minimum size (default: 0)\n"
 "--net-ro-rate <rate>     TCP raw output memory flush rate (default: 0)\n"
-"--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
-"--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
-"--net-http-port <port>   HTTP server port (default: 8080)\n"
-"--net-sbs-port <port>    TCP BaseStation output listen port (default: 30003)\n"
 "--lat <latitude>         Reference/receiver latitide for surface posn (opt)\n"
 "--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
 "--fix                    Enable single-bits error correction using CRC\n"
@@ -4143,8 +4260,14 @@ int main(int argc, char **argv) {
             Modes.net_output_raw_rate = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
             Modes.net_output_raw_port = atoi(argv[++j]);
+            if (Modes.beast) // Required for legacy backward compatibility
+                {Modes.net_output_beast_port = Modes.net_output_raw_port;}
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
             Modes.net_input_raw_port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-bo-port") && more) {
+            Modes.net_output_beast_port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-bi-port") && more) {
+            Modes.net_input_beast_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-http-port") && more) {
             Modes.net_http_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
@@ -4292,7 +4415,7 @@ int main(int argc, char **argv) {
             printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
             printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
             for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
-                printf("   %d with %d bit %s\n", Modes.stat_bit_fix[j], j+1, (j==0)?"error":"errors");
+                printf("   %d with %d bit %s\n", Modes.stat_ph_bit_fix[j], j+1, (j==0)?"error":"errors");
             }
         }
         printf("%d total usable messages\n",                      Modes.stat_goodcrc + Modes.stat_ph_goodcrc + Modes.stat_fixed + Modes.stat_ph_fixed);
