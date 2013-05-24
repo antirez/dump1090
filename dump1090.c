@@ -236,7 +236,7 @@ struct {
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
     int phase_enhance;              /* Enable phase enhancement if true */
-    int fix_errors;                 /* If > 0 no of bit errors to fix */
+    int nfix_crc;                   /* Number of crc bit error(s) to correct */
     int check_crc;                  /* Only display messages with good CRC. */
     int raw;                        /* Raw output format. */
     int beast;                      /* Beast binary format output. */
@@ -258,7 +258,6 @@ struct {
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
-    int aggressive;                 /* Aggressive detection algorithm. */
     int mlat;                       /* Use Beast ascii format for raw data output, i.e. @...; iso *...; */
     int interactive_rtl1090;        /* flight table in interactive mode is formatted like RTL1090 */
 
@@ -281,9 +280,8 @@ struct {
     unsigned int stat_badcrc;
     unsigned int stat_fixed;
 
-    /* Histogram of fixed bit errors: index 0 for single bit erros,
-     * index 1 for double bit errors etc.
-     */
+    // Histogram of fixed bit errors: index 0 for single bit erros,
+    // index 1 for double bit errors etc.
     unsigned int stat_bit_fix[MODES_MAX_BITERRORS];
 							
     unsigned int stat_http_requests;
@@ -296,8 +294,10 @@ struct {
     unsigned int stat_ph_goodcrc;
     unsigned int stat_ph_badcrc;
     unsigned int stat_ph_fixed;
-    unsigned int stat_ph_single_bit_fix;
-    unsigned int stat_ph_two_bits_fix;
+    // Histogram of fixed bit errors: index 0 for single bit erros,
+    // index 1 for double bit errors etc.
+    unsigned int stat_ph_bit_fix[MODES_MAX_BITERRORS];
+							
     unsigned int stat_DF_Len_Corrected;
     unsigned int stat_DF_Type_Corrected;
     unsigned int stat_ModeAC;
@@ -306,17 +306,17 @@ struct {
 // The struct we use to store information about a decoded message.
 struct modesMessage {
     // Generic fields
-    unsigned char msg[MODES_LONG_MSG_BYTES]; // Binary message.
-    int msgbits;                             // Number of bits in message 
-    int msgtype;                             // Downlink format #
-    int crcok;                               // True if CRC was valid
-    uint32_t crc;                            // Message CRC
-    int correctedbits;                       // No. of bits corrected
-    int corrected[MODES_MAX_BITERRORS];      // corrected bit positions
-    uint32_t addr;                           // ICAO Address from bytes 1 2 and 3
-    int phase_corrected;                     // True if phase correction was applied
-    uint64_t timestampMsg;                   // Timestamp of the message
-    unsigned char signalLevel;               // Signal Amplitude
+    unsigned char msg[MODES_LONG_MSG_BYTES];      // Binary message.
+    int           msgbits;                        // Number of bits in message 
+    int           msgtype;                        // Downlink format #
+    int           crcok;                          // True if CRC was valid
+    uint32_t      crc;                            // Message CRC
+    int           correctedbits;                  // No. of bits corrected 
+    char          corrected[MODES_MAX_BITERRORS]; // corrected bit positions
+    uint32_t      addr;                           // ICAO Address from bytes 1 2 and 3
+    int           phase_corrected;                // True if phase correction was applied
+    uint64_t      timestampMsg;                   // Timestamp of the message
+    unsigned char signalLevel;                    // Signal Amplitude
 
     // DF 11
     int  ca;                    // Responder capabilities
@@ -491,7 +491,7 @@ void modesInit(void) {
         }
     }
 
-    /* Prepare error correction tables */
+    // Prepare error correction tables
     modesInitErrorInfo();
 }
 
@@ -684,7 +684,7 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
 /* Produce a raw representation of the message as a Javascript file
  * loadable by debug.html. */
 void dumpRawMessageJS(char *descr, unsigned char *msg,
-                      uint16_t *m, uint32_t offset, int fixable, int *bitpos)
+                      uint16_t *m, uint32_t offset, int fixable, char *bitpos)
 {
     int padding = 5; /* Show a few samples before the actual start. */
     int start = offset - padding;
@@ -726,17 +726,16 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
 void dumpRawMessage(char *descr, unsigned char *msg,
                     uint16_t *m, uint32_t offset)
 {
-    int j;
-    int msgtype = msg[0] >> 3;
-    int fixable = 0;
-    int bitpos[MODES_MAX_BITERRORS];
+    int  j;
+    int  msgtype = msg[0] >> 3;
+    int  fixable = 0;
+    char bitpos[MODES_MAX_BITERRORS];
 
     for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
 	    bitpos[j] = -1;
     }
     if (msgtype == 17) {
-	fixable = fixBitErrors(msg, MODES_LONG_MSG_BITS,
-                               MODES_MAX_BITERRORS, bitpos);
+	fixable = fixBitErrors(msg, MODES_LONG_MSG_BITS, MODES_MAX_BITERRORS, bitpos);
     }
 
     if (Modes.debug & MODES_DEBUG_JS) {
@@ -1205,7 +1204,7 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 // Similar to fixSingleBitErrors() but try every possible two bit combination.
 // This is very slow and should be tried only against DF17 messages that
 // don't pass the checksum, and only in Aggressive Mode.
-//
+/*
 int fixTwoBitsErrors(unsigned char *msg, int bits) {
     int j, i;
     unsigned char aux[MODES_LONG_MSG_BYTES];
@@ -1245,7 +1244,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
     }
     return (-1);
 }
-
+*/
 /* Code for introducing a less CPU-intensive method of correcting
  * single bit errors.
  *
@@ -1270,9 +1269,9 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
  *
  */
 struct errorinfo {
-        uint32_t syndrome;  /* CRC syndrome */
-	int bits;           /* No of bit positions to fix */
-	int pos[MODES_MAX_BITERRORS]; /* bit positions */
+    uint32_t syndrome;                 // CRC syndrome
+    int      bits;                     // Number of bit positions to fix
+    int      pos[MODES_MAX_BITERRORS]; // Bit positions corrected by this syndrome
 };
 
 #define NERRORINFO \
@@ -1281,114 +1280,87 @@ struct errorinfo bitErrorTable[NERRORINFO];
 
 /* Compare function as needed for stdlib's qsort and bsearch functions */
 int cmpErrorInfo(const void *p0, const void *p1) {
-        struct errorinfo *e0 = (struct errorinfo*)p0;
-        struct errorinfo *e1 = (struct errorinfo*)p1;
-        if (e0->syndrome == e1->syndrome) {
-                return 0;
-        } else if (e0->syndrome < e1->syndrome) {
-                return -1;
-        } else {
-                return 1;
-        }
+    struct errorinfo *e0 = (struct errorinfo*)p0;
+    struct errorinfo *e1 = (struct errorinfo*)p1;
+    if (e0->syndrome == e1->syndrome) {
+        return 0;
+    } else if (e0->syndrome < e1->syndrome) {
+        return -1;
+    } else {
+        return 1;
+    }
 }
 
 /* Compute the table of all syndromes for 1-bit and 2-bit error vectors */
 void modesInitErrorInfo() {
-        unsigned char msg[MODES_LONG_MSG_BYTES];
-        int i, j, n;
-        uint32_t crc;
-        n = 0;
-        memset(bitErrorTable, 0, sizeof(bitErrorTable));
-        memset(msg, 0, MODES_LONG_MSG_BYTES);
-        // Add all possible single and double bit errors
-        // don't include errors in first 5 bits (DF type)
-        for (i = 5;  i < MODES_LONG_MSG_BITS;  i++) {
-                int bytepos0 = (i >> 3);
-                int mask0 = 1 << (7 - (i & 7));
-                msg[bytepos0] ^= mask0;          // create error0
-                crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
-                bitErrorTable[n].syndrome = crc;      // single bit error case
-	        bitErrorTable[n].bits = 1;
-                bitErrorTable[n].pos[0] = i;
-                bitErrorTable[n].pos[1] = -1;
-                n += 1;
+    unsigned char msg[MODES_LONG_MSG_BYTES];
+    int i, j, n;
+    uint32_t crc;
+    n = 0;
+    memset(bitErrorTable, 0, sizeof(bitErrorTable));
+    memset(msg, 0, MODES_LONG_MSG_BYTES);
+    // Add all possible single and double bit errors
+    // don't include errors in first 5 bits (DF type)
+    for (i = 5;  i < MODES_LONG_MSG_BITS;  i++) {
+        int bytepos0 = (i >> 3);
+        int mask0 = 1 << (7 - (i & 7));
+        msg[bytepos0] ^= mask0;          // create error0
+        crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+        bitErrorTable[n].syndrome = crc;      // single bit error case
+        bitErrorTable[n].bits = 1;
+        bitErrorTable[n].pos[0] = i;
+        bitErrorTable[n].pos[1] = -1;
+        n += 1;
 
-                if (Modes.aggressive) {
-                    for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
-                        int bytepos1 = (j >> 3);
-                        int mask1 = 1 << (7 - (j & 7));
-                        msg[bytepos1] ^= mask1;  // create error1
-                        crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
-                        if (n >= NERRORINFO) {
-                                /*
-                                fprintf(stderr,
-                                        "Internal error, too many "
-                                        "entries, fix NERRORINFO\n");
-                                */
-                                break;
-                        }
-                        bitErrorTable[n].syndrome = crc; // two bit error case
-                        bitErrorTable[n].bits = 2;
-                        bitErrorTable[n].pos[0] = i;
-                        bitErrorTable[n].pos[1] = j;
-                        n += 1;
-                        msg[bytepos1] ^= mask1;  // revert error1
-                    }
+        if (Modes.nfix_crc > 1) {
+            for (j = i+1;  j < MODES_LONG_MSG_BITS;  j++) {
+                int bytepos1 = (j >> 3);
+                int mask1 = 1 << (7 - (j & 7));
+                msg[bytepos1] ^= mask1;  // create error1
+                crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+                if (n >= NERRORINFO) {
+                    //fprintf(stderr, "Internal error, too many entries, fix NERRORINFO\n");
+                    break;
                 }
-                msg[bytepos0] ^= mask0;          // revert error0
+                bitErrorTable[n].syndrome = crc; // two bit error case
+                bitErrorTable[n].bits = 2;
+                bitErrorTable[n].pos[0] = i;
+                bitErrorTable[n].pos[1] = j;
+                n += 1;
+                msg[bytepos1] ^= mask1;  // revert error1
+            }
         }
-        qsort(bitErrorTable, NERRORINFO,
-              sizeof(struct errorinfo), cmpErrorInfo);
-        /* Test code: report if any syndrome appears at least twice. In this
-         * case the correction cannot be done without ambiguity.
-         * Tried it, does not happen for 1- and 2-bit errors. 
-         */
-        /*
-        for (i = 1;  i < NERRORINFO;  i++) {
-                if (bitErrorTable[i-1].syndrome
-                    == bitErrorTable[i].syndrome) {
-                        fprintf(stderr, "modesInitErrorInfo: "
-                                "Collision for syndrome %06x\n",
-                                (int)bitErrorTable[i].syndrome);
-                }
+        msg[bytepos0] ^= mask0;          // revert error0
+    }
+    qsort(bitErrorTable, NERRORINFO, sizeof(struct errorinfo), cmpErrorInfo);
+
+    // Test code: report if any syndrome appears at least twice. In this
+    // case the correction cannot be done without ambiguity.
+    // Tried it, does not happen for 1- and 2-bit errors. 
+    /*
+    for (i = 1;  i < NERRORINFO;  i++) {
+        if (bitErrorTable[i-1].syndrome == bitErrorTable[i].syndrome) {
+            fprintf(stderr, "modesInitErrorInfo: Collision for syndrome %06x\n",
+                            (int)bitErrorTable[i].syndrome);
         }
-        */
-        /*
-        for (i = 0;  i < NERRORINFO;  i++) {
-                printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
-                       bitErrorTable[i].syndrome,
-                       bitErrorTable[i].pos0, bitErrorTable[i].pos1);
-        }
-        */
+    }
+
+    for (i = 0;  i < NERRORINFO;  i++) {
+        printf("syndrome %06x    bit0 %3d    bit1 %3d\n",
+               bitErrorTable[i].syndrome,
+               bitErrorTable[i].pos0, bitErrorTable[i].pos1);
+    }
+    */
 }
 //
-// Flip a bit, but make sure that the DF field (first 5 bits)
-// is never changed
-/*
-int flipBit(unsigned char *msg, int nbits, int bit) {
-        int bytepos, mask;
-        if ((bit < 0) || (bit >= nbits)) {
-                return 0;
-        }
-        if (bit < 5) {
-                return 0;
-        }
-        bytepos = (bit >> 3);
-        mask = 1 << (7 - (bit & 7));
-        msg[bytepos] ^= mask;
-        return 1;
-}
-*/
-// Search syndrome in table and, if an entry is found, flip the necessary
-// bits. Make sure the indices fit into the array, and for 2-bit errors,
-// are different.
+// Search for syndrome in table and if an entry is found, flip the necessary
+// bits. Make sure the indices fit into the array
 // Additional parameter: fix only less than maxcorrected bits, and record
 // fixed bit positions in corrected[]. This array can be NULL, otherwise
 // must be of length at least maxcorrected.
 // Return number of fixed bits.
 //
-int fixBitErrors(unsigned char *msg, int bits,
-		 int maxfixable, int *fixedbitpos) {
+int fixBitErrors(unsigned char *msg, int bits, int maxfix, char *fixedbits) {
     struct errorinfo *pei;
     struct errorinfo ei;
     int bitpos, offset, res, i;
@@ -1399,26 +1371,28 @@ int fixBitErrors(unsigned char *msg, int bits,
     if (pei == NULL) {
         return 0; // No syndrome found
     }
-    if (maxfixable < pei->bits) {
-	    return 0;
+
+    // Check if the syndrome fixes more bits than we allow
+    if (maxfix < pei->bits) {
+        return 0;
     }
-    res = 0;
+
+    // Check that all bit positions lie inside the message length
     offset = MODES_LONG_MSG_BITS-bits;
-    /* Check that all bit positions are inside message boundaries */
     for (i = 0;  i < pei->bits;  i++) {
 	    bitpos = pei->pos[i] - offset;
 	    if ((bitpos < 0) || (bitpos >= bits)) {
 		    return 0;
 	    }
     }
-    /* Fix the bits */
-    for (i = 0;  i < pei->bits;  i++) {
+
+    // Fix the bits
+    for (i = res = 0;  i < pei->bits;  i++) {
 	    bitpos = pei->pos[i] - offset;
-	    msg[(bitpos >> 3)] ^= (1 << (7 - (bitpos & 7)));
-	    if (fixedbitpos != NULL) {
-		    fixedbitpos[res] = bitpos;
+	    msg[bitpos >> 3] ^= (1 << (7 - (bitpos & 7)));
+	    if (fixedbits) {
+		    fixedbits[res++] = bitpos;
 	    }
-	    res++;
     }
     return res;
 }
@@ -1510,7 +1484,7 @@ void testAndTimeBitCorrection() {
         inittmsg1();
         gettimeofday(&starttv, NULL);
         for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
-                fixSingleBitErrors(&tmsg1[i][0], MODES_LONG_MSG_BITS);
+            fixSingleBitErrors(&tmsg1[i][0], MODES_LONG_MSG_BITS);
         }
         gettimeofday(&endtv, NULL);
         printf("   Old code: 1-bit errors on %d msgs: %ld usecs\n",
@@ -1520,8 +1494,7 @@ void testAndTimeBitCorrection() {
         inittmsg1();
         gettimeofday(&starttv, NULL);
         for (i = 0;  i < MODES_LONG_MSG_BITS;  i++) {
-                fixBitErrors(&tmsg1[i][0], MODES_LONG_MSG_BITS,
-			     MODES_MAX_BITERRORS, NULL);
+            fixBitErrors(&tmsg1[i][0], MODES_LONG_MSG_BITS, MODES_MAX_BITERRORS, NULL);
         }
         gettimeofday(&endtv, NULL);
         printf("   New code: 1-bit errors on %d msgs: %ld usecs\n",
@@ -1531,7 +1504,7 @@ void testAndTimeBitCorrection() {
         inittmsg2();
         gettimeofday(&starttv, NULL);
         for (i = 0;  i < NTWOBITS;  i++) {
-                fixSingleBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS);
+            fixSingleBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS);
         }
         gettimeofday(&endtv, NULL);
         printf("   Old code: 2-bit errors on %d msgs: %ld usecs\n",
@@ -1540,8 +1513,7 @@ void testAndTimeBitCorrection() {
         inittmsg2();
         gettimeofday(&starttv, NULL);
         for (i = 0;  i < NTWOBITS;  i++) {
-                fixBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS,
-			     MODES_MAX_BITERRORS, NULL);
+            fixBitErrors(&tmsg2[i][0], MODES_LONG_MSG_BITS, MODES_MAX_BITERRORS, NULL);
         }
         gettimeofday(&endtv, NULL);
         printf("   New code: 2-bit errors on %d msgs: %ld usecs\n",
@@ -1763,8 +1735,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->msgbits         = modesMessageLenByType(mm->msgtype);
     mm->crc             = modesChecksum(msg, mm->msgbits);
 
-    if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
-//  if ((mm->crc) && (Modes.fix_errors) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
+    if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 17) || (mm->msgtype == 18))) {
+//  if ((mm->crc) && (Modes.nfix_crc) && ((mm->msgtype == 11) || (mm->msgtype == 17))) {
         //
         // Fixing single bit errors in DF-11 is a bit dodgy because we have no way to 
         // know for sure if the crc is supposed to be 0 or not - it could be any value 
@@ -1775,8 +1747,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         // using the results. Perhaps check the ICAO against known aircraft, and check
         // IID against known good IID's. That's a TODO.
         //
-        mm->correctedbits = fixBitErrors(msg, mm->msgbits,
-                                         Modes.fix_errors, mm->corrected);
+        mm->correctedbits = fixBitErrors(msg, mm->msgbits, Modes.nfix_crc, mm->corrected);
+
         // If we correct, validate ICAO addr to help filter birthday paradox solutions.
         if (mm->correctedbits) {
             uint32_t addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
@@ -2624,18 +2596,17 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
                     } else if (use_correction) {
                         Modes.stat_ph_badcrc++;
                         Modes.stat_ph_fixed++;
-                        if (mm.correctedbits == 1) {
-                            Modes.stat_ph_single_bit_fix++;
-                        } else if (mm.correctedbits == 2) {
-                            Modes.stat_ph_two_bits_fix++;
+                        if ( (mm.correctedbits) 
+                          && (mm.correctedbits <= MODES_MAX_BITERRORS) ) {
+                            Modes.stat_ph_bit_fix[mm.correctedbits-1] += 1;
                         }
 
                     } else {
                         Modes.stat_badcrc++;
-			Modes.stat_fixed += 1;
-			if ((mm.correctedbits > 0) &&
-			    (mm.correctedbits <= MODES_MAX_BITERRORS)) {
-				Modes.stat_bit_fix[mm.correctedbits-1] += 1;
+                        Modes.stat_fixed++;
+                        if ( (mm.correctedbits) 
+                          && (mm.correctedbits <= MODES_MAX_BITERRORS) ) {
+                            Modes.stat_bit_fix[mm.correctedbits-1] += 1;
                         }
                     }
                 }
@@ -3888,8 +3859,7 @@ int handleHTTPRequest(struct client *c) {
     }
     
     if (strlen(url) < 2) {
-        snprintf(getFile, sizeof getFile, "%s/%s",
-		 HTMLPATH, "gmap.html");     // Default file
+        snprintf(getFile, sizeof getFile, "%s/gmap.html", HTMLPATH); // Default file
     } else {
         snprintf(getFile, sizeof getFile, "%s/%s", HTMLPATH, url);
     }
@@ -4149,10 +4119,9 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--ifile") && more) {
             Modes.filename = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--fix")) {
-            Modes.fix_errors = 1;
+            Modes.nfix_crc = 1;
         } else if (!strcmp(argv[j],"--no-fix")) {
-            Modes.fix_errors = 0;
-            Modes.aggressive = 0;
+            Modes.nfix_crc = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
             Modes.check_crc = 0;
         } else if (!strcmp(argv[j],"--phase-enhance")) {
@@ -4185,8 +4154,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
-            Modes.aggressive = 1;
-            Modes.fix_errors = MODES_MAX_BITERRORS;
+            Modes.nfix_crc = MODES_MAX_BITERRORS;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows") && more) {
@@ -4314,16 +4282,19 @@ int main(int argc, char **argv) {
         for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
             printf("   %d with %d bit %s\n", Modes.stat_bit_fix[j], j+1, (j==0)?"error":"errors");
         }
-        printf("%d phase enhancement attempts\n",                 Modes.stat_out_of_phase);
-        printf("%d phase enhanced demodulated with 0 errors\n",   Modes.stat_ph_demodulated0);
-        printf("%d phase enhanced demodulated with 1 error\n",    Modes.stat_ph_demodulated1);
-        printf("%d phase enhanced demodulated with 2 errors\n",   Modes.stat_ph_demodulated2);
-        printf("%d phase enhanced demodulated with > 2 errors\n", Modes.stat_ph_demodulated3);
-        printf("%d phase enhanced with good crc\n",               Modes.stat_ph_goodcrc);
-        printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
-        printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
-        printf("%d phase enhanced single bit errors\n",           Modes.stat_ph_single_bit_fix);
-        printf("%d phase enhanced two bits errors\n",             Modes.stat_ph_two_bits_fix);
+        if (Modes.phase_enhance) {
+            printf("%d phase enhancement attempts\n",                 Modes.stat_out_of_phase);
+            printf("%d phase enhanced demodulated with 0 errors\n",   Modes.stat_ph_demodulated0);
+            printf("%d phase enhanced demodulated with 1 error\n",    Modes.stat_ph_demodulated1);
+            printf("%d phase enhanced demodulated with 2 errors\n",   Modes.stat_ph_demodulated2);
+            printf("%d phase enhanced demodulated with > 2 errors\n", Modes.stat_ph_demodulated3);
+            printf("%d phase enhanced with good crc\n",               Modes.stat_ph_goodcrc);
+            printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
+            printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
+            for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
+                printf("   %d with %d bit %s\n", Modes.stat_bit_fix[j], j+1, (j==0)?"error":"errors");
+            }
+        }
         printf("%d total usable messages\n",                      Modes.stat_goodcrc + Modes.stat_ph_goodcrc + Modes.stat_fixed + Modes.stat_ph_fixed);
     }
 
