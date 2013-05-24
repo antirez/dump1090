@@ -1898,6 +1898,9 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
         } else if (metype == 19) { // Airborne Velocity Message
 
+           // Presumably airborne if we get an Airborne Velocity Message
+            mm->bFlags |= MODES_ACFLAGS_AOG_VALID; 
+
             if ( (mesub >= 1) && (mesub <= 4) ) {
                 int vert_rate = ((msg[8] & 0x07) << 6) | (msg[9] >> 2);
                 if (vert_rate) {
