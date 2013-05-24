@@ -3534,22 +3534,28 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     //
 
     // Decide on the basic SBS Message Type
-    if ((mm->msgtype ==  0) || (mm->msgtype ==  4) || (mm->msgtype ==  20)) {
+    if        ((mm->msgtype ==  4) || (mm->msgtype == 20)) {
         msgType = 5;
-    } else if ((mm->msgtype ==  5) || (mm->msgtype ==  21)) {
+    } else if ((mm->msgtype ==  5) || (mm->msgtype == 21)) {
         msgType = 6;
-    } else if (mm->msgtype ==  16) {
+    } else if ((mm->msgtype ==  0) || (mm->msgtype == 16)) {
         msgType = 7;
-    } else if (mm->msgtype ==  11) {
+    } else if  (mm->msgtype == 11) {
         msgType = 8;
-    } else if (mm->msgtype !=  17) {
+    } else if ((mm->msgtype != 17) && (mm->msgtype != 18)) {
         return;
-    } else if (mm->metype  == 4) {
+    } else if ((mm->metype >= 1) && (mm->metype <=  4)) {
         msgType = 1;
     } else if ((mm->metype >= 5) && (mm->metype <=  8)) {
-        msgType = 2;
+        if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID)
+            {msgType = 2;}
+        else
+            {msgType = 7;}
     } else if ((mm->metype >= 9) && (mm->metype <= 18)) {
-        msgType = 3;
+        if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID)
+            {msgType = 3;}
+        else
+            {msgType = 7;}
     } else if (mm->metype !=  19) {
         return;
     } else if ((mm->mesub == 1) || (mm->mesub == 2)) {
