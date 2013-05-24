@@ -86,9 +86,13 @@ it without arguments at all is the best thing to do.
 Reliability
 ---
 
-By default Dump1090 tries to fix single bit errors using the checksum.
-Basically the program will try to flip every bit of the message and check if
-the checksum of the resulting message matches.
+By default Dump1090 checks for decoding errors using the 24-bit CRC checksum,
+where available. Messages with errors are discarded.
+
+The --fix command line switch enables fixing single bit error correction
+based on the CRC checksum. Technically, it uses a table of precomputed
+checksum differences resulting from single bit errors to look up the
+wrong bit position.
 
 This is indeed able to fix errors and works reliably in my experience,
 however if you are interested in very reliable data I suggest to use
@@ -190,18 +194,19 @@ Aggressive mode
 
 With --aggressive it is possible to activate the *aggressive mode* that is a
 modified version of the Mode S packet detection and decoding.
-THe aggresive mode uses more CPU usually (especially if there are many planes
+The aggresive mode uses more CPU usually (especially if there are many planes
 sending DF17 packets), but can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
 
-* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
-  vector with the same eight). Normally only messages without errors are
-  checked.
-* It tries to fix DF17 messages trying every two bits combination.
+* Up to two demodulation errors are tolerated (adjacent entires in the
+  magnitude vector with the same eight). Normally only messages without
+  errors are checked.
+* It tries to fix DF17 messages with CRC errors resulting from any two bit
+  errors.
 
-The use of aggressive mdoe is only advised in places where there is low traffic
-in order to have a chance to capture some more messages.
+The use of aggressive mdoe is only advised in places where there is
+low traffic in order to have a chance to capture some more messages.
 
 Debug mode
 ---
