@@ -56,7 +56,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.06.2205.13"
+#define MODES_DUMP1090_VERSION     "1.06.2305.13"
 #define MODES_USER_LATITUDE_DFLT   (0.0)
 #define MODES_USER_LONGITUDE_DFLT  (0.0)
 
@@ -168,6 +168,7 @@ struct aircraft {
     int altitude;                 // Altitude
     int speed;                    // Velocity
     int track;                    // Angle of flight
+    int vert_rate;                // Vertical rate.
     time_t seen;                  // Time at which the last packet was received
     time_t seenLatLon;            // Time at which the last lat long was calculated
     uint64_t timestamp;           // Timestamp at which the last packet was received
@@ -3108,6 +3109,11 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     // If a (new) SPEED has been received, copy it to the aircraft structure
     if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) {
         a->speed = mm->velocity;
+    }
+
+    // If a (new) Vertical Descent rate has been received, copy it to the aircraft structure
+    if (mm->bFlags & MODES_ACFLAGS_VERTRATE_VALID) {
+        a->vert_rate = mm->vert_rate;
     }
 
     // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
