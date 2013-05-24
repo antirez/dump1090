@@ -1,220 +1,15 @@
 // Define our global variables
 var GoogleMap     = null;
-var CenterLat     = 35.21928;
-var CenterLon     = -80.94406;
-var ZoomLvl       = 9;
 var Planes        = {};
 var PlanesOnMap   = 0;
 var PlanesOnTable = 0;
 var PlanesToReap  = 0;
 var SelectedPlane = null;
-var planeObject   = null;
 
 var iSortCol=-1;
 var bSortASC=true;
 var bDefaultSortASC=true;
 var iDefaultSortCol=3;
-
-planeObject = {
-	oldlat		: null,
-	oldlon		: null,
-	oldalt		: null,
-
-	// Basic location information
-	altitude	: null,
-	speed		: null,
-	track		: null,
-	latitude	: null,
-	longitude	: null,
-	
-	// Info about the plane
-	flight		: null,
-	squawk		: null,
-	icao		: null,	
-
-	// Data packet numbers
-	messages	: null,
-	seen		: null,
-
-	// Vaild...
-	vPosition	: false,
-	vTrack		: false,
-
-	// GMap Details
-	marker		: null,
-	lines		: [],
-	trackdata	: new Array(),
-	trackline	: new Array(),
-
-	// When was this last updated?
-	updated		: null,
-	reapable	: false,
-
-	// Appends data to the running track so we can get a visual tail on the plane
-	// Only useful for a long running browser session.
-	funcAddToTrack	: function(){
-			// TODO: Write this function out
-			this.trackdata.push([this.latitude, this.longitude, this.altitude, this.track, this.speed]);
-			this.trackline.push(new google.maps.LatLng(this.latitude, this.longitude));
-		},
-
-	// This is to remove the line from the screen if we deselect the plane
-	funcClearLine	: function() {
-			console.log("Clearing line for: " + this.icao);
-			if (this.line) {
-				this.line.setMap(null);
-				this.line = null;
-			}
-		},
-
-	// Should create an icon for us to use on the map...
-	funcGetIcon	: function() {
-			var selected = false;
-			var r = 255, g = 255, b = 0;
-
-			return {
-				strokeWeight: (selected ? 2 : 1),
-				path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-				scale: 5,
-				fillColor: 'rgb('+r+','+g+','+b+')',
-				fillOpacity: 0.9,
-				rotation: this.track
-			};
-		},
-
-	// TODO: Trigger actions of a selecting a plane
-	funcSelectPlane	: function(selectedPlane){
-			selectPlaneByHex(this.icao);
-		},
-
-	// Update our data
-	funcUpdateData	: function(data){
-			// So we can find out if we moved
-			var oldlat 	= this.latitude;
-			var oldlon	= this.longitude;
-			var oldalt	= this.altitude;
-
-			// Update all of our data
-			this.updated	= new Date().getTime();
-			this.altitude	= data.altitude;
-			this.speed	= data.speed;
-			this.track	= data.track;
-			this.latitude	= data.lat;
-			this.longitude	= data.lon;
-			this.flight	= data.flight;
-			this.squawk	= data.squawk;
-			this.icao	= data.hex;
-			this.messages	= data.messages;
-			this.seen	= data.seen;
-
-			// If no packet in over 58 seconds, consider the plane reapable
-			// This way we can hold it, but not show it just in case the plane comes back
-			if (this.seen > 58) {
-				this.reapable = true;
-				if (this.marker) {
-					this.marker.setMap(null);
-					this.marker = null;
-				}
-				if (this.line) {
-					this.line.setMap(null);
-					this.line = null;
-				}
-				if (SelectedPlane == this.icao) {
-					SelectedPlane = null;
-				}
-			} else {
-				if (this.reapable == true) {
-					console.log(this.icao + ' has come back into range before the reaper!');
-				}
-				this.reapable = false;
-			}
-
-			// Is the position valid?
-			if ((data.validposition == 1) && (this.reapable == false)) {
-				this.vPosition = true;
-
-				// Detech if the plane has moved
-				changeLat = false;
-				changeLon = false;
-				changeAlt = false;
-				if (oldlat != this.latitude) {
-					changeLat = true;
-				}
-				if (oldlon != this.longitude) {
-					changeLon = true;
-				}
-				if (oldalt != this.altitude) {
-					changeAlt = true;
-				}
-				// Right now we only care about lat/long, if alt is updated only, oh well
-				if ((changeLat == true) || (changeLon == true)) {
-					this.funcAddToTrack();
-					if (this.icao == SelectedPlane) {
-						this.line = this.funcUpdateLines();
-					}
-				}
-				this.marker = this.funcUpdateMarker();
-				PlanesOnMap++;
-			} else {
-				this.vPosition = false;
-			}
-
-			// Do we have a valid track for the plane?
-			if (data.validtrack == 1)
-				this.vTrack = true;
-			else
-				this.vTrack = false;
-		},
-
-	// Update our marker on the map
-	funcUpdateMarker: function() {
-			if (this.marker) {
-				this.marker.setPosition(new google.maps.LatLng(this.latitude, this.longitude));
-				this.marker.setIcon(this.funcGetIcon());
-			} else {
-				this.marker = new google.maps.Marker({
-					position: new google.maps.LatLng(this.latitude, this.longitude),
-					map: GoogleMap,
-					icon: this.funcGetIcon(),
-					visable: true,
-				});
-
-				// This is so we can match icao address
-				this.marker.icao = this.icao;
-
-				// Trap clicks for this marker.
-				google.maps.event.addListener(this.marker, 'click', this.funcSelectPlane);
-			}
-
-			// Setting the marker title
-			if (this.flight.length == 0) {
-				this.marker.setTitle(this.hex);
-			} else {
-				this.marker.setTitle(this.flight+' ('+this.icao+')');
-			}
-			return this.marker;
-		},
-
-	// Update our planes tail line,
-	// TODO: Make this multi colored based on options
-	//		altitude (default) or speed
-	funcUpdateLines: function() {
-			if (this.line) {
-				var path = this.line.getPath();
-				path.push(new google.maps.LatLng(this.latitude, this.longitude));
-			} else {
-				console.log("Starting new line");
-				this.line = new google.maps.Polyline({
-					strokeColor: '#000000',
-					strokeOpacity: 1.0,
-					strokeWeight: 3,
-					map: GoogleMap,
-					path: this.trackline,
-				});
-			}
-			return this.line;
-		},
-};
 
 function fetchData() {
 	$.getJSON('/dump1090/data.json', function(data) {
@@ -342,12 +137,16 @@ function initialize() {
 
 	GoogleMap.mapTypes.set("dark_map", styledMap);
 
+	// Did our crafty user need some setup?
+	extendedInitalize();
+	
 	// Setup our timer to poll from the server.
 	window.setInterval(function() {
 		fetchData();
 		refreshTableInfo();
 		refreshSelected()
 		reaper();
+		extendedPulse();
 	}, 1000);
 
 	// Faster timer, smoother things
@@ -378,8 +177,9 @@ function reaper() {
 } 
 
 // Refresh the detail window about the plane
+// TODO: Find out why when deselecting it sticks
 function refreshSelected() {
-	if ((SelectedPlane != "ICAO") && (SelectedPlane != null)) {
+	if ((	SelectedPlane != "ICAO") && (SelectedPlane != null)) {
 		var selected = Planes[SelectedPlane];
 		if (selected.flight == "") {
 			selected.flight="N/A (" + selected.icao + ")";
@@ -574,12 +374,26 @@ function sortTable(szTableID,iCol) {
 }
 
 function selectPlaneByHex(hex) {
+	// If SelectedPlane has something in it, clear out the selected
 	if (SelectedPlane != null) {
+		Planes[SelectedPlane].is_selected = false;
 		Planes[SelectedPlane].funcClearLine();
-	}
-	SelectedPlane = hex;
-	if (Planes[SelectedPlane].marker) {
-		Planes[SelectedPlane].funcUpdateLines();
+		Planes[SelectedPlane].markerColor = MarkerColor;
+		// If the selected has a marker, make it not stand out
+		if (Planes[SelectedPlane].marker) {
+			Planes[SelectedPlane].marker.setIcon(Planes[SelectedPlane].funcGetIcon());
+		}
 	}
 
+	// If we are clicking the same plane, we are deselected it.
+	if (String(SelectedPlane) != String(hex)) {
+		// Assign the new selected
+		SelectedPlane = hex;
+		Planes[SelectedPlane].is_selected = true;
+		// If the selected has a marker, make it stand out
+		if (Planes[SelectedPlane].marker) {
+			Planes[SelectedPlane].funcUpdateLines();
+			Planes[SelectedPlane].marker.setIcon(Planes[SelectedPlane].funcGetIcon());
+		}
+	}
 }
