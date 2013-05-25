@@ -199,13 +199,31 @@ function refreshSelected() {
 			html += '<tr><td colspan="2" id="selectedinfotitle">Squawking: Emergancy</td>'
 		}
 		html += '<tr><td>Altitude: ' + selected.altitude + '</td>';
+		
 		if (selected.squawk != '0000') {
     		html += '<td>Squawk: ' + selected.squawk + '</td></tr>';
     	} else {
     	    html += '<td>Squawk: n/a</td></tr>';
     	}
-		html += '<tr><td>Track: ' + selected.track + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')</td><td>ICAO (hex): ' + selected.icao + '</td></tr>';
-		html += '<tr><td colspan="2" align="center">Lat/Long: ' + selected.latitude + ', ' + selected.longitude + '</td></tr>';
+    	
+    	html += '<tr><td>Track: ' 
+    	if (selected.vTrack) {
+		    html += selected.track;
+		    html += ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')</td>';
+		} else {
+		    html += 'n/a';
+		}
+		    
+		html += '<td>ICAO (hex): ' + selected.icao + '</td></tr>';
+
+		html += '<tr><td colspan="2" align="center">Lat/Long: ';
+		if (selected.vPosition) {
+		    html += selected.latitude + ', ' + selected.longitude;
+		} else {
+		    html += 'n/a';
+		}
+		
+		html += '</td></tr>';
 		html += '</table>';
 	} else {
 		var html = '';
@@ -305,7 +323,14 @@ function refreshTableInfo() {
     	    }
 			html += '<td align="right">' + tableplane.altitude + '</td>';
 			html += '<td align="right">' + tableplane.speed + '</td>';
-			html += '<td align="right">' + normalizeTrack(tableplane.track, tableplane.vTrack)[2] + ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')</td>';
+			html += '<td align="right">';
+			if (tableplane.vTrack) {
+    			 html += normalizeTrack(tableplane.track, tableplane.vTrack)[2];
+    			 html += ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')';
+    	    } else {
+    	        html += '&nbsp;';
+    	    }
+    	    html += '</td>';
 			html += '<td align="right">' + tableplane.messages + '</td>';
 			html += '<td align="right">' + tableplane.seen + '</td>';
 			html += '</tr>';
@@ -320,8 +345,8 @@ function refreshTableInfo() {
 		var hex = $(this).find('td:first').text();
 		if (hex != "ICAO") {
 			selectPlaneByHex(hex);
-			refreshTableInfo()
-			refreshSelected()
+			refreshTableInfo();
+			refreshSelected();
 		}
 	});
 
