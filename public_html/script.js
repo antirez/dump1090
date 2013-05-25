@@ -198,7 +198,12 @@ function refreshSelected() {
 		if (selected.squawk == 7700) {
 			html += '<tr><td colspan="2" id="selectedinfotitle">Squawking: Emergancy</td>'
 		}
-		html += '<tr><td>Altitude: ' + selected.altitude + '</td><td>Squawk: ' + selected.squawk + '</td></tr>';
+		html += '<tr><td>Altitude: ' + selected.altitude + '</td>';
+		if (selected.squawk != '0000') {
+    		html += '<td>Squawk: ' + selected.squawk + '</td></tr>';
+    	} else {
+    	    html += '<td>Squawk: n/a</td></tr>';
+    	}
 		html += '<tr><td>Track: ' + selected.track + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')</td><td>ICAO (hex): ' + selected.icao + '</td></tr>';
 		html += '<tr><td colspan="2" align="center">Lat/Long: ' + selected.latitude + ', ' + selected.longitude + '</td></tr>';
 		html += '</table>';
@@ -284,13 +289,20 @@ function refreshTableInfo() {
 			if (tableplane.squawk == 7700) {
 				specialStyle += " squawk7700";
 			}
-			if (tableplane.vPosition == true)
+			
+			if (tableplane.vPosition == true) {
 				html += '<tr class="plane_table_row vPosition' + specialStyle + '">';
-			else
+			} else {
 				html += '<tr class="plane_table_row ' + specialStyle + '">';
+		    }
+		    
 			html += '<td>' + tableplane.icao + '</td>';
 			html += '<td>' + tableplane.flight + '</td>';
-			html += '<td align="right">' + tableplane.squawk + '</td>';
+			if (tableplane.squawk != '0000' ) {
+    			html += '<td align="right">' + tableplane.squawk + '</td>';
+    	    } else {
+    	        html += '<td align="right">&nbsp;</td>';
+    	    }
 			html += '<td align="right">' + tableplane.altitude + '</td>';
 			html += '<td align="right">' + tableplane.speed + '</td>';
 			html += '<td align="right">' + normalizeTrack(tableplane.track, tableplane.vTrack)[2] + ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')</td>';
@@ -341,14 +353,20 @@ function sortTable(szTableID,iCol) {
 	var aStore=[];
 
 	//If supplied col # is greater than the actual number of cols, set sel col = to last col
-	if (oTbl.rows[0].cells.length<=iCol)
+	if (typeof oTbl.rows[0] !== 'undefined' && oTbl.rows[0].cells.length <= iCol) {
 		iCol=(oTbl.rows[0].cells.length-1);
+    }
 
 	//store the col #
 	iSortCol=iCol;
 
 	//determine if we are delaing with numerical, or alphanumeric content
-	bNumeric=!isNaN(parseFloat(oTbl.rows[0].cells[iSortCol].textContent||oTbl.rows[0].cells[iSortCol].innerText))?true:false;
+	var bNumeric = false;
+	if ((typeof oTbl.rows[0] !== 'undefined') &&
+	    (!isNaN(parseFloat(oTbl.rows[0].cells[iSortCol].textContent ||
+	    oTbl.rows[0].cells[iSortCol].innerText)))) {
+	    bNumeric = true;
+	}
 
 	//loop through the rows, storing each one inro aStore
 	for (var i=0,iLen=oTbl.rows.length;i<iLen;i++){
@@ -358,12 +376,13 @@ function sortTable(szTableID,iCol) {
 	}
 
 	//sort aStore ASC/DESC based on value of bSortASC
-	if(bNumeric){//numerical sort
+	if (bNumeric) { //numerical sort
 		aStore.sort(function(x,y){return bSortASC?x[0]-y[0]:y[0]-x[0];});
-	}else{//alpha sort
+	} else { //alpha sort
 		aStore.sort();
-		if(!bSortASC)
+		if(!bSortASC) {
 			aStore.reverse();
+	    }
 	}
 
 	//rewrite the table rows to the passed table element
