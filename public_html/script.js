@@ -2,9 +2,9 @@ if (typeof(developerSettings) === 'undefined') { // If not developers
 
 // "Constant" variables - Since there is no constants in make sure
 // not to change these CONST_ variables.
-var CONST_CENTERLAT = 45.0; // 45.0
-var CONST_CENTERLON = 9.0; // 9.0
-var CONST_ZOOMLVL   = 5; //5
+var CONST_CENTERLAT = 45.0;
+var CONST_CENTERLON = 9.0;
+var CONST_ZOOMLVL   = 5;
 
 } // End of !developerSettings
 
@@ -163,7 +163,11 @@ function refreshTableInfo() {
 		}
 		html += '<td class="' + specialStyle + '">' + Planes[p].hex + '</td>';
 		html += '<td class="' + specialStyle + '">' + Planes[p].flight + '</td>';
-		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].squawk + '</td>';
+		if (Planes[p].squawk != '0000') {
+    		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].squawk + '</td>';
+        } else {
+            html += '<td class="' + specialStyle + '" align="right">&nbsp;</td>';
+        }
 		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].altitude + '</td>';
 		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].speed + '</td>';
 		html += '<td class="' + specialStyle + '" align="right">' + Planes[p].track + '</td>';
