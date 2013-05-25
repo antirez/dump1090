@@ -440,6 +440,6 @@ function selectPlaneByHex(hex) {
 			Planes[SelectedPlane].marker.setIcon(Planes[SelectedPlane].funcGetIcon());
 		}
 	} else { 
-		SelectedPlane = null
+		SelectedPlane = null;
 	}
 }
