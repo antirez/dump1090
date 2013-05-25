@@ -11,6 +11,11 @@ var bSortASC=true;
 var bDefaultSortASC=true;
 var iDefaultSortCol=3;
 
+// Get current map settings
+CenterLat = Number(localStorage['CenterLat']) || CONST_CENTERLAT;
+CenterLon = Number(localStorage['CenterLon']) || CONST_CENTERLON;
+ZoomLvl   = Number(localStorage['ZoomLvl']) || CONST_ZOOMLVL;
+
 function fetchData() {
 	$.getJSON('/dump1090/data.json', function(data) {
 		PlanesOnMap = 0
@@ -148,11 +153,6 @@ function initialize() {
 		reaper();
 		extendedPulse();
 	}, 1000);
-
-	// Faster timer, smoother things
-	//window.setInterval(function() {
-	//	printTime();
-	//}, 250);
 }
 
 // This looks for planes to reap out of the master Planes variable
