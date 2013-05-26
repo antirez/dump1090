@@ -18,5 +18,5 @@ div#sidebar_container { float: left; width: 410px; margin-left: -410px; height: 
 
 #selectedinfotitle  { font-size: larger; }
 #selectedinfo       { font-size: small; }
-#selectedinfo a     { text-decoration: none; color: blue;}
+#selectedinfo a     { text-decoration: none; color: blue; font-size: x-small;}
 #selectedinfo.dim   { opacity: 0.3; filter:alpha(opacity=30); /* For IE8 and earlier */ }
