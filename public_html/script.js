@@ -38,6 +38,9 @@ function fetchData() {
 		}
 
 		PlanesOnTable = data.length;
+		
+		/* For special squawk tests */
+    	//Planes['867840'].squawk = '7700';
 	});
 }
 
@@ -149,7 +152,7 @@ function initialize() {
 	window.setInterval(function() {
 		fetchData();
 		refreshTableInfo();
-		refreshSelected()
+		refreshSelected();
 		reaper();
 		extendedPulse();
 	}, 1000);
@@ -177,57 +180,86 @@ function reaper() {
 } 
 
 // Refresh the detail window about the plane
-// TODO: Find out why when deselecting it sticks
 function refreshSelected() {
-	if ((	SelectedPlane != "ICAO") && (SelectedPlane != null)) {
-		var selected = Planes[SelectedPlane];
-		if (selected.flight == "") {
-			selected.flight="N/A (" + selected.icao + ")";
-		}
-		var html = '<table id="selectedinfo" width="100%">';
-		html += '<tr><td colspan="2" id="selectedinfotitle"><b>' + selected.flight + '</b><td></tr>';
-		// Lets hope we never see this... Aircraft Hijacking
-		if (selected.squawk == 7500) {
-			html += '<tr><td colspan="2"id="selectedinfotitle">Squawking: Aircraft Hijacking</td>'
-		}
-		// Radio Failure
-		if (selected.squawk == 7600) {
-			html += '<tr><td colspan="2" id="selectedinfotitle">Squawking: Communication Loss (Radio Failure)</td>'
-		}
-		// Emergancy
-		if (selected.squawk == 7700) {
-			html += '<tr><td colspan="2" id="selectedinfotitle">Squawking: Emergancy</td>'
-		}
-		html += '<tr><td>Altitude: ' + selected.altitude + '</td>';
-		
-		if (selected.squawk != '0000') {
-    		html += '<td>Squawk: ' + selected.squawk + '</td></tr>';
-    	} else {
-    	    html += '<td>Squawk: n/a</td></tr>';
-    	}
-    	
-    	html += '<tr><td>Track: ' 
-    	if (selected.vTrack) {
-		    html += selected.track;
-		    html += ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')</td>';
-		} else {
-		    html += 'n/a';
-		}
-		    
-		html += '<td>ICAO (hex): ' + selected.icao + '</td></tr>';
-
-		html += '<tr><td colspan="2" align="center">Lat/Long: ';
-		if (selected.vPosition) {
-		    html += selected.latitude + ', ' + selected.longitude;
-		} else {
-		    html += 'n/a';
-		}
-		
-		html += '</td></tr>';
-		html += '</table>';
+    var selected = false;
+	if (typeof SelectedPlane !== 'undefined' && SelectedPlane != "ICAO" && SelectedPlane != null) {
+    	selected = Planes[SelectedPlane];
+    }
+	
+	var columns = 2;
+	var html = '';
+	
+	if (selected) {
+    	html += '<table id="selectedinfo" width="100%">';
+    } else {
+        html += '<table id="selectedinfo" class="dim" width="100%">';
+    }
+	
+	// Flight header line including squawk if needed
+	if (selected && selected.flight == "") {
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>N/A (' + selected.icao + ')</b>';
+	} else if (selected && selected.flight != "") {
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>' + selected.flight + '</b>';
 	} else {
-		var html = '';
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>DUMP1090</b>';
 	}
+	
+	if (selected && selected.squawk == 7500) { // Lets hope we never see this... Aircraft Hijacking
+		html += '&nbsp;<span class="squawk7500">&nbsp;Squawking: Aircraft Hijacking&nbsp;</span>';
+	} else if (selected && selected.squawk == 7600) { // Radio Failure
+		html += '&nbsp;<span class="squawk7600">&nbsp;Squawking: Radio Failure&nbsp;</span>';
+	} else if (selected && selected.squawk == 7700) { // General Emergency
+		html += '&nbsp;<span class="squawk7700">&nbsp;Squawking: General Emergency&nbsp;</span>';
+	} else if (selected && selected.flight != '') {
+	    html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
+        html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
+	}
+	html += '<td></tr>';
+	
+	if (selected) {
+    	html += '<tr><td>Altitude: ' + selected.altitude + '</td>';
+    } else {
+        html += '<tr><td>Altitude: n/a</td>';
+    }
+		
+	if (selected && selected.squawk != '0000') {
+		html += '<td>Squawk: ' + selected.squawk + '</td></tr>';
+	} else {
+	    html += '<td>Squawk: n/a</td></tr>';
+	}
+	
+	html += '<tr><td>Speed: ' 
+	if (selected) {
+	    html += selected.speed + '&nbsp;kt';
+	} else {
+	    html += 'n/a';
+	}
+	html += '</td>';
+	
+	if (selected) {
+        html += '<td>ICAO (hex): ' + selected.icao + '</td></tr>';
+    } else {
+        html += '<td>ICAO (hex): n/a</td></tr>'; // Something is wrong if we are here
+    }
+    
+    html += '<tr><td>Track: ' 
+	if (selected && selected.vTrack) {
+	    html += selected.track + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')';
+	} else {
+	    html += 'n/a';
+	}
+	html += '</td><td>&nbsp;</td></tr>';
+
+	html += '<tr><td colspan="' + columns + '" align="center">Lat/Long: ';
+	if (selected && selected.vPosition) {
+	    html += selected.latitude + ', ' + selected.longitude;
+	} else {
+	    html += 'n/a';
+	}
+	html += '</td></tr>';
+	
+	html += '</table>';
+	
 	document.getElementById('plane_detail').innerHTML = html;
 }
 

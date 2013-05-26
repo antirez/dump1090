@@ -1,4 +1,7 @@
-html, body { margin: 0; padding: 0; background-color: #ffffff; font-family: Tahoma, Sans-Serif; font-size: 10pt; overflow: auto; }
+html, body {
+    margin: 0; padding: 0; background-color: #ffffff; font-family: Tahoma, Sans-Serif;
+    font-size: 10pt; overflow: auto;
+}
 div#map_container     { float: left; width: 100%; height: 100%; }
 div#map_canvas        { height: 100%; margin-right: 420px; }
 
@@ -6,13 +9,14 @@ div#sidebar_container { float: left; width: 410px; margin-left: -410px; height: 
 
 #tableinfo { font-size: x-small; font-family: monospace; }
 
-.vPosition { font-weight: bold; background-color: #f5fff5; }
+.vPosition  { font-weight: bold; background-color: #f5fff5; }
 .squawk7500 { font-weight: bold; background-color: #ff5555; }
 .squawk7600 { font-weight: bold; background-color: #00ffff; }
 .squawk7700 { font-weight: bold; background-color: #ffff00; }
-.selected { font-weight: bold; background-color: #dddddd; }
+.selected   { background-color: #dddddd; }
 .plane_table_row { cursor: pointer; }
 
-#selectedinfotitle { font-size: larger; }
-#selectedinfo { font-size: small; }
-
+#selectedinfotitle  { font-size: larger; }
+#selectedinfo       { font-size: small; }
+#selectedinfo a     { text-decoration: none; color: blue;}
+#selectedinfo.dim   { opacity: 0.3; filter:alpha(opacity=30); /* For IE8 and earlier */ }
