@@ -267,12 +267,45 @@ function refreshSelected() {
 
 	html += '<tr><td colspan="' + columns + '" align="center">Lat/Long: ';
 	if (selected && selected.vPosition) {
-	    html += selected.latitude + ', ' + selected.longitude;
+	    html += selected.latitude + ', ' + selected.longitude + '</td></tr>';
+	    
+	    // Let's show some extra data if we have site coordinates
+	    if (SiteShow) {
+            // Converts numeric degrees to radians
+            if (typeof Number.prototype.toRad == 'undefined') {
+              Number.prototype.toRad = function() {
+                return this * Math.PI / 180;
+              }
+            }
+            
+            // Converts radians to numeric (signed) degrees
+            if (typeof Number.prototype.toDeg == 'undefined') {
+              Number.prototype.toDeg = function() {
+                return this * 180 / Math.PI;
+              }
+            }
+            
+            // Calculate distance
+            var R = 6371; // km
+            var dLat = (selected.latitude-SiteLat).toRad();
+            var dLon = (selected.longitude-SiteLon).toRad(); 
+            var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                Math.cos(SiteLat.toRad()) * Math.cos(selected.latitude.toRad()) * 
+                Math.sin(dLon/2) * Math.sin(dLon/2); 
+            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+            var dist = (R * c) / 1.852;
+            dist  = (Math.round(dist*10)/10).toFixed(1);
+            
+            html += '<tr><td colspan="' + columns + '">Distance from Site: ' + dist + ' NM</td></tr>';
+        } // End of SiteShow
 	} else {
-	    html += 'n/a';
+	    if (SiteShow) {
+	        html += '<tr><td colspan="' + columns + '">Distance from Site: n/a NM</td></tr>';
+	    } else {
+    	    html += 'n/a</td></tr>';
+    	}
 	}
-	html += '</td></tr>';
-	
+
 	html += '</table>';
 	
 	document.getElementById('plane_detail').innerHTML = html;
@@ -489,4 +522,6 @@ function selectPlaneByHex(hex) {
 	} else { 
 		SelectedPlane = null;
 	}
+    refreshSelected();
+    refreshTableInfo();
 }
