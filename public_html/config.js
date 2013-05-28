@@ -5,6 +5,10 @@
 //
 // --------------------------------------------------------
 
+// -- Output Settings -------------------------------------
+// Show metric values
+Metric = false; // true|false 
+
 // -- Map settings ----------------------------------------
 // The Latitude and Longitude in decimal format
 CONST_CENTERLAT = 45.0;

@@ -232,7 +232,11 @@ function refreshSelected() {
 	html += '<td></tr>';
 	
 	if (selected) {
-    	html += '<tr><td>Altitude: ' + selected.altitude + '</td>';
+	    if (Metric) {
+        	html += '<tr><td>Altitude: ' + Math.round(selected.altitude / 3.2828) + ' m</td>';
+        } else {
+            html += '<tr><td>Altitude: ' + selected.altitude + ' ft</td>';
+        }
     } else {
         html += '<tr><td>Altitude: n/a</td>';
     }
@@ -245,7 +249,11 @@ function refreshSelected() {
 	
 	html += '<tr><td>Speed: ' 
 	if (selected) {
-	    html += selected.speed + '&nbsp;kt';
+	    if (Metric) {
+	        html += Math.round(selected.speed * 1.852) + ' km/h';
+	    } else {
+	        html += selected.speed + ' kt';
+	    }
 	} else {
 	    html += 'n/a';
 	}
@@ -271,43 +279,29 @@ function refreshSelected() {
 	    
 	    // Let's show some extra data if we have site coordinates
 	    if (SiteShow) {
-            // Converts numeric degrees to radians
-            if (typeof Number.prototype.toRad == 'undefined') {
-              Number.prototype.toRad = function() {
-                return this * Math.PI / 180;
-              }
+            var siteLatLon  = new google.maps.LatLng(SiteLat, SiteLon);
+            var planeLatLon = new google.maps.LatLng(selected.latitude, selected.longitude);
+            var dist = google.maps.geometry.spherical.computeDistanceBetween (siteLatLon, planeLatLon);
+            
+            if (Metric) {
+                dist /= 1000;
+            } else {
+                dist /= 1852;
             }
-            
-            // Converts radians to numeric (signed) degrees
-            if (typeof Number.prototype.toDeg == 'undefined') {
-              Number.prototype.toDeg = function() {
-                return this * 180 / Math.PI;
-              }
-            }
-            
-            // Calculate distance
-            var R = 6371; // km
-            var dLat = (selected.latitude-SiteLat).toRad();
-            var dLon = (selected.longitude-SiteLon).toRad(); 
-            var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(SiteLat.toRad()) * Math.cos(selected.latitude.toRad()) * 
-                Math.sin(dLon/2) * Math.sin(dLon/2); 
-            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-            var dist = (R * c) / 1.852;
-            dist  = (Math.round(dist*10)/10).toFixed(1);
-            
-            html += '<tr><td colspan="' + columns + '">Distance from Site: ' + dist + ' NM</td></tr>';
+            dist = (Math.round((dist)*10)/10).toFixed(1);
+            html += '<tr><td colspan="' + columns + '">Distance from Site: ' + dist +
+                (Metric ? ' km' : ' NM') + '</td></tr>';
         } // End of SiteShow
 	} else {
 	    if (SiteShow) {
-	        html += '<tr><td colspan="' + columns + '">Distance from Site: n/a NM</td></tr>';
+	        html += '<tr><td colspan="' + columns + '">Distance from Site: n/a ' + 
+	            (Metric ? ' km' : ' NM') + '</td></tr>';
 	    } else {
     	    html += 'n/a</td></tr>';
     	}
 	}
 
 	html += '</table>';
-	
 	document.getElementById('plane_detail').innerHTML = html;
 }
 
@@ -401,8 +395,15 @@ function refreshTableInfo() {
     	    } else {
     	        html += '<td align="right">&nbsp;</td>';
     	    }
-			html += '<td align="right">' + tableplane.altitude + '</td>';
-			html += '<td align="right">' + tableplane.speed + '</td>';
+    	    
+    	    if (Metric) {
+    			html += '<td align="right">' + Math.round(tableplane.altitude / 3.2828) + '</td>';
+    			html += '<td align="right">' + Math.round(tableplane.speed * 1.852) + '</td>';
+    	    } else {
+    	        html += '<td align="right">' + tableplane.altitude + '</td>';
+    	        html += '<td align="right">' + tableplane.speed + '</td>';
+    	    }
+			
 			html += '<td align="right">';
 			if (tableplane.vTrack) {
     			 html += normalizeTrack(tableplane.track, tableplane.vTrack)[2];
