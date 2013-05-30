@@ -1,7 +1,9 @@
 <html>
 	<head>
 		<link rel="stylesheet" type="text/css" href="style.css" />
+		<link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css" />
 		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+		<script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
 		<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false&libraries=geometry"></script>
 		<script type="text/javascript" src="config.js"></script>
 		<script type="text/javascript" src="untrackedDeveloperSettings.js"></script> <!-- Developers -->
@@ -14,6 +16,9 @@
 		<script type="text/javascript" src="coolclock/moreskins.js"></script>
 	</head>
 	<body onload="initialize()">
+		<div id="dialog-modal" title="Basic modal dialog">
+			<p>The settings feature is coming soon.  Keep checking github.</p>
+		</div>
 		<div id="map_container">
 			<div id="map_canvas"></div>
 		</div>
@@ -34,15 +39,10 @@
 				</div>
 				<div id="sudo_buttons">
 					<table width="100%"><tr>
-						<td width="150" style="text-align: center;">[ <span onclick="resetMap();">Reset Map</span> ]</td><td></td><td width="150" style="text-align: center;" id="setings_button">[ <span onclick="settingToggle();">Settings</span> ]</td>
+						<td width="150" style="text-align: center;">[ <span onclick="resetMap();">Reset Map</span> ]</td><td></td><td width="150" style="text-align: center;" id="setings_button">[ <span onclick="optionsModal();">Settings</span> ]</td>
 					</tr></table>
 				</div>
-				<div id="options" class="notvisable">
-					<table id="optionsTabs"><tr>
-						<td onclick="optionsGeneral();">General</td><td onclick="optionsKML();">KML</td>
-					</tr></table>
-					<div id="optionsBox"></div>
-				</div>
+
 				<div id="plane_detail"></div>
 				<div id="options"></div>
 				<div id="planes_table"></div>

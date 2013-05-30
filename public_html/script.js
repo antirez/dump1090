@@ -167,8 +167,8 @@ function initialize() {
         }
 	}
 
-    // Load up our options page
-    optionsInitalize();
+	// Load up our options page
+	optionsInitalize();
 
 	// Did our crafty user need some setup?
 	extendedInitalize();
@@ -551,11 +551,6 @@ function resetMap() {
 	GoogleMap.setCenter(new google.maps.LatLng(parseFloat(localStorage['CenterLat']), parseFloat(localStorage['CenterLon'])));
 	Selected = null;
 	refreshSelected();
-}
-
-function settingToggle() {
-	console.log("Settings Click");
-	$("#options").toggleClass("notvisable");
 }
 
 function drawCircle(marker, distance) {
