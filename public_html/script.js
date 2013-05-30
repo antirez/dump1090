@@ -146,9 +146,10 @@ function initialize() {
 	GoogleMap.mapTypes.set("dark_map", styledMap);
 	
 	// Add home marker if requested
-	if (SiteShow) {
-	    var siteMarker = new google.maps.LatLng(SiteLat, SiteLon);
-	    var markerImage = new google.maps.MarkerImage('http://maps.google.com/mapfiles/kml/pal4/icon57.png',
+	if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+	    var siteMarker  = new google.maps.LatLng(SiteLat, SiteLon);
+	    var markerImage = new google.maps.MarkerImage(
+	        'http://maps.google.com/mapfiles/kml/pal4/icon57.png',
             new google.maps.Size(32, 32),   // Image size
             new google.maps.Point(0, 0),    // Origin point of image
             new google.maps.Point(16, 16)); // Position where marker should point 
@@ -157,7 +158,13 @@ function initialize() {
           map: GoogleMap,
           icon: markerImage,
           title: 'My Radar Site'
-      });
+        });
+        
+        if (SiteCircles) {
+            for (var i=0;i<SiteCirclesDistances.length;i++) {
+              drawCircle(marker, SiteCirclesDistances[i]); // in meters
+            }
+        }
 	}
 
 	// Did our crafty user need some setup?
@@ -212,9 +219,11 @@ function refreshSelected() {
 	
 	// Flight header line including squawk if needed
 	if (selected && selected.flight == "") {
-	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>N/A (' + selected.icao + ')</b>';
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>N/A (' +
+	        selected.icao + ')</b>';
 	} else if (selected && selected.flight != "") {
-	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>' + selected.flight + '</b>';
+	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>' +
+	        selected.flight + '</b>';
 	} else {
 	    html += '<tr><td colspan="' + columns + '" id="selectedinfotitle"><b>DUMP1090</b>';
 	}
@@ -232,7 +241,11 @@ function refreshSelected() {
 	html += '<td></tr>';
 	
 	if (selected) {
-    	html += '<tr><td>Altitude: ' + selected.altitude + '</td>';
+	    if (Metric) {
+        	html += '<tr><td>Altitude: ' + Math.round(selected.altitude / 3.2828) + ' m</td>';
+        } else {
+            html += '<tr><td>Altitude: ' + selected.altitude + ' ft</td>';
+        }
     } else {
         html += '<tr><td>Altitude: n/a</td>';
     }
@@ -245,7 +258,11 @@ function refreshSelected() {
 	
 	html += '<tr><td>Speed: ' 
 	if (selected) {
-	    html += selected.speed + '&nbsp;kt';
+	    if (Metric) {
+	        html += Math.round(selected.speed * 1.852) + ' km/h';
+	    } else {
+	        html += selected.speed + ' kt';
+	    }
 	} else {
 	    html += 'n/a';
 	}
@@ -271,43 +288,29 @@ function refreshSelected() {
 	    
 	    // Let's show some extra data if we have site coordinates
 	    if (SiteShow) {
-            // Converts numeric degrees to radians
-            if (typeof Number.prototype.toRad == 'undefined') {
-              Number.prototype.toRad = function() {
-                return this * Math.PI / 180;
-              }
+            var siteLatLon  = new google.maps.LatLng(SiteLat, SiteLon);
+            var planeLatLon = new google.maps.LatLng(selected.latitude, selected.longitude);
+            var dist = google.maps.geometry.spherical.computeDistanceBetween (siteLatLon, planeLatLon);
+            
+            if (Metric) {
+                dist /= 1000;
+            } else {
+                dist /= 1852;
             }
-            
-            // Converts radians to numeric (signed) degrees
-            if (typeof Number.prototype.toDeg == 'undefined') {
-              Number.prototype.toDeg = function() {
-                return this * 180 / Math.PI;
-              }
-            }
-            
-            // Calculate distance
-            var R = 6371; // km
-            var dLat = (selected.latitude-SiteLat).toRad();
-            var dLon = (selected.longitude-SiteLon).toRad(); 
-            var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-                Math.cos(SiteLat.toRad()) * Math.cos(selected.latitude.toRad()) * 
-                Math.sin(dLon/2) * Math.sin(dLon/2); 
-            var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-            var dist = (R * c) / 1.852;
-            dist  = (Math.round(dist*10)/10).toFixed(1);
-            
-            html += '<tr><td colspan="' + columns + '">Distance from Site: ' + dist + ' NM</td></tr>';
+            dist = (Math.round((dist)*10)/10).toFixed(1);
+            html += '<tr><td colspan="' + columns + '">Distance from Site: ' + dist +
+                (Metric ? ' km' : ' NM') + '</td></tr>';
         } // End of SiteShow
 	} else {
 	    if (SiteShow) {
-	        html += '<tr><td colspan="' + columns + '">Distance from Site: n/a NM</td></tr>';
+	        html += '<tr><td colspan="' + columns + '">Distance from Site: n/a ' + 
+	            (Metric ? ' km' : ' NM') + '</td></tr>';
 	    } else {
     	    html += 'n/a</td></tr>';
     	}
 	}
 
 	html += '</table>';
-	
 	document.getElementById('plane_detail').innerHTML = html;
 }
 
@@ -361,12 +364,18 @@ function refreshTableInfo() {
 	html += '<thead style="background-color: #BBBBBB; cursor: pointer;">';
 	html += '<td onclick="setASC_DESC(\'0\');sortTable(\'tableinfo\',\'0\');">ICAO</td>';
 	html += '<td onclick="setASC_DESC(\'1\');sortTable(\'tableinfo\',\'1\');">Flight</td>';
-	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" align="right">Squawk</td>';
-	html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" align="right">Altitude</td>';
-	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" align="right">Speed</td>';
-	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" align="right">Track</td>';
-	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'6\');" align="right">Msgs</td>';
-	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'7\');" align="right">Seen</td></thead><tbody>';
+	html += '<td onclick="setASC_DESC(\'2\');sortTable(\'tableinfo\',\'2\');" ' +
+	    'align="right">Squawk</td>';
+	html += '<td onclick="setASC_DESC(\'3\');sortTable(\'tableinfo\',\'3\');" ' +
+	    'align="right">Altitude</td>';
+	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" ' +
+	    'align="right">Speed</td>';
+	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" ' +
+	    'align="right">Track</td>';
+	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'6\');" ' +
+	    'align="right">Msgs</td>';
+	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'7\');" ' +
+	    'align="right">Seen</td></thead><tbody>';
 	for (var tablep in Planes) {
 		var tableplane = Planes[tablep]
 		if (!tableplane.reapable) {
@@ -401,8 +410,15 @@ function refreshTableInfo() {
     	    } else {
     	        html += '<td align="right">&nbsp;</td>';
     	    }
-			html += '<td align="right">' + tableplane.altitude + '</td>';
-			html += '<td align="right">' + tableplane.speed + '</td>';
+    	    
+    	    if (Metric) {
+    			html += '<td align="right">' + Math.round(tableplane.altitude / 3.2828) + '</td>';
+    			html += '<td align="right">' + Math.round(tableplane.speed * 1.852) + '</td>';
+    	    } else {
+    	        html += '<td align="right">' + tableplane.altitude + '</td>';
+    	        html += '<td align="right">' + tableplane.speed + '</td>';
+    	    }
+			
 			html += '<td align="right">';
 			if (tableplane.vTrack) {
     			 html += normalizeTrack(tableplane.track, tableplane.vTrack)[2];
@@ -536,4 +552,29 @@ function resetMap() {
 function settingToggle() {
 	console.log("Settings Click");
 	$("#options").toggleClass("notvisable");
+}
+
+function drawCircle(marker, distance) {
+    if (typeof distance === 'undefined') {
+        return false;
+        
+        if (!(!isNaN(parseFloat(distance)) && isFinite(distance)) || distance < 0) {
+            return false;
+        }
+    }
+    
+    distance *= 1000.0;
+    if (!Metric) {
+        distance *= 1.852;
+    }
+    
+    // Add circle overlay and bind to marker
+    var circle = new google.maps.Circle({
+      map: GoogleMap,
+      radius: distance, // In meters
+      fillOpacity: 0.0,
+      strokeWeight: 1,
+      strokeOpacity: 0.3
+    });
+    circle.bindTo('center', marker, 'position');
 }
