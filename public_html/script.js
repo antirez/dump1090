@@ -167,6 +167,9 @@ function initialize() {
         }
 	}
 
+    // Load up our options page
+    optionsInitalize();
+
 	// Did our crafty user need some setup?
 	extendedInitalize();
 	
@@ -311,6 +314,7 @@ function refreshSelected() {
 	}
 
 	html += '</table>';
+	
 	document.getElementById('plane_detail').innerHTML = html;
 }
 
