@@ -28,5 +28,6 @@ SiteLat     = 45.0;
 SiteLon     = 9.0;
 
 SiteCircles = true; // true or false (Only shown if SiteShow is true)
-SiteCirclesDistances = new Array(100,150,200); // In nautical miles or km (depending settings value 'Metric')
+// In nautical miles or km (depending settings value 'Metric')
+SiteCirclesDistances = new Array(100,150,200);
 
