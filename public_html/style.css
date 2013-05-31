@@ -23,3 +23,6 @@ table#optionsTabs { width: 100%; font-size: small; font-family: monospace; backg
 #selectedinfo       { font-size: small; }
 #selectedinfo a     { text-decoration: none; color: blue; font-size: x-small;}
 #selectedinfo.dim   { opacity: 0.3; filter:alpha(opacity=30); /* For IE8 and earlier */ }
+
+.pointer { cursor: pointer; }
+

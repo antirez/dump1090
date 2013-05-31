@@ -145,6 +145,16 @@ function initialize() {
 
 	GoogleMap.mapTypes.set("dark_map", styledMap);
 	
+	// Listeners for newly created Map
+    google.maps.event.addListener(GoogleMap, 'center_changed', function() {
+        localStorage['CenterLat'] = GoogleMap.getCenter().lat();
+        localStorage['CenterLon'] = GoogleMap.getCenter().lng();
+    });
+    
+    google.maps.event.addListener(GoogleMap, 'zoom_changed', function() {
+        localStorage['ZoomLvl']  = GoogleMap.getZoom();
+    }); 
+	
 	// Add home marker if requested
 	if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
 	    var siteMarker  = new google.maps.LatLng(SiteLat, SiteLon);
@@ -547,10 +557,22 @@ function selectPlaneByHex(hex) {
 }
 
 function resetMap() {
-	GoogleMap.setZoom(parseInt(localStorage['ZoomLvl']));
-	GoogleMap.setCenter(new google.maps.LatLng(parseFloat(localStorage['CenterLat']), parseFloat(localStorage['CenterLon'])));
+    // Reset localStorage values
+    localStorage['CenterLat'] = CONST_CENTERLAT;
+    localStorage['CenterLon'] = CONST_CENTERLON;
+    localStorage['ZoomLvl']   = CONST_ZOOMLVL;
+    
+    // Try to read values from localStorage else use CONST_s
+    CenterLat = Number(localStorage['CenterLat']) || CONST_CENTERLAT;
+    CenterLon = Number(localStorage['CenterLon']) || CONST_CENTERLON;
+    ZoomLvl   = Number(localStorage['ZoomLvl']) || CONST_ZOOMLVL;
+    
+    // Set and refresh
+	GoogleMap.setZoom(parseInt(ZoomLvl));
+	GoogleMap.setCenter(new google.maps.LatLng(parseFloat(CenterLat), parseFloat(CenterLon)));
 	Selected = null;
 	refreshSelected();
+	refreshTableInfo();
 }
 
 function drawCircle(marker, distance) {
