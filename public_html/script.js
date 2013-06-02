@@ -176,7 +176,8 @@ function initialize() {
           position: siteMarker,
           map: GoogleMap,
           icon: markerImage,
-          title: 'My Radar Site'
+          title: 'My Radar Site',
+          zIndex: -99999
         });
         
         if (SiteCircles) {
