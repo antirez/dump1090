@@ -5,6 +5,7 @@ var PlanesOnMap   = 0;
 var PlanesOnTable = 0;
 var PlanesToReap  = 0;
 var SelectedPlane = null;
+var SpecialSqawk  = false;
 
 var iSortCol=-1;
 var bSortASC=true;
@@ -19,6 +20,7 @@ ZoomLvl   = Number(localStorage['ZoomLvl']) || CONST_ZOOMLVL;
 function fetchData() {
 	$.getJSON('/dump1090/data.json', function(data) {
 		PlanesOnMap = 0
+		SpecialSquawk = false;
 		
 		// Loop through all the planes in the data packet
 		for (var j=0; j < data.length; j++) {
@@ -29,6 +31,16 @@ function fetchData() {
 			} else {
 				var plane = jQuery.extend(true, {}, planeObject);
 			}
+			
+			/* For special squawk tests
+			if (data[j].hex == '48413x') {
+            	data[j].squawk = '7700';
+            } //*/
+            
+            // Set SpecialSquawk-value
+            if (data[j].squawk == '7500' || data[j].squawk == '7600' || data[j].squawk == '7700') {
+                SpecialSquawk = true;
+            }
 
 			// Call the function update
 			plane.funcUpdateData(data[j]);
@@ -38,9 +50,6 @@ function fetchData() {
 		}
 
 		PlanesOnTable = data.length;
-		
-		/* For special squawk tests */
-    	//Planes['867840'].squawk = '7700';
 	});
 }
 
@@ -454,6 +463,12 @@ function refreshTableInfo() {
 	html += '</tbody></table>';
 
 	document.getElementById('planes_table').innerHTML = html;
+
+	if (SpecialSquawk) {
+    	$('#SpecialSquawkWarning').css('display', 'inline');
+    } else {
+        $('#SpecialSquawkWarning').css('display', 'none');
+    }
 
 	// Click event for table
 	$('#planes_table').find('tr').click( function(){

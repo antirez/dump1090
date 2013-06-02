@@ -7,7 +7,12 @@ div#map_canvas        { height: 100%; margin-right: 420px; }
 
 div#sidebar_container { float: left; width: 410px; margin-left: -410px; height: 100%; overflow: auto; }
 
-table#optionsTabs { width: 100%; font-size: small; font-family: monospace; background-color: #ddd; border: 1px; border-color: #000000;}
+div#SpecialSquawkWarning { position: absolute; bottom: 25px; right: 430px; border: 2px solid red;
+    background-color: #FFFFA3; opacity: 0.75; filter:alpha(opacity=75); padding: 5px;
+    display: none; text-align: center; }
+
+table#optionsTabs { width: 100%; font-size: small; font-family: monospace; background-color: #ddd;
+    border: 1px; border-color: #000000;}
 
 #tableinfo { font-size: x-small; font-family: monospace; }
 #sudo_buttons { font-size: x-small; font-family: monospace; }
