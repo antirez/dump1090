@@ -176,6 +176,11 @@ function initialize() {
             }
         }
 	}
+	
+	// These will run after page is complitely loaded
+	$(window).load(function() {
+        $('#dialog-modal').css('display', 'inline'); // Show hidden settings-windows content
+    });
 
 	// Load up our options page
 	optionsInitalize();
