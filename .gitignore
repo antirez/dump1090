@@ -7,4 +7,4 @@ frames.js
 *~
 *.rej
 *.orig
-public_html/untrackedDeveloperSettings.js
+untrackedDeveloperSettings.js
