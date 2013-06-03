@@ -596,23 +596,8 @@ function resetMap() {
 	    selectPlaneByHex(SelectedPlane);
 	}
 
-<<<<<<< HEAD
-function resetMap() {
-    localStorage['CenterLat'] = CONST_CENTERLAT;
-    localStorage['CenterLon'] = CONST_CENTERLON;
-    localStorage['ZoomLvl']   = CONST_ZOOMLVL;
-    CenterLat = CONST_CENTERLAT;
-    CenterLon = CONST_CENTERLON;
-    ZoomLvl   = CONST_ZOOMLVL;
-    Map.setZoom(parseInt(localStorage['ZoomLvl']));
-    Map.setCenter(new google.maps.LatLng(parseFloat(localStorage['CenterLat']),
-            parseFloat(localStorage['CenterLon'])));
-    Selected = null;
-    refreshSelectedInfo();
-=======
 	refreshSelected();
 	refreshTableInfo();
->>>>>>> mapRefactor
 }
 
 function drawCircle(marker, distance) {
