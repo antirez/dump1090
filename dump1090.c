@@ -1065,7 +1065,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[8] = '\0';
         } else if (mm->metype >= 5 && mm->metype <= 8) {
             /* Surface Position Message */
-            int mvt = ((msg[0] & 3) << 4) | (msg[1] >> 4) ;
+            int mvt = ((msg[0] & 7) << 4) | (msg[1] >> 4) ;
             if (mvt == 0) {
                 mm->velocity = 0; /* unknown */
             } else if (mvt == 1) {
