@@ -1063,6 +1063,49 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[6] = ais_charset[((msg[9]&15)<<2)|(msg[10]>>6)];
             mm->flight[7] = ais_charset[msg[10]&63];
             mm->flight[8] = '\0';
+        } else if (mm->metype >= 5 && mm->metype <= 8) {
+            /* Surface Position Message */
+            int mvt = ((msg[0] & 3) << 4) | (msg[1] >> 4) ;
+            if (mvt == 0) {
+                mm->velocity = 0; /* unknown */
+            } else if (mvt == 1) {
+                /* less than 0.125 kt */
+                mm->velocity = 0.125 * 1.6878099 / 2; /* kt to f/s */
+            } else if (mvt == 124) {
+                mm->velocity = 175 * 1.6878099;
+            } else if (mvt >=   2 && mvt <=   8) {
+                mm->velocity  = 0.125 * 1.6878099; 
+                mm->velocity += (mvt-2) * 0.125 * 1.6878099;
+            } else if (mvt >=   9 && mvt <=  12) {
+                mm->velocity  = 1.6878099;
+                mm->velocity += (mvt-9) * 0.25 * 1.6878099;
+            } else if (mvt >=  13 && mvt <=  38) {
+                mm->velocity  = 2 * 1.6878099;
+                mm->velocity += (mvt-13) * 0.5 * 1.6878099;
+            } else if (mvt >=  39 && mvt <=  93) {
+                mm->velocity  = 15 * 1.6878099;
+                mm->velocity += (mvt-39) * 1.0 * 1.6878099;
+            } else if (mvt >=  94 && mvt <= 108) {
+                mm->velocity  = 70 * 1.6878099;
+                mm->velocity += (mvt-94) * 2.0 * 1.6878099;
+            } else if (mvt >= 109 && mvt <= 123) {
+                mm->velocity  = 100 * 1.6878099;
+                mm->velocity += (mvt-109) * 5.0 * 1.6878099;
+            }
+            mm->heading_is_valid = msg[1] & (1<<3);
+            if(mm->heading_is_valid){
+                int track = ((msg[1] & 7) << 4)|
+                              (msg[2]      >> 4);
+                mm->heading = track * 360 / 128; /* 360/128 degrees increments */
+            }
+            mm->fflag = msg[6] & (1<<2);
+            mm->tflag = msg[6] & (1<<3);
+            mm->raw_latitude = ((msg[6] & 3) << 15) |
+                                (msg[7] << 7) |
+                                (msg[8] >> 1);
+            mm->raw_longitude = ((msg[8]&1) << 16) |
+                                 (msg[9] << 8) |
+                                 msg[10];
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             /* Airborne position Message */
             mm->fflag = msg[6] & (1<<2);
@@ -1686,6 +1729,10 @@ double cprDlonFunction(double lat, int isodd) {
     return 360.0 / cprNFunction(lat, isodd);
 }
 
+double cprDlonFunction_surface(double lat, int isodd) {
+    return 90.0 / cprNFunction(lat, isodd);
+}
+
 /* This algorithm comes from:
  * http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
  *
@@ -1734,6 +1781,44 @@ void decodeCPR(struct aircraft *a) {
     if (a->lon > 180) a->lon -= 360;
 }
 
+void decodeCPR_surface(struct aircraft *a) {
+    const double AirDlat0 = 90.0 / 60;
+    const double AirDlat1 = 90.0 / 59;
+    double lat0 = a->even_cprlat;
+    double lat1 = a->odd_cprlat;
+    double lon0 = a->even_cprlon;
+    double lon1 = a->odd_cprlon;
+
+    /* Compute the Latitude Index "j" */
+    int j = floor(((59*lat0 - 60*lat1) / 131072) + 0.5);
+    double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
+    double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
+
+    if (rlat0 >= 270) rlat0 -= 360;
+    if (rlat1 >= 270) rlat1 -= 360;
+
+    /* Check that both are in the same latitude zone, or abort. */
+    if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
+
+    /* Compute ni and the longitude index m */
+    if (a->even_cprtime > a->odd_cprtime) {
+        /* Use even packet. */
+        int ni = cprNFunction(rlat0,0);
+        int m = floor((((lon0 * (cprNLFunction(rlat0)-1)) -
+                        (lon1 * cprNLFunction(rlat0))) / 131072) + 0.5);
+        a->lon = cprDlonFunction_surface(rlat0,0) * (cprModFunction(m,ni)+lon0/131072);
+        a->lat = rlat0;
+    } else {
+        /* Use odd packet. */
+        int ni = cprNFunction(rlat1,1);
+        int m = floor((((lon0 * (cprNLFunction(rlat1)-1)) -
+                        (lon1 * cprNLFunction(rlat1))) / (131072*1.0)) + 0.5);
+        a->lon = cprDlonFunction_surface(rlat1,1) * (cprModFunction(m,ni)+lon1/131072);
+        a->lat = rlat1;
+    }
+    if (a->lon < 90) a->lon -= 180;
+}
+
 /* Receive new messages and populate the interactive mode with more info. */
 struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     uint32_t addr;
@@ -1775,6 +1860,25 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
+        } else if (mm->metype >= 5 && mm->metype <= 8) {
+            a->speed = mm->velocity;
+            if(mm->heading_is_valid){
+                a->track = mm->heading;
+            }
+            if (mm->fflag) {
+                a->odd_cprlat = mm->raw_latitude;
+                a->odd_cprlon = mm->raw_longitude;
+                a->odd_cprtime = mstime();
+            } else {
+                a->even_cprlat = mm->raw_latitude;
+                a->even_cprlon = mm->raw_longitude;
+                a->even_cprtime = mstime();
+            }
+            /* If the two data is less than 10 seconds apart, compute
+             * the position. */
+            if (abs(a->even_cprtime - a->odd_cprtime) <= 10000) {
+                decodeCPR_surface(a);
+            }
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             a->altitude = mm->altitude;
             if (mm->fflag) {
