@@ -39,8 +39,9 @@
     </script>
     <script type="text/javascript">
     Map=null;
-    CenterLat=45.0;
-    CenterLon=9.0;
+    /* seatac */
+    CenterLat=47.450;
+    CenterLon=-122.311;
     Planes={};
     NumPlanes = 0;
     Selected=null
@@ -153,8 +154,8 @@
     function initialize() {
         var mapOptions = {
             center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 5,
-            mapTypeId: google.maps.MapTypeId.ROADMAP
+            zoom: 11,
+            mapTypeId: google.maps.MapTypeId.HYBRID
         };
         Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
 
