@@ -1061,39 +1061,37 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[8] = '\0';
         } else if (mm->metype >= 5 && mm->metype <= 8) {
             /* Surface Position Message */
-            int mvt = ((msg[0] & 7) << 4) | (msg[1] >> 4) ;
-            if (mvt == 0) {
-                mm->velocity = 0; /* unknown */
-            } else if (mvt == 1) {
-                /* less than 0.125 kt */
-                mm->velocity = 0.125 * 1.6878099 / 2; /* kt to f/s */
+            int mvt = ((msg[0] & 7) << 4) | (msg[1] >> 4);
+            if (mvt == 0) {         /* unknown */
+                mm->velocity = 0;
+            } else if (mvt == 1) {  /* less than 0.125 kt */
+                mm->velocity = 0.124;
             } else if (mvt == 124) {
-                mm->velocity = 175 * 1.6878099;
+                mm->velocity = 175;
             } else if (mvt >=   2 && mvt <=   8) {
-                mm->velocity  = 0.125 * 1.6878099; 
-                mm->velocity += (mvt-2) * 0.125 * 1.6878099;
+                mm->velocity  = 0.125; 
+                mm->velocity += (mvt-2) * 0.125;
             } else if (mvt >=   9 && mvt <=  12) {
-                mm->velocity  = 1.6878099;
-                mm->velocity += (mvt-9) * 0.25 * 1.6878099;
+                mm->velocity  = 1;
+                mm->velocity += (mvt-9) * 0.25;
             } else if (mvt >=  13 && mvt <=  38) {
-                mm->velocity  = 2 * 1.6878099;
-                mm->velocity += (mvt-13) * 0.5 * 1.6878099;
+                mm->velocity  = 2;
+                mm->velocity += (mvt-13) * 0.5;
             } else if (mvt >=  39 && mvt <=  93) {
-                mm->velocity  = 15 * 1.6878099;
-                mm->velocity += (mvt-39) * 1.0 * 1.6878099;
+                mm->velocity  = 15;
+                mm->velocity += (mvt-39) * 1.0;
             } else if (mvt >=  94 && mvt <= 108) {
-                mm->velocity  = 70 * 1.6878099;
-                mm->velocity += (mvt-94) * 2.0 * 1.6878099;
+                mm->velocity  = 70;
+                mm->velocity += (mvt-94) * 2.0;
             } else if (mvt >= 109 && mvt <= 123) {
-                mm->velocity  = 100 * 1.6878099;
-                mm->velocity += (mvt-109) * 5.0 * 1.6878099;
+                mm->velocity  = 100;
+                mm->velocity += (mvt-109) * 5.0;
             }
             mm->heading_is_valid = msg[1] & (1<<3);
-            if(mm->heading_is_valid){
-                int track = ((msg[1] & 7) << 4)|
-                              (msg[2]      >> 4);
-                mm->heading = track * 360 / 128; /* 360/128 degrees increments */
-            }
+
+            int track = ((msg[1] & 7) << 4) | (msg[2] >> 4);
+            mm->heading = track * 360 / 128; /* 360/128 degrees increments */
+
             mm->fflag = msg[6] & (1<<2);
             mm->tflag = msg[6] & (1<<3);
             mm->raw_latitude = ((msg[6] & 3) << 15) |
@@ -1858,9 +1856,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
         } else if (mm->metype >= 5 && mm->metype <= 8) {
             a->speed = mm->velocity;
-            if(mm->heading_is_valid){
-                a->track = mm->heading;
-            }
+            a->track = mm->heading;
             if (mm->fflag) {
                 a->odd_cprlat = mm->raw_latitude;
                 a->odd_cprlon = mm->raw_longitude;
