@@ -1234,6 +1234,14 @@ void displayModesMessage(struct modesMessage *mm) {
 
             printf("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
             printf("    Identification : %s\n", mm->flight);
+        } else if (mm->metype >= 5 && mm->metype <= 8) {
+            printf("    Movement: %d", mm->velocity);
+            printf("    Track status: %d", mm->heading_is_valid);
+            printf("    Track: %d", mm->heading);
+            printf("    F flag   : %s\n", mm->fflag ? "odd" : "even");
+            printf("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
+            printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+            printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             printf("    F flag   : %s\n", mm->fflag ? "odd" : "even");
             printf("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
