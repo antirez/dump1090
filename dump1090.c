@@ -41,8 +41,10 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
 #include "rtl-sdr.h"
 #include "anet.h"
+
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -241,6 +243,8 @@ void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
+void sigWinchCallback();
+int getTermRows();
 
 /* ============================= Utility functions ========================== */
 
@@ -277,6 +281,8 @@ void modesInitConfig(void) {
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.aggressive = 0;
+
+    Modes.interactive_rows = getTermRows();
 }
 
 void modesInit(void) {
@@ -2363,7 +2369,7 @@ void showHelp(void) {
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
-"--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
+"--interactive-rows <num> Max number of rows in interactive mode (default: 15 or size of terminal).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
@@ -2499,6 +2505,11 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Setup for SIGWINCH for handling lines */
+    if(Modes.interactive == 1) {
+      signal(SIGWINCH, sigWinchCallback);
+    }
+
     /* Initialization */
     modesInit();
     if (Modes.net_only) {
@@ -2567,4 +2578,20 @@ int main(int argc, char **argv) {
 
     rtlsdr_close(Modes.dev);
     return 0;
+}
+
+/* Handle resizing terminal */
+void sigWinchCallback() {
+    signal(SIGWINCH, SIG_IGN);
+    Modes.interactive_rows = getTermRows();
+    interactiveShowData();
+    signal(SIGWINCH, sigWinchCallback);
+}
+
+int getTermRows()
+{
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+    return w.ws_row;
 }
