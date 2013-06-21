@@ -3487,7 +3487,7 @@ int decodeHexMessage(struct client *c, char *hex) {
     return (0);
 }
 
-/* Return a description of planes in json. */
+/* Return a description of planes in json. No metric conversion. */
 char *aircraftsToJson(int *len) {
     time_t now = time(NULL);
     struct aircraft *a = Modes.aircrafts;
@@ -3498,7 +3498,6 @@ char *aircraftsToJson(int *len) {
     l = snprintf(p,buflen,"[\n");
     p += l; buflen -= l;
     while(a) {
-        int altitude = a->altitude, speed = a->speed;
         int position = 0;
         int track = 0;
 
@@ -3507,11 +3506,6 @@ char *aircraftsToJson(int *len) {
             continue;
         }
         
-        /* Convert units to metric if --metric was specified. */
-        if (Modes.metric) {
-            altitude = (int) (altitude / 3.2828);
-            speed    = (int) (speed * 1.852);
-        }
         
         if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
             position = 1;
@@ -3521,6 +3515,7 @@ char *aircraftsToJson(int *len) {
             track = 1;
         }
         
+        // No metric conversion
         l = snprintf(p,buflen,
             "{\"hex\":\"%06x\", \"squawk\":\"%04x\", \"flight\":\"%s\", \"lat\":%f, "
             "\"lon\":%f, \"validposition\":%d, \"altitude\":%d, \"track\":%d, \"validtrack\":%d,"

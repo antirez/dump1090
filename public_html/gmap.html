@@ -1,25 +1,64 @@
-<!DOCTYPE html>
-
 <html>
-  <head>
-    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
-    
-    <link rel="stylesheet" type="text/css" href="style.css" />
-    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
-    <script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=true"></script>
-    <script type="text/javascript" src="script.js"></script>
-  </head>
-  <body onload="initialize()">
-    <div id="map_canvas" style="height:100%"></div>
-    <div id="info">
-      <div>
-        <h1>Dump1090 - <span id="utcTime">00:00:00</span> UTC</h1>
-        <p id="geninfo"></p>
-        <p id="selinfo">Click on a plane for info.</p>
-        <div id="tabinfo"></div>
-      </div>
-      <div id="info_footer"><a href="#" onClick="resetMap();">Reset Map</a></div>
-    </div>
-  </body>
-</html>
+	<head>
+		<link rel="stylesheet" type="text/css" href="style.css" />
+		<link rel="stylesheet" href="http://code.jquery.com/ui/1.10.3/themes/smoothness/jquery-ui.css" />
+		<script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+		<script src="http://code.jquery.com/ui/1.10.3/jquery-ui.js"></script>
+		<script type="text/javascript" src="https://maps.googleapis.com/maps/api/js?sensor=false&libraries=geometry"></script>
+		<script type="text/javascript" src="config.js"></script>
+		<script type="text/javascript" src="untrackedDeveloperSettings.js"></script> <!-- Developers -->
+		<script type="text/javascript" src="planeObject.js"></script>
+		<script type="text/javascript" src="options.js"></script>
+		<script type="text/javascript" src="extension.js"></script>
+		<script type="text/javascript" src="script.js"></script>
+		<script type="text/javascript" src="coolclock/excanvas.js"></script>
+		<script type="text/javascript" src="coolclock/coolclock.js"></script>
+		<script type="text/javascript" src="coolclock/moreskins.js"></script>
+	</head>
+	<body onload="initialize()">
+		<div id="dialog-modal" title="Basic modal dialog" style="display:none;">
+			<p>The settings feature is coming soon. Keep checking GitHub.</p>
+		</div>
+		<div id="map_container">
+			<div id="map_canvas"></div>
+		</div>
+		<div id="container_splitter"></div>
+		<div id="sidebar_container">
+			<div id="sidebar_canvas">
+				<div id="timestamps" style="align: center">
+					<table width="100%"><tr>
+						<td>Local Time</td>
+						<td>
+							<canvas id="localclock" class="CoolClock:classic:40"></canvas>
+						</td>
+						<td>UTC Time</td>
+						<td>
+							<canvas id="gmtclock" class="CoolClock:classic:40::0"></canvas>
+						</td>
+					</tr></table>
+				</div>
+				<div id="sudo_buttons">
+					<table width="100%"><tr>
+						<td width="150" style="text-align: center;" class="pointer">
+						    [ <span onclick="resetMap();">Reset Map</span> ]
+						</td>
+						<td>&nbsp;</td>
+						<td width="150" style="text-align: center;" id="setings_button" class="pointer">
+						    [ <span onclick="optionsModal();">Settings</span> ]
+						</td>
+					</tr></table>
+				</div>
 
+				<div id="plane_detail"></div>
+				<div id="options"></div>
+				<div id="planes_table"></div>
+				<div id="plane_extension"></div>
+			</div>
+		</div>
+		<div id="SpecialSquawkWarning">
+		    <b>Squak 7x00 is reported and shown.</b><br>
+            This is most likely an error in reciving or decoding.<br>
+            Please do not call the local authorities, they already know about it if it is valid squak.
+		</div>
+	</body>
+</html>

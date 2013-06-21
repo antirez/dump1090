@@ -1,48 +1,33 @@
-html { height: 100% }
-body { height: 100%; margin: 0; padding: 0; font-size: small;}
-#map_canvas { 
-height: 100%;
-margin-right:390px;
+html, body {
+    margin: 0; padding: 0; background-color: #ffffff; font-family: Tahoma, Sans-Serif;
+    font-size: 10pt; overflow: auto;
 }
-#info {
-position: absolute;
-width:390px;
-height:100%;
-bottom:0px;
-right:0px;
-top:0px;
-background-color: white;
-border-left:1px #666 solid;
-font-family:Helvetica;
-}
-#info div {
-padding:0px;
-padding-left:10px;
-padding-right:10px;
-margin:0px;
-}
-#info div h1 {
-margin-top:10px;
-font-size:16px;
-}
-#info_footer {
-position: absolute;
-display: none;
-text-align: center;
-padding:0px;
-margin:0px;
-}
-#tabinfo{
-height: 400px;
-overflow-y: auto;
-}
-#tableinfo {
-font-size: x-small;
-font-family: monospace;
-}
-#tableinforow {
-cursor: pointer;
-}
-#tableinforow .bold {
-font-weight:bold;
-}
+div#map_container     { float: left; width: 100%; height: 100%; }
+div#map_canvas        { height: 100%; margin-right: 420px; }
+
+div#sidebar_container { float: left; width: 410px; margin-left: -410px; height: 100%; overflow: auto; }
+
+div#SpecialSquawkWarning { position: absolute; bottom: 25px; right: 430px; border: 2px solid red;
+    background-color: #FFFFA3; opacity: 0.75; filter:alpha(opacity=75); padding: 5px;
+    display: none; text-align: center; }
+
+table#optionsTabs { width: 100%; font-size: small; font-family: monospace; background-color: #ddd;
+    border: 1px; border-color: #000000;}
+
+#tableinfo { font-size: x-small; font-family: monospace; }
+#sudo_buttons { font-size: x-small; font-family: monospace; }
+
+.vPosition  { font-weight: bold; background-color: #f5fff5; }
+.squawk7500 { font-weight: bold; background-color: #ff5555; }
+.squawk7600 { font-weight: bold; background-color: #00ffff; }
+.squawk7700 { font-weight: bold; background-color: #ffff00; }
+.selected   { background-color: #dddddd; }
+.plane_table_row { cursor: pointer; }
+
+#selectedinfotitle  { font-size: larger; }
+#selectedinfo       { font-size: small; }
+#selectedinfo a     { text-decoration: none; color: blue; font-size: x-small;}
+#selectedinfo.dim   { opacity: 0.3; filter:alpha(opacity=30); /* For IE8 and earlier */ }
+
+.pointer { cursor: pointer; }
+
