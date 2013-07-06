@@ -42,6 +42,7 @@
     CenterLat=45.0;
     CenterLon=9.0;
     Planes={};
+    PlaneLines={};
     NumPlanes = 0;
     Selected=null
 
@@ -63,16 +64,65 @@
         };
     }
 
+	function redrawPlaneLine(old, selected)
+	{
+        if (PlaneLines[old])
+        {
+            /* Remove the highlight in the previously selected tracks of the plane. */
+            for (var i in PlaneLines[old].lineSegs)
+            {
+            	var seg = PlaneLines[old].lineSegs[i];
+            	seg.setMap(null);
+            }
+            PlaneLines[old].setVisible(true);
+            PlaneLines[old].lineSegs = undefined;
+        }
+        if (PlaneLines[selected])
+        {
+            PlaneLines[selected].setVisible(false);
+		    PlaneLines[selected].lineSegs = new Array();
+		    var poses = PlaneLines[selected].getPath();
+		   	var lastPos = null;
+		   	var hMax = Math.max.apply(null, PlaneLines[selected].lineHeights);
+		   	var hMin = Math.min.apply(null, PlaneLines[selected].lineHeights);
+		    for (var i in PlaneLines[selected].lineHeights)
+		    {
+		    	var h = PlaneLines[selected].lineHeights[i];
+		    	var pos = poses.getAt(i);
+		    	if (!lastPos)
+		    	{
+		    		lastPos = pos;
+		    		continue;
+		    	}
+		    	if (Math.abs(lastPos.lat() - pos.lat()) < 0.00001 &&
+		    		Math.abs(lastPos.lng() - pos.lng()) < 0.00001)
+		    	{
+		    		continue;
+		    	}
+		    	var seg = new google.maps.Polyline({map: Map, strokeColor: "rgb("+Math.floor((1-(h-hMin)/Math.max((hMax-hMin), 100))*255)+", " + Math.floor(h/40000*255) + ", " + Math.floor((h-hMin)/Math.max((hMax-hMin), 100)*255) + ")", strokeOpacity:0.5});
+		    	var path = new google.maps.MVCArray();
+		    	path.push(lastPos);
+		    	path.push(pos);
+		    	seg.setPath(path);
+		    	PlaneLines[selected].lineSegs.push(seg);
+
+		   		lastPos = pos;
+		    }
+		}
+	}
     function selectPlane() {
-        if (!Planes[this.planehex]) return;
         var old = Selected;
         Selected = this.planehex;
         if (Planes[old]) {
             /* Remove the highlight in the previously selected plane. */
             Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
         }
-        Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
-        refreshSelectedInfo();
+        if (Planes[Selected])
+        {
+		    Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
+		    refreshSelectedInfo();
+		}
+		redrawPlaneLine(old, Selected);
     }
     
     function refreshGeneralInfo() {
@@ -107,6 +157,17 @@
 
                 if (Planes[plane.hex]) {
                     var myplane = Planes[plane.hex];
+
+                	var line = myplane.line;
+                	var line_data = line.getPath();
+                	line_data.push(new google.maps.LatLng(plane.lat, plane.lon));
+                	line.setPath(line_data);
+                	line.lineHeights.push(plane.altitude);
+                	if (Selected == myplane.hex)
+                	{
+						redrawPlaneLine(Selected, Selected);
+                	}
+                	
                     marker = myplane.marker;
                     var icon = marker.getIcon();
                     var newpos = new google.maps.LatLng(plane.lat, plane.lon);
@@ -121,6 +182,22 @@
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
                 } else {
+               		var line = PlaneLines[plane.hex];
+                	if (line === undefined)
+                	{
+                		line = new google.maps.Polyline({map: Map});
+                		line.setPath(new google.maps.MVCArray());
+                		line.firstTime = new Date().getTime();
+                		line.lineHeights = new Array();
+                		line.planehex = plane.hex;
+                		PlaneLines[plane.hex] = line;
+                	}
+               		var line_data = line.getPath();
+                	line_data.push(new google.maps.LatLng(plane.lat, plane.lon));
+                	line.setPath(line_data);
+                	line.lineHeights.push(plane.altitude);
+                	plane.line = line;
+
                     marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
                         map: Map,
@@ -132,6 +209,7 @@
 
                     /* Trap clicks for this marker. */
                     google.maps.event.addListener(marker, 'click', selectPlane);
+                    google.maps.event.addListener(line, 'click', selectPlane);
                 }
                 if (plane.flight.length == 0)
                     marker.setTitle(plane.hex)
@@ -147,13 +225,21 @@
                     delete Planes[p];
                 }
             }
+            var cur = new Date().getTime();
+            for (var i in PlaneLines)
+            {
+            	var line = PlaneLines[i];
+            	var durMs = cur - line.firstTime;
+            	line.setOptions({strokeOpacity: 1-Math.log(durMs)/18});
+            }
+
         });
     }
 
     function initialize() {
         var mapOptions = {
             center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 5,
+            zoom: 9,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
         Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
