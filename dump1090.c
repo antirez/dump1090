@@ -89,6 +89,7 @@
 #define MODES_CLIENT_BUF_SIZE 1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
+
 #define MODES_NOTUSED(V) ((void) V)
 
 /* Structure used to describe a networking client. */
@@ -2124,6 +2125,7 @@ int decodeHexMessage(struct client *c) {
 
 /* Return a description of planes in json. */
 char *aircraftsToJson(int *len) {
+    time_t now = time(NULL);
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
     char *buf = malloc(buflen), *p = buf;
@@ -2144,9 +2146,9 @@ char *aircraftsToJson(int *len) {
             l = snprintf(p,buflen,
                 "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
-                "\"speed\":%d},\n",
+                "\"speed\":%d, \"ago\":%d},\n",
                 a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
-                a->speed);
+                a->speed,(int) (now-a->seen));
             p += l; buflen -= l;
             /* Resize if needed. */
             if (buflen < 256) {

@@ -50,6 +50,8 @@
         var maxalt = 40000; /* Max altitude in the average case */
         var invalt = maxalt-plane.altitude;
         var selected = (Selected == plane.hex);
+	r-=2*plane.ago;
+	g-=2*plane.ago;
 
         if (invalt < 0) invalt = 0;
         b = parseInt(255/maxalt*invalt);
