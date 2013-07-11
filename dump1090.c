@@ -1598,7 +1598,10 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->seen = time(NULL);
     a->messages = 0;
     a->next = NULL;
-    a->trail=malloc(sizeof(float)*Modes.trail_bufsz); /* test for valid pointer is done on access. */
+    a->trail=malloc(sizeof(float)*Modes.trail_buffsz); /* test for valid pointer is done on access, so that we can continue even when memory is low. */
+    if (a->trail) {
+	a->trail[MODES_TRAIL_ITEMS]=9999;
+    }
     a->trailofs=0;
     return a;
 }
@@ -1725,12 +1728,14 @@ void decodeCPR(struct aircraft *a) {
     /* Check that both are in the same latitude zone, or abort. */
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
 
-    /* Put the old position into the trail */
-    if (a->trail) {
-	a->trailofs=(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trailmask;
+    /* Put the old position into the trail, if it's a real position. */
+    if (a->trail && !(a->lat==0.0 && a->lon==0.0) ) {
+	/* printf("%d -> ",a->trailofs); */
+	/* printf("%d\n",a->trailofs); */
+	a->trailofs=(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask;
 	a->trail[a->trailofs]=a->lat;
 	a->trail[a->trailofs+1]=a->lon;
-	a->trail[(a->trailofs+2) & Modes.trailmask]=nanf();
+	a->trail[(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask]=9999;
     }
 	
     /* Compute ni and the longitude index m */
@@ -2187,8 +2192,8 @@ char *aircraftsToJson(int *len, const char *trailid) {
 
 		l = snprintf(p,buflen,",trail:[");
 		p += l; buflen -= l;
-		/* End of data signaled by NaN in the lat/long */
-		for(idx=a->trailofs;!isnan(a->trail[idx]);idx=(idx+MODES_TRAIL_ITEMS)&trail_mask) {
+		/* End of data signaled by 9999 in the lat/long */
+		for(idx=a->trailofs;a->trail[idx]<181;idx=(idx+MODES_TRAIL_ITEMS)&Modes.trail_mask) {
 		    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[idx],a->trail[idx+1]);
 		    p += l; buflen -= l;
 		    if (buflen < 256) {
@@ -2529,7 +2534,7 @@ int main(int argc, char **argv) {
 		fprintf(stderr, "Buffer size must be power of 2 (256, 512, 1024, etc)\n");
 		exit(1);
 	    }
-            Modes.trail_bufsz = sz;
+            Modes.trail_buffsz = sz;
 	    Modes.trail_mask=sz-1;
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
             Modes.interactive_ttl = atoi(argv[++j]);
