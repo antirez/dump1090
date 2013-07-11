@@ -2198,7 +2198,7 @@ char *aircraftsToJson(int *len, const char *trailid) {
 		p += l; buflen -= l;
 		/* End of data signaled by 9999 in the lat/long */
 		for(idx=a->trailofs;a->trail[idx]<181 && a->trail[idx]>-181 ;idx=(idx+MODES_TRAIL_ITEMS)&Modes.trail_mask) {
-		    count++;
+		    count=1;
 		    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[idx],a->trail[idx+1]);
 		    p += l; buflen -= l;
 		    if (buflen < 256) {
