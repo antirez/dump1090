@@ -99,7 +99,7 @@
     }
 
     function fetchData() {
-        $.getJSON('/data.json', function(data) {
+        $.getJSON('/data.json?*', function(data) {
             var stillhere = {}
             for (var j=0; j < data.length; j++) {
                 var plane = data[j];
@@ -122,6 +122,17 @@
                     myplane.flight = plane.flight;
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
+		    if (myplane.trail) {
+			var flightPlanCoordinates = [];
+			var t=myplane.trail;
+			for (var k=t.length; k>0; k--) {
+			    if (t[k]) {
+				    flightPlanCoordinates.push(new google.maps.LatLng(t[k][0],t[k][1]));
+			    }
+			}
+			 myplane.flightPath = new google.maps.Polyline({ path: flightPlanCoordinates, strokeColor: "#FF0000", strokeOpacity: 1.0, strokeWeight: 1 });
+			myplane.flightPath.setMap(Map);
+		    }
                 } else {
                     marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
@@ -145,6 +156,9 @@
             /* Remove idle planes. */
             for (var p in Planes) {
                 if (!stillhere[p]) {
+		    if (Planes[p].flightPath) {
+			    Planes[p].flightPath.setMap(null);
+		    }
                     Planes[p].marker.setMap(null);
                     delete Planes[p];
                 }
