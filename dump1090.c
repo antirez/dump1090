@@ -2124,7 +2124,7 @@ int decodeHexMessage(struct client *c) {
 }
 
 /* Return a description of planes in json. */
-char *aircraftsToJson(int *len) {
+char *aircraftsToJson(int *len, const char *trailid) {
     time_t now = time(NULL);
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
@@ -2146,10 +2146,35 @@ char *aircraftsToJson(int *len) {
             l = snprintf(p,buflen,
                 "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
-                "\"speed\":%d, \"ago\":%d},\n",
+                "\"speed\":%d, \"ago\":%d",
                 a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
                 a->speed,(int) (now-a->seen));
             p += l; buflen -= l;
+	    /* check the value of passed trailid. If it's '*' or matches this hexaddr, then print the trail data too. */
+	    if (trailid==NULL || !(trailid[0] != '*' && strcmp(trailid,a->hexaddr)!=0)) {
+		p[0]='}';
+		p[1]=',';
+		p[2]='\n';
+		p+=3;
+		buflen-=3;
+	    } else {
+		int idx;
+		l = snprintf(p,buflen,",trail:[");
+		p += l; buflen -= l;
+		for(idx=0;idx<a->traillength;idx++) {
+		    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[2*idx],a->trail[2*idx+1]);
+		    p += l; buflen -= l;
+		    if (buflen < 256) {
+			int used = p-buf;
+			buflen += 1000; /* increment. (not power of 2, in case of malloc-lib housekeeping) */
+			buf = realloc(buf,used+buflen);
+			p = buf+used;
+		    }
+		}
+		strncpy(p,"]},\n",buflen);
+		p += 4; buflen -= 4;
+	    }
+	
             /* Resize if needed. */
             if (buflen < 256) {
                 int used = p-buf;
@@ -2218,9 +2243,15 @@ int handleHTTPRequest(struct client *c) {
     /* Select the content to send, we have just two so far:
      * "/" -> Our google map application.
      * "/data.json" -> Our ajax request to update planes. */
-    if (strstr(url, "/data.json")) {
-        content = aircraftsToJson(&clen);
-        ctype = MODES_CONTENT_TYPE_JSON;
+    char  *start;
+    start=strstr(url, "/data.json");
+    if (start) {
+	if (*(start+10) == '?' && *(start+11)!='\0' ) {
+	    content = aircraftsToJson(&clen,start+11);
+	} else {
+	    content = aircraftsToJson(&clen,NULL);
+	}
+	ctype = MODES_CONTENT_TYPE_JSON;
     } else {
         struct stat sbuf;
         int fd = -1;
