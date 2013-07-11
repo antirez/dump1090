@@ -1876,6 +1876,8 @@ void interactiveRemoveStaleAircrafts(void) {
             struct aircraft *next = a->next;
             /* Remove the element from the linked list, with care
              * if we are removing the first element. */
+	    if (a->trail)
+		free(a->trail);
             free(a);
             if (!prev)
                 Modes.aircrafts = next;
@@ -2190,11 +2192,13 @@ char *aircraftsToJson(int *len, const char *trailid) {
 		buflen-=3;
 	    } else {
 		int idx;
-
+		int count;
+		count=0;
 		l = snprintf(p,buflen,",\"trail\":[");
 		p += l; buflen -= l;
 		/* End of data signaled by 9999 in the lat/long */
 		for(idx=a->trailofs;a->trail[idx]<181 && a->trail[idx]>-181 ;idx=(idx+MODES_TRAIL_ITEMS)&Modes.trail_mask) {
+		    count++;
 		    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[idx],a->trail[idx+1]);
 		    p += l; buflen -= l;
 		    if (buflen < 256) {
@@ -2204,8 +2208,12 @@ char *aircraftsToJson(int *len, const char *trailid) {
 			p = buf+used;
 		    }
 		}
-		strncpy(p-1,"]},\n",buflen);
-		p += 3; buflen -= 3;
+		if (count) { /* Overwrite final comma if its there */
+		    p--;
+		    buflen++;
+		}
+		strncpy(p,"]},\n",buflen);
+		p += 4; buflen -= 4;
 	    }
 	
             /* Resize if needed. */

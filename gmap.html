@@ -39,11 +39,13 @@
     </script>
     <script type="text/javascript">
     Map=null;
-    CenterLat=45.0;
-    CenterLon=9.0;
+    CenterLat=51.0;
+    CenterLon=0.0;
     Planes={};
     NumPlanes = 0;
     Selected=null
+    var loop=1;
+	
 
     function getIconForPlane(plane) {
         var r = 255, g = 255, b = 0;
@@ -122,16 +124,23 @@
                     myplane.flight = plane.flight;
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
-		    if (myplane.trail) {
-			var flightPlanCoordinates = [];
-			var t=myplane.trail;
-			for (var k=t.length; k>0; k--) {
-			    if (t[k]) {
-				    flightPlanCoordinates.push(new google.maps.LatLng(t[k][0],t[k][1]));
+		    if (plane.trail && plane.trail.length) { 
+			var t=plane.trail; 
+			if (!myplane.flightPath) { /* Previously had no trail */
+			    var flightPlanCoordinates = [];
+			    for (var k=t.length; k>0; k--) { /* reverse as we do this, since newest data is reported first, and the api needs additions pushed */
+				if (t[k]) {
+				    flightPlanCoordinates.push(new google.maps.LatLng(t[k][0],t[k][1])); 
+				}
 			    }
+			    myplane.flightPath = new google.maps.Polyline({ path: flightPlanCoordinates, strokeColor: "#FF0000", strokeOpacity: 1.0, strokeWeight: 1 });
+			    myplane.flightPath.setMap(Map);
+			} else {
+			    var fp=myplane.flightPath.getPath();
+			    if (t[0]) { /* No need to retain the entire path, nor add all details if we're slow updating */
+				fp.push(new google.maps.LatLng(t[0][0],t[0][1]));
+			    } 
 			}
-			 myplane.flightPath = new google.maps.Polyline({ path: flightPlanCoordinates, strokeColor: "#FF0000", strokeOpacity: 1.0, strokeWeight: 1 });
-			myplane.flightPath.setMap(Map);
 		    }
                 } else {
                     marker = new google.maps.Marker({
@@ -169,7 +178,7 @@
     function initialize() {
         var mapOptions = {
             center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 5,
+            zoom: 7,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
         Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
