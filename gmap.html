@@ -39,13 +39,11 @@
     </script>
     <script type="text/javascript">
     Map=null;
-    CenterLat=51.0;
-    CenterLon=0.0;
+    CenterLat=45.0;
+    CenterLon=9.0;
     Planes={};
     NumPlanes = 0;
     Selected=null
-    var loop=1;
-	
 
     function getIconForPlane(plane) {
         var r = 255, g = 255, b = 0;
@@ -178,7 +176,7 @@
     function initialize() {
         var mapOptions = {
             center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 7,
+            zoom: 5,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
         Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
