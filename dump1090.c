@@ -81,7 +81,7 @@
 #define MODES_INTERACTIVE_ROWS 15               /* Rows on screen */
 #define MODES_INTERACTIVE_TTL 60                /* TTL before being removed */
 #define MODES_TRAIL_BUFFSZ 512               /* how many floats can be stored inthe trail buffer (power of 2).  */
-#define MODES_TRAIL_ITEMS 2		/* How many floats per position */
+#define MODES_TRAIL_ITEMS 2             /* How many floats per position */
 
 #define MODES_NET_MAX_FD 1024
 #define MODES_NET_OUTPUT_SBS_PORT 30003
@@ -1578,7 +1578,7 @@ void useModesMessage(struct modesMessage *mm) {
 struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     struct aircraft *a = malloc(sizeof(*a));
     if (a==NULL) { /*don't assume success */
-	return(NULL);
+        return(NULL);
     }
 
     a->addr = addr;
@@ -1600,8 +1600,8 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->next = NULL;
     a->trail=malloc(sizeof(float)*Modes.trail_buffsz); /* test for valid pointer is done on access, so that we can continue even when memory is low. */
     if (a->trail) {
-	a->trail[0]=9999;
-	a->trail[MODES_TRAIL_ITEMS]=9999;
+        a->trail[0]=9999;
+        a->trail[MODES_TRAIL_ITEMS]=9999;
     }
     a->trailofs=0;
     return a;
@@ -1731,14 +1731,14 @@ void decodeCPR(struct aircraft *a) {
 
     /* Put the old position into the trail, if it's a real position. */
     if (a->trail && !(a->lat==0.0 && a->lon==0.0) ) {
-	/* printf("%d -> ",a->trailofs); */
-	/* printf("%d\n",a->trailofs); */
-	a->trailofs=(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask;
-	a->trail[a->trailofs]=a->lat;
-	a->trail[a->trailofs+1]=a->lon;
-	a->trail[(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask]=9999;
+        /* printf("%d -> ",a->trailofs); */
+        /* printf("%d\n",a->trailofs); */
+        a->trailofs=(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask;
+        a->trail[a->trailofs]=a->lat;
+        a->trail[a->trailofs+1]=a->lon;
+        a->trail[(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask]=9999;
     }
-	
+        
     /* Compute ni and the longitude index m */
     if (a->even_cprtime > a->odd_cprtime) {
         /* Use even packet. */
@@ -1770,12 +1770,12 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     a = interactiveFindAircraft(addr);
     if (!a) {
         a = interactiveCreateAircraft(addr);
-	if (a) { /* don't assume success */
-	    a->next = Modes.aircrafts;
-	    Modes.aircrafts = a;
-	} else {
-	    return(NULL);
-	}
+        if (a) { /* don't assume success */
+            a->next = Modes.aircrafts;
+            Modes.aircrafts = a;
+        } else {
+            return(NULL);
+        }
     } else {
         /* If it is an already known aircraft, move it on head
          * so we keep aircrafts ordered by received message time.
@@ -1876,8 +1876,8 @@ void interactiveRemoveStaleAircrafts(void) {
             struct aircraft *next = a->next;
             /* Remove the element from the linked list, with care
              * if we are removing the first element. */
-	    if (a->trail)
-		free(a->trail);
+            if (a->trail)
+                free(a->trail);
             free(a);
             if (!prev)
                 Modes.aircrafts = next;
@@ -2183,39 +2183,39 @@ char *aircraftsToJson(int *len, const char *trailid) {
                 a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
                 a->speed,(int) (now-a->seen));
             p += l; buflen -= l;
-	    /* If there's a trail, then check the value of passed trailid. If it's '*' or matches this hexaddr, then print the trail data too. */
-	    if (a->trail==NULL || trailid==NULL ||   (trailid[0] != '*' && strcmp(trailid,a->hexaddr)!=0)) {
-		p[0]='}';
-		p[1]=',';
-		p[2]='\n';
-		p+=3;
-		buflen-=3;
-	    } else {
-		int idx;
-		int count;
-		count=0;
-		l = snprintf(p,buflen,",\"trail\":[");
-		p += l; buflen -= l;
-		/* End of data signaled by 9999 in the lat/long */
-		for(idx=a->trailofs;a->trail[idx]<181 && a->trail[idx]>-181 ;idx=(idx+MODES_TRAIL_ITEMS)&Modes.trail_mask) {
-		    count=1;
-		    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[idx],a->trail[idx+1]);
-		    p += l; buflen -= l;
-		    if (buflen < 256) {
-			int used = p-buf;
-			buflen += 1000; /* increment. (not power of 2, in case of malloc-lib housekeeping) */
-			buf = realloc(buf,used+buflen);
-			p = buf+used;
-		    }
-		}
-		if (count) { /* Overwrite final comma if its there */
-		    p--;
-		    buflen++;
-		}
-		strncpy(p,"]},\n",buflen);
-		p += 4; buflen -= 4;
-	    }
-	
+            /* If there's a trail, then check the value of passed trailid. If it's '*' or matches this hexaddr, then print the trail data too. */
+            if (a->trail==NULL || trailid==NULL ||   (trailid[0] != '*' && strcmp(trailid,a->hexaddr)!=0)) {
+                p[0]='}';
+                p[1]=',';
+                p[2]='\n';
+                p+=3;
+                buflen-=3;
+            } else {
+                int idx;
+                int count;
+                count=0;
+                l = snprintf(p,buflen,",\"trail\":[");
+                p += l; buflen -= l;
+                /* End of data signaled by 9999 in the lat/long */
+                for(idx=a->trailofs;a->trail[idx]<181 && a->trail[idx]>-181 ;idx=(idx+MODES_TRAIL_ITEMS)&Modes.trail_mask) {
+                    count=1;
+                    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[idx],a->trail[idx+1]);
+                    p += l; buflen -= l;
+                    if (buflen < 256) {
+                        int used = p-buf;
+                        buflen += 1000; /* increment. (not power of 2, in case of malloc-lib housekeeping) */
+                        buf = realloc(buf,used+buflen);
+                        p = buf+used;
+                    }
+                }
+                if (count) { /* Overwrite final comma if its there */
+                    p--;
+                    buflen++;
+                }
+                strncpy(p,"]},\n",buflen);
+                p += 4; buflen -= 4;
+            }
+        
             /* Resize if needed. */
             if (buflen < 256) {
                 int used = p-buf;
@@ -2287,12 +2287,12 @@ int handleHTTPRequest(struct client *c) {
     char  *start;
     start=strstr(url, "/data.json");
     if (start) {
-	if (*(start+10) == '?' && *(start+11)!='\0' ) {
-	    content = aircraftsToJson(&clen,start+11);
-	} else {
-	    content = aircraftsToJson(&clen,NULL);
-	}
-	ctype = MODES_CONTENT_TYPE_JSON;
+        if (*(start+10) == '?' && *(start+11)!='\0' ) {
+            content = aircraftsToJson(&clen,start+11);
+        } else {
+            content = aircraftsToJson(&clen,NULL);
+        }
+        ctype = MODES_CONTENT_TYPE_JSON;
     } else {
         struct stat sbuf;
         int fd = -1;
@@ -2538,13 +2538,13 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--interactive-rows")) {
             Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--trail-buffer")) {
-	    uint32_t sz=atoi(argv[++j]);
-	    if (sz<2 || (sz & (sz-1))) {
-		fprintf(stderr, "Buffer size must be power of 2 (256, 512, 1024, etc)\n");
-		exit(1);
-	    }
+            uint32_t sz=atoi(argv[++j]);
+            if (sz<2 || (sz & (sz-1))) {
+                fprintf(stderr, "Buffer size must be power of 2 (256, 512, 1024, etc)\n");
+                exit(1);
+            }
             Modes.trail_buffsz = sz;
-	    Modes.trail_mask=sz-1;
+            Modes.trail_mask=sz-1;
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
             Modes.interactive_ttl = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {
