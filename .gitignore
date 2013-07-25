@@ -4,3 +4,7 @@ testfiles/*.bin
 misc
 frames.js
 .*.swp
+nbproject/
+.settings/
+.project
+.cproject
