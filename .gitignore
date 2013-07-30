@@ -8,3 +8,8 @@ nbproject/
 .settings/
 .project
 .cproject
+*~
+*.rej
+*.orig
+untrackedDeveloperSettings.js
+
