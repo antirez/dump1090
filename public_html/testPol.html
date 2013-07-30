@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <style type="text/css">
+        #map_canvas {
+            width: 1024px;
+            height: 700px;
+        }
+    </style>
+
+    <script src="http://ajax.googleapis.com/ajax/libs/jquery/1.7.1/jquery.min.js" type="text/javascript"></script>
+    <script type="text/javascript" src="http://maps.googleapis.com/maps/api/js?    sensor=false"></script>
+
+    <script type="text/javascript">
+
+        function initialize() {
+            var latlng = new google.maps.LatLng(0, 23);
+            var myOptions = {
+                zoom:4,
+                center:latlng,
+                mapTypeId:google.maps.MapTypeId.ROADMAP
+            };
+            var map = new google.maps.Map(document.getElementById("map_canvas"), myOptions);
+
+            var url = "http://webstore.thedatahub.org/stevesong/afterfibre/testdata2.json?    _limit=3";
+            var mypath = new Array();
+            $.getJSON(url, function (data) {
+
+                //  Parse the Linestring field into an array of LatLngs
+                $.each(data.data, function (index, record) {
+                    line = JSON.parse(record.Linestring);
+                    //  Parse the array of LatLngs into Gmap points
+                    for (var i = 0; i < line.length; i++) {
+                        //Tokenise the coordinates
+                        var coords = (new String(line[i])).split(",");
+                        mypath.push(new google.maps.LatLng(coords[1], coords[0]));
+                    }
+                    var polyline = new google.maps.Polyline({
+                        path:mypath,
+                        strokeColor:'#ff0000',
+                        strokeOpacity:1.0,
+                        strokeWeight:3
+                    });
+
+                    polyline.setMap(map);
+
+                });
+
+            });
+        }
+
+
+    </script>
+</head>
+<body onload="initialize()">
+<div id="map_canvas"></div>
+</body>
+</html>
+

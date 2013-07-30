@@ -4,3 +4,12 @@ testfiles/*.bin
 misc
 frames.js
 .*.swp
+nbproject/
+.settings/
+.project
+.cproject
+*~
+*.rej
+*.orig
+untrackedDeveloperSettings.js
+
