@@ -20,8 +20,8 @@ all: dump1090
 %.o: %.c
 	$(CC) $(CFLAGS) $(EXTRACFLAGS) -c $<
 
-dump1090: dump1090.o anet.o
-	$(CC) -g -o dump1090 dump1090.o anet.o $(LIBS)
+dump1090: dump1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o
+	$(CC) -g -o dump1090 dump1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o $(LIBS)
 
 clean:
 	rm -f *.o dump1090

@@ -389,28 +389,29 @@ void decodeModeAMessage(struct modesMessage *mm, int ModeA);
 int  ModeAToModeC      (unsigned int ModeA);
 
 //
+// Functions exported from mode_s.c
+//
+void detectModeS        (uint16_t *m, uint32_t mlen);
+void decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
+void displayModesMessage(struct modesMessage *mm);
+void useModesMessage    (struct modesMessage *mm);
+void computeMagnitudeVector();
+void decodeCPR          (struct aircraft *a, int fflag, int surface);
+int  decodeCPRrelative  (struct aircraft *a, int fflag, int surface);
+void modesInitErrorInfo ();
+//
 // Functions exported from interactive.c
 //
 struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void  interactiveShowData(void);
 void  interactiveRemoveStaleAircrafts(void);
-
 //
-// Functions exported from dump1090.c
+// Functions exported from net_io.c
 //
+void modesInitNet         (void);
+void modesReadFromClients (void);
 void modesSendAllClients  (int service, void *msg, int len);
-void modesSendRawOutput   (struct modesMessage *mm);
-void modesSendBeastOutput (struct modesMessage *mm);
-void modesSendSBSOutput   (struct modesMessage *mm);
-void useModesMessage      (struct modesMessage *mm);
-
-void decodeCPR        (struct aircraft *a, int fflag, int surface);
-int  decodeCPRrelative(struct aircraft *a, int fflag, int surface);
-
-int  fixBitErrors         (unsigned char *msg, int bits, int maxfix, char *fixedbits);
-
-void modesInitErrorInfo   ();
-int  modesMessageLenByType(int type);
+void modesQueueOutput     (struct modesMessage *mm);
 
 #ifdef __cplusplus
 }
