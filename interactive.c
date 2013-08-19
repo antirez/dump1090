@@ -362,16 +362,6 @@ void interactiveShowData(void) {
             int msgs  = a->messages;
             int flags = a->modeACflags;
 
-            if (flags & MODEAC_MSG_FLAG) {
-                if ( (0x3300 != (a->modeA & 0x7700))   // London Mil South     3300 - 3377
-                  && (0x6400 != (a->modeA & 0x7700))   // London Mil Daventry  6400 - 6477
-                  && (0x7400 != (a->modeA & 0x7740))   // Yeovilton            7400 - 7437
-                  && (0x4300 != (a->modeA & 0x7700))   // Yeovilton Lars       4300 - 4377
-                  && (0x2600 != (a->modeA & 0x7700))   // Boscombe             2600 - 2677             
-                  && (0x7400 != (a->modeA & 0x7477)) ) // Emergency            7400,7500,7600,7700             
-                msgs = 0;
-            }  
-
             if ( (((flags & (MODEAC_MSG_FLAG                             )) == 0                    )                 )
               || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY) && (msgs > 4  ) ) 
               || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD )) == 0                    ) && (msgs > 127) ) 
