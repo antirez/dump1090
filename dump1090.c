@@ -1,37 +1,37 @@
-/* dump1090, a Mode S messages decoder for RTLSDR devices.
- *
- * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
- *
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- *  *  Redistributions of source code must retain the above copyright
- *     notice, this list of conditions and the following disclaimer.
- *
- *  *  Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// dump1090, a Mode S messages decoder for RTLSDR devices.
+//
+// Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
+//
+// All rights reserved.
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are
+// met:
+//
+//  *  Redistributions of source code must retain the above copyright
+//     notice, this list of conditions and the following disclaimer.
+//
+//  *  Redistributions in binary form must reproduce the above copyright
+//     notice, this list of conditions and the following disclaimer in the
+//     documentation and/or other materials provided with the distribution.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
+// "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
+// LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
+// A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
+// HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
+// SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
+// LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+// DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
+// THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
+// (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+//
 
 #include "dump1090.h"
-
-/* ============================= Utility functions ========================== */
-
+//
+// ============================= Utility functions ==========================
+//
 static uint64_t mstime(void) {
     struct timeval tv;
     uint64_t mst;
@@ -47,27 +47,28 @@ void sigintHandler(int dummy) {
     signal(SIGINT, SIG_DFL);  // reset signal handler - bit extra safety
     Modes.exit = 1;           // Signal to threads that we are done
 }
-
-/* =============================== Initialization =========================== */
-
+//
+// =============================== Initialization ===========================
+//
 void modesInitConfig(void) {
     // Default everything to zero/NULL
     memset(&Modes, 0, sizeof(Modes));
 
     // Now initialise things that should not be 0/NULL to their defaults
-    Modes.gain                  = MODES_MAX_GAIN;
-    Modes.freq                  = MODES_DEFAULT_FREQ;
-    Modes.check_crc             = 1;
-    Modes.net_output_sbs_port   = MODES_NET_OUTPUT_SBS_PORT;
-    Modes.net_output_raw_port   = MODES_NET_OUTPUT_RAW_PORT;
-    Modes.net_input_raw_port    = MODES_NET_INPUT_RAW_PORT;
-    Modes.net_output_beast_port = MODES_NET_OUTPUT_BEAST_PORT;
-    Modes.net_input_beast_port  = MODES_NET_INPUT_BEAST_PORT;
-    Modes.net_http_port         = MODES_NET_HTTP_PORT;
-    Modes.interactive_rows      = MODES_INTERACTIVE_ROWS;
-    Modes.interactive_ttl       = MODES_INTERACTIVE_TTL;
-    Modes.fUserLat              = MODES_USER_LATITUDE_DFLT;
-    Modes.fUserLon              = MODES_USER_LONGITUDE_DFLT;
+    Modes.gain                    = MODES_MAX_GAIN;
+    Modes.freq                    = MODES_DEFAULT_FREQ;
+    Modes.check_crc               = 1;
+    Modes.net_output_sbs_port     = MODES_NET_OUTPUT_SBS_PORT;
+    Modes.net_output_raw_port     = MODES_NET_OUTPUT_RAW_PORT;
+    Modes.net_input_raw_port      = MODES_NET_INPUT_RAW_PORT;
+    Modes.net_output_beast_port   = MODES_NET_OUTPUT_BEAST_PORT;
+    Modes.net_input_beast_port    = MODES_NET_INPUT_BEAST_PORT;
+    Modes.net_http_port           = MODES_NET_HTTP_PORT;
+    Modes.interactive_rows        = MODES_INTERACTIVE_ROWS;
+    Modes.interactive_delete_ttl  = MODES_INTERACTIVE_DELETE_TTL;
+    Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
+    Modes.fUserLat                = MODES_USER_LATITUDE_DFLT;
+    Modes.fUserLon                = MODES_USER_LONGITUDE_DFLT;
 }
 
 void modesInit(void) {
@@ -302,7 +303,11 @@ void *readerThreadEntryPoint(void *arg) {
     Modes.data_ready = 1;
     pthread_cond_signal(&Modes.data_cond);
     pthread_mutex_unlock(&Modes.data_mutex);
+#ifndef _WIN32
     pthread_exit(NULL);
+#else
+    return NULL;
+#endif
 }
 
 /* ============================== Debugging ================================= */
@@ -426,9 +431,9 @@ void dumpRawMessage(char *descr, unsigned char *msg,
     dumpMagnitudeVector(m,offset);
     printf("---\n\n");
 }
-
-/* ===================== Mode A/C detection and decoding  =================== */
-
+//
+// ===================== Mode A/C detection and decoding  ===================
+//
 //
 // This table is used to build the Mode A/C variable called ModeABits.Each 
 // bit period is inspected, and if it's value exceeds the threshold limit, 
@@ -2370,8 +2375,8 @@ void useModesMessage(struct modesMessage *mm) {
         if (Modes.stat_raw_connections)   {modesSendRawOutput(mm);}
     }
 }
-
-/* ========================= Interactive mode =============================== */
+//
+// ========================= Interactive mode ===============================
 //
 // Return a new aircraft structure for the interactive mode linked list
 // of aircraft
@@ -2404,6 +2409,8 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
     return (a);
 }
 //
+//=========================================================================
+//
 // Return the aircraft with the specified address, or NULL if no aircraft
 // exists with this address.
 //
@@ -2416,6 +2423,8 @@ struct aircraft *interactiveFindAircraft(uint32_t addr) {
     }
     return (NULL);
 }
+//
+//=========================================================================
 //
 // We have received a Mode A or C response. 
 //
@@ -2477,7 +2486,9 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
         b = b->next;
     }
 }
-
+//
+//=========================================================================
+//
 void interactiveUpdateAircraftModeS() {
     struct aircraft *a = Modes.aircrafts;
 
@@ -2493,17 +2504,22 @@ void interactiveUpdateAircraftModeS() {
         a = a->next;
     }
 }
-
-/* Always positive MOD operation, used for CPR decoding. */
+//
+//=========================================================================
+//
+// Always positive MOD operation, used for CPR decoding.
 int cprModFunction(int a, int b) {
     int res = a % b;
     if (res < 0) res += b;
     return res;
 }
-
-/* The NL function uses the precomputed table from 1090-WP-9-14 */
+//
+//=========================================================================
+//
+// The NL function uses the precomputed table from 1090-WP-9-14
+//
 int cprNLFunction(double lat) {
-    if (lat < 0) lat = -lat; /* Table is simmetric about the equator. */
+    if (lat < 0) lat = -lat; // Table is simmetric about the equator
     if (lat < 10.47047130) return 59;
     if (lat < 14.82817437) return 58;
     if (lat < 18.18626357) return 57;
@@ -2564,26 +2580,32 @@ int cprNLFunction(double lat) {
     if (lat < 87.00000000) return 2;
     else return 1;
 }
-
+//
+//=========================================================================
+//
 int cprNFunction(double lat, int fflag) {
     int nl = cprNLFunction(lat) - (fflag ? 1 : 0);
     if (nl < 1) nl = 1;
     return nl;
 }
-
+//
+//=========================================================================
+//
 double cprDlonFunction(double lat, int fflag, int surface) {
     return (surface ? 90.0 : 360.0) / cprNFunction(lat, fflag);
 }
-
-/* This algorithm comes from:
- * http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
- *
- * A few remarks:
- * 1) 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
- * 2) We assume that we always received the odd packet as last packet for
- *    simplicity. This may provide a position that is less fresh of a few
- *    seconds.
- */
+//
+//=========================================================================
+//
+// This algorithm comes from:
+// http://www.lll.lu/~edward/edward/adsb/DecodingADSBposition.html.
+//
+// A few remarks:
+// 1) 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
+// 2) We assume that we always received the odd packet as last packet for
+//    simplicity. This may provide a position that is less fresh of a few
+//    seconds.
+//
 void decodeCPR(struct aircraft *a, int fflag, int surface) {
     double AirDlat0 = (surface ? 90.0 : 360.0) / 60.0;
     double AirDlat1 = (surface ? 90.0 : 360.0) / 59.0;
@@ -2636,17 +2658,19 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     a->timestampLatLon = a->timestamp;
     a->bFlags         |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
 }
-
-/* This algorithm comes from:
- * 1090-WP29-07-Draft_CPR101 (which also defines decodeCPR() )
- *
- * There is an error in this document related to CPR relative decode.
- * Should use trunc() rather than the floor() function in Eq 38 and related for deltaZI.
- * floor() returns integer less than argument
- * trunc() returns integer closer to zero than argument.
- * Note:   text of document describes trunc() functionality for deltaZI calculation
- *         but the formulae use floor().
- */
+//
+//=========================================================================
+//
+// This algorithm comes from:
+// 1090-WP29-07-Draft_CPR101 (which also defines decodeCPR() )
+//
+// There is an error in this document related to CPR relative decode.
+// Should use trunc() rather than the floor() function in Eq 38 and related for deltaZI.
+// floor() returns integer less than argument
+// trunc() returns integer closer to zero than argument.
+// Note:   text of document describes trunc() functionality for deltaZI calculation
+//         but the formulae use floor().
+//
 int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
     double AirDlat;
     double AirDlon;
@@ -2709,8 +2733,11 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
     a->bFlags         |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
     return (0);
 }
-
-/* Receive new messages and populate the interactive mode with more info. */
+//
+//=========================================================================
+//
+// Receive new messages and populate the interactive mode with more info
+//
 struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     struct aircraft *a, *aux;
 
@@ -2718,7 +2745,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     if (Modes.check_crc && (mm->crcok == 0) && (mm->correctedbits == 0)) 
         return NULL;
 
-    // Loookup our aircraft or create a new one
+    // Lookup our aircraft or create a new one
     a = interactiveFindAircraft(mm->addr);
     if (!a) {                              // If it's a currently unknown aircraft....
         a = interactiveCreateAircraft(mm); // ., create a new record for it,
@@ -2850,8 +2877,11 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     return (a);
 }
-
-/* Show the currently captured interactive data on screen. */
+//
+//=========================================================================
+//
+// Show the currently captured interactive data on screen.
+//
 void interactiveShowData(void) {
     struct aircraft *a = Modes.aircrafts;
     time_t now = time(NULL);
@@ -2859,10 +2889,25 @@ void interactiveShowData(void) {
     char progress;
     char spinner[4] = "|/-\\";
 
+    // Refresh screen every (MODES_INTERACTIVE_REFRESH_TIME) miliseconde
+    if ((mstime() - Modes.interactive_last_update) < MODES_INTERACTIVE_REFRESH_TIME)
+       {return;}
+
+    Modes.interactive_last_update = mstime();    
+
+    // Attempt to reconsile any ModeA/C with known Mode-S
+    // We can't condition on Modes.modeac because ModeA/C could be comming 
+    // in from a raw input port which we can't turn off.
+    interactiveUpdateAircraftModeS();
+
     progress = spinner[time(NULL)%4];
 
-    printf("\x1b[H\x1b[2J");    /* Clear the screen */
- 
+#ifndef _WIN32
+    printf("\x1b[H\x1b[2J");    // Clear the screen
+#else
+    system("cls");
+#endif
+
     if (Modes.interactive_rtl1090 == 0) {
         printf (
 "Hex     Mode  Sqwk  Flight   Alt    Spd  Hdg    Lat      Long   Sig  Msgs   Ti%c\n", progress);
@@ -2873,104 +2918,109 @@ void interactiveShowData(void) {
     printf(
 "-------------------------------------------------------------------------------\n");
 
-    while(a && count < Modes.interactive_rows) {
-        int msgs  = a->messages;
-        int flags = a->modeACflags;
+    while(a && (count < Modes.interactive_rows)) {
 
-        if ( (((flags & (MODEAC_MSG_FLAG                             )) == 0                    )                 )
-          || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY) && (msgs > 4  ) ) 
-          || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD )) == 0                    ) && (msgs > 127) ) 
-           ) {
-            int altitude = a->altitude, speed = a->speed;
-            char strSquawk[5] = " ";
-            char strFl[6]     = " ";
-            char strTt[5]     = " ";
-            char strGs[5]     = " ";
+        if ((now - a->seen) < Modes.interactive_display_ttl)
+            {
+            int msgs  = a->messages;
+            int flags = a->modeACflags;
 
-            // Convert units to metric if --metric was specified
-            if (Modes.metric) {
-                altitude = (int) (altitude / 3.2828);
-                speed    = (int) (speed    * 1.852);
+            if ( (((flags & (MODEAC_MSG_FLAG                             )) == 0                    )                 )
+              || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEA_ONLY)) == MODEAC_MSG_MODEA_ONLY) && (msgs > 4  ) ) 
+              || (((flags & (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD )) == 0                    ) && (msgs > 127) ) 
+              ) {
+                int altitude = a->altitude, speed = a->speed;
+                char strSquawk[5] = " ";
+                char strFl[6]     = " ";
+                char strTt[5]     = " ";
+                char strGs[5]     = " ";
+
+                // Convert units to metric if --metric was specified
+                if (Modes.metric) {
+                    altitude = (int) (altitude / 3.2828);
+                    speed    = (int) (speed    * 1.852);
+                }
+        
+                if (a->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
+                    snprintf(strSquawk,5,"%04x", a->modeA);}
+
+                if (a->bFlags & MODES_ACFLAGS_SPEED_VALID) {
+                    snprintf (strGs, 5,"%3d", speed);}
+
+                if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) {
+                    snprintf (strTt, 5,"%03d", a->track);}
+        
+                if (msgs > 99999) {
+                    msgs = 99999;}
+        
+                if (Modes.interactive_rtl1090) { // RTL1090 display mode
+
+                    if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
+                        snprintf(strFl,6,"F%03d",(altitude/100));
+                    }
+                    printf("%06x %-8s %-4s         %-3s %-3s %4s        %-6d  %-2d\n", 
+                    a->addr, a->flight, strFl, strGs, strTt, strSquawk, msgs, (int)(now - a->seen));
+
+                } else {                         // Dump1090 display mode
+                    char strMode[5]               = "    ";
+                    char strLat[8]                = " ";
+                    char strLon[9]                = " ";
+                    unsigned char * pSig       = a->signalLevel;
+                    unsigned int signalAverage = (pSig[0] + pSig[1] + pSig[2] + pSig[3] + 
+                                                  pSig[4] + pSig[5] + pSig[6] + pSig[7] + 3) >> 3; 
+
+                    if ((flags & MODEAC_MSG_FLAG) == 0) {
+                        strMode[0] = 'S';
+                    } else if (flags & MODEAC_MSG_MODEA_ONLY) {
+                        strMode[0] = 'A';
+                    }
+                    if (flags & MODEAC_MSG_MODEA_HIT) {strMode[2] = 'a';}
+                    if (flags & MODEAC_MSG_MODEC_HIT) {strMode[3] = 'c';}
+
+                    if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                        snprintf(strLat, 8,"%7.03f", a->lat);
+                        snprintf(strLon, 9,"%8.03f", a->lon);
+                    }
+
+                    if (a->bFlags & MODES_ACFLAGS_AOG) {
+                        snprintf(strFl, 6," grnd");
+                    } else if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
+                        snprintf(strFl, 6, "%5d", altitude);
+                    }
+ 
+                    printf("%06x  %-4s  %-4s  %-8s %5s  %3s  %3s  %7s %8s  %3d %5d   %2d\n",
+                    a->addr, strMode, strSquawk, a->flight, strFl, strGs, strTt,
+                    strLat, strLon, signalAverage, msgs, (int)(now - a->seen));
+                }
+                count++;
             }
-        
-            if (a->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
-                snprintf(strSquawk,5,"%04x", a->modeA);}
-
-            if (a->bFlags & MODES_ACFLAGS_SPEED_VALID) {
-                snprintf (strGs, 5,"%3d", speed);}
-
-            if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) {
-                snprintf (strTt, 5,"%03d", a->track);}
-        
-            if (msgs > 99999) {
-                msgs = 99999;}
-        
-            if (Modes.interactive_rtl1090) { // RTL1090 display mode
-
-                if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
-                    snprintf(strFl,6,"F%03d",(altitude/100));
-                }
-                printf("%06x %-8s %-4s         %-3s %-3s %4s        %-6d  %-2d\n", 
-                a->addr, a->flight, strFl, strGs, strTt, strSquawk, msgs, (int)(now - a->seen));
-
-            } else {                         // Dump1090 display mode
-                char strMode[5]               = "    ";
-                char strLat[8]                = " ";
-                char strLon[9]                = " ";
-                unsigned char * pSig       = a->signalLevel;
-                unsigned int signalAverage = (pSig[0] + pSig[1] + pSig[2] + pSig[3] + 
-                                              pSig[4] + pSig[5] + pSig[6] + pSig[7] + 3) >> 3; 
-
-                if ((flags & MODEAC_MSG_FLAG) == 0) {
-                    strMode[0] = 'S';
-                } else if (flags & MODEAC_MSG_MODEA_ONLY) {
-                    strMode[0] = 'A';
-                }
-                if (flags & MODEAC_MSG_MODEA_HIT) {strMode[2] = 'a';}
-                if (flags & MODEAC_MSG_MODEC_HIT) {strMode[3] = 'c';}
-
-                if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
-                    snprintf(strLat, 8,"%7.03f", a->lat);
-                    snprintf(strLon, 9,"%8.03f", a->lon);
-                }
-
-                if (a->bFlags & MODES_ACFLAGS_AOG) {
-                    snprintf(strFl, 6," grnd");
-                } else if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
-                    snprintf(strFl, 6, "%5d", altitude);
-                }
-
-//              printf("%06x  %-4s  %-4s  %-8s %5d  %3d  %3d  %7.03f %8.03f  %3d %5d   %2d\n",
-//              a->addr, strMode, strSquawk, a->flight, altitude, speed, a->track,
-//              a->lat, a->lon, signalAverage, msgs, (int)(now - a->seen));
-
-                printf("%06x  %-4s  %-4s  %-8s %5s  %3s  %3s  %7s %8s  %3d %5d   %2d\n",
-                a->addr, strMode, strSquawk, a->flight, strFl, strGs, strTt,
-                strLat, strLon, signalAverage, msgs, (int)(now - a->seen));
-            }
-            count++;
-        }        
+        }
         a = a->next;
     }
 }
-
-/* When in interactive mode If we don't receive new nessages within
- * MODES_INTERACTIVE_TTL seconds we remove the aircraft from the list. */
+//
+//=========================================================================
+//
+// When in interactive mode If we don't receive new nessages within
+// MODES_INTERACTIVE__DELETE_TTL seconds we remove the aircraft from the list.
+//
 void interactiveRemoveStaleAircrafts(void) {
     struct aircraft *a = Modes.aircrafts;
     struct aircraft *prev = NULL;
     time_t now = time(NULL);
 
     while(a) {
-        if ((now - a->seen) > Modes.interactive_ttl) {
+        if ((now - a->seen) > Modes.interactive_delete_ttl) {
             struct aircraft *next = a->next;
-            /* Remove the element from the linked list, with care
-             * if we are removing the first element. */
-            free(a);
+            // Remove the element from the linked list, with care
+            // if we are removing the first element
+
             if (!prev)
                 Modes.aircrafts = next;
             else
                 prev->next = next;
+
+            free(a);
             a = next;
         } else {
             prev = a;
@@ -3850,22 +3900,13 @@ void backgroundTasks(void) {
     }    
 
     // If Modes.aircrafts is not NULL, remove any stale aircraft
-    if (Modes.aircrafts)
-        {interactiveRemoveStaleAircrafts();}
+    if (Modes.aircrafts) {
+        interactiveRemoveStaleAircrafts();
+    }
 
     // Refresh screen when in interactive mode
-    if ((Modes.interactive) && 
-        ((mstime() - Modes.interactive_last_update) > MODES_INTERACTIVE_REFRESH_TIME) ) {
-
-        // Attempt to reconsile any ModeA/C with known Mode-S
-        // We can't condition on Modes.modeac because ModeA/C could be comming 
-        // in from a raw input port which we can't turn off.
-        interactiveUpdateAircraftModeS();
-
-        // Now display Mode-S and any non-reconsiled Modes-A/C  
+    if (Modes.interactive) {
         interactiveShowData();
-
-        Modes.interactive_last_update = mstime();    
     }
 }
 
@@ -3939,7 +3980,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--interactive-rows") && more) {
             Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--interactive-ttl") && more) {
-            Modes.interactive_ttl = atoi(argv[++j]);
+            Modes.interactive_display_ttl = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--lat") && more) {
             Modes.fUserLat = atof(argv[++j]);
         } else if (!strcmp(argv[j],"--lon") && more) {
