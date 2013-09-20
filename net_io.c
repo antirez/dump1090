@@ -759,24 +759,29 @@ void modesReadFromClient(struct client *c, char *sep,
     int left;
     int nread;
     int fullmsg;
+    int bContinue = 1;
     char *s, *e;
 
-    while(1) {
+    while(bContinue) {
 
         fullmsg = 0;
         left = MODES_CLIENT_BUF_SIZE - c->buflen;
         // If our buffer is full discard it, this is some badly formatted shit
-        if (left == 0) {
+        if (left <= 0) {
             c->buflen = 0;
             left = MODES_CLIENT_BUF_SIZE;
             // If there is garbage, read more to discard it ASAP
         }
         nread = read(c->fd, c->buf+c->buflen, left);
 
+        // If we didn't get all the data we asked for, then return once we've processed what we did get.
+        if (nread != left) {
+            bContinue = 0;
+        }
+        if ( (nread < 0) && (errno != EAGAIN)) { // Error, or end of file
+            modesFreeClient(c->fd);
+        }
         if (nread <= 0) {
-            if (nread == 0 || errno != EAGAIN) { // Error, or end of file
-                modesFreeClient(c->fd);
-            }
             break; // Serve next client
         }
         c->buflen += nread;
@@ -787,12 +792,12 @@ void modesReadFromClient(struct client *c, char *sep,
         e = s = c->buf;                                // Start with the start of buffer, first message
 
         if (c->service == Modes.bis) {
-            // This is the Bease Binary scanning case.
+            // This is the Beast Binary scanning case.
             // If there is a complete message still in the buffer, there must be the separator 'sep'
             // in the buffer, note that we full-scan the buffer at every read for simplicity.
 
             left = c->buflen;                                  // Length of valid search for memchr()
-            while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) {    // In reality the first byte of buffer 'should' be 0x1a
+            while (left && ((s = memchr(e, (char) 0x1a, left)) != NULL)) { // The first byte of buffer 'should' be 0x1a
                 s++;                                           // skip the 0x1a
                 if        (*s == '1') {
                     e = s + MODEAC_MSG_BYTES      + 8;         // point past remainder of message
@@ -820,10 +825,11 @@ void modesReadFromClient(struct client *c, char *sep,
             s = e;     // For the buffer remainder below
 
         } else {
+            //
             // This is the ASCII scanning case, AVR RAW or HTTP at present
             // If there is a complete message still in the buffer, there must be the separator 'sep'
             // in the buffer, note that we full-scan the buffer at every read for simplicity.
-
+            //
             while ((e = strstr(s, sep)) != NULL) { // end of first message if found
                 *e = '\0';                         // The handler expects null terminated strings
                 if (handler(c, s)) {               // Pass message to handler. 
@@ -835,10 +841,10 @@ void modesReadFromClient(struct client *c, char *sep,
             }
         }
         
-        if (fullmsg) { // We processed something - so 
-            c->buflen = &(c->buf[c->buflen]) - s;  // The unprocessed buffer length
-            memmove(c->buf, s, c->buflen);         // move what's remaining to the start of the buffer
-        } else { // If no message was decoded process the next client
+        if (fullmsg) {                             // We processed something - so 
+            c->buflen = &(c->buf[c->buflen]) - s;  //     Update the unprocessed buffer length
+            memmove(c->buf, s, c->buflen);         //     Move what's remaining to the start of the buffer
+        } else {                                   // If no message was decoded process the next client
             break;
         }
     }

@@ -41,6 +41,40 @@ static uint64_t mstime(void) {
     mst += tv.tv_usec/1000;
     return mst;
 }
+
+#ifdef _WIN32
+// Standard error macro for reporting API errors 
+#define PERR(bSuccess, api){if(!(bSuccess)) printf("%s:Error %d from %s on line %d\n", __FILE__, GetLastError(), api, __LINE__);}
+
+void cls( HANDLE hConsole ) {
+    COORD coordScreen = { 0, 0 };    // here's where we'll home the cursor
+    BOOL bSuccess;
+    DWORD cCharsWritten;
+    CONSOLE_SCREEN_BUFFER_INFO csbi; // to get buffer info
+    DWORD dwConSize;                 // number of character cells in the current buffer
+
+    // get the number of character cells in the current buffer
+    bSuccess = GetConsoleScreenBufferInfo( hConsole, &csbi );
+    PERR( bSuccess, "GetConsoleScreenBufferInfo" );
+    dwConSize = csbi.dwSize.X * csbi.dwSize.Y;
+
+    // fill the entire screen with blanks
+    bSuccess = FillConsoleOutputCharacter( hConsole, (TCHAR) ' ', dwConSize, coordScreen, &cCharsWritten );
+    PERR( bSuccess, "FillConsoleOutputCharacter" );
+
+    // get the current text attribute
+    bSuccess = GetConsoleScreenBufferInfo( hConsole, &csbi );
+    PERR( bSuccess, "ConsoleScreenBufferInfo" );
+
+    // now set the buffer's attributes accordingly
+    bSuccess = FillConsoleOutputAttribute( hConsole, csbi.wAttributes, dwConSize, coordScreen, &cCharsWritten );
+    PERR( bSuccess, "FillConsoleOutputAttribute" );
+
+    // put the cursor at (0, 0)
+    bSuccess = SetConsoleCursorPosition( hConsole, coordScreen );
+    PERR( bSuccess, "SetConsoleCursorPosition" );
+}
+#endif
 //
 //========================= Interactive mode ===============================
 //
@@ -342,7 +376,7 @@ void interactiveShowData(void) {
 #ifndef _WIN32
     printf("\x1b[H\x1b[2J");    // Clear the screen
 #else
-    system("cls");
+    cls(GetStdHandle(STD_OUTPUT_HANDLE));
 #endif
 
     if (Modes.interactive_rtl1090 == 0) {
@@ -439,7 +473,7 @@ void interactiveShowData(void) {
 //=========================================================================
 //
 // When in interactive mode If we don't receive new nessages within
-// MODES_INTERACTIVE__DELETE_TTL seconds we remove the aircraft from the list.
+// MODES_INTERACTIVE_DELETE_TTL seconds we remove the aircraft from the list.
 //
 void interactiveRemoveStaleAircrafts(void) {
     struct aircraft *a = Modes.aircrafts;

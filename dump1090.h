@@ -159,7 +159,7 @@
 #define MODES_INTERACTIVE_DELETE_TTL   300      // Delete from the list after 300 seconds
 #define MODES_INTERACTIVE_DISPLAY_TTL   60      // Delete from display after 60 seconds
 
-#define MODES_NET_MAX_FD 1024
+#define MODES_NET_MAX_FD             1024
 #define MODES_NET_INPUT_RAW_PORT    30001
 #define MODES_NET_OUTPUT_RAW_PORT   30002
 #define MODES_NET_OUTPUT_SBS_PORT   30003
@@ -181,8 +181,8 @@
 struct client {
     int  fd;                           // File descriptor
     int  service;                      // TCP port the client is connected to
-    char buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
     int  buflen;                       // Amount of data on buffer
+    char buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
 };
 
 // Structure used to describe an aircraft in iteractive mode
@@ -405,6 +405,8 @@ void modesInitErrorInfo ();
 struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void  interactiveShowData(void);
 void  interactiveRemoveStaleAircrafts(void);
+int   decodeBinMessage   (struct client *c, char *p);
+
 //
 // Functions exported from net_io.c
 //
@@ -412,6 +414,7 @@ void modesInitNet         (void);
 void modesReadFromClients (void);
 void modesSendAllClients  (int service, void *msg, int len);
 void modesQueueOutput     (struct modesMessage *mm);
+void modesReadFromClient(struct client *c, char *sep, int(*handler)(struct client *, char *));
 
 #ifdef __cplusplus
 }
