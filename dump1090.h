@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.07.2009.13"
+#define MODES_DUMP1090_VERSION     "1.07.2109.13"
 
 // ============================= Include files ==========================
 
@@ -255,6 +255,9 @@ struct {                             // Internal state
     int            rawOutUsed;                // How much of the buffer is currently used
     char          *beastOut;                  // Buffer for building beast output data
     int            beastOutUsed;              // How much if the buffer is currently used
+#ifdef _WIN32
+    WSADATA        wsaData;                   // Windows socket initialisation
+#endif
 
     // Configuration
     char *filename;                  // Input form file, --ifile option
