@@ -8,7 +8,7 @@ function optionsInitalize() {
 		height: 140,
 		modal: true,
 		autoOpen: false,
-		closeOnEscape: false,
+		closeOnEscape: false
 	});
 }
 

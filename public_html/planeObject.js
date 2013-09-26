@@ -45,7 +45,6 @@ var planeObject = {
 
 	// This is to remove the line from the screen if we deselect the plane
 	funcClearLine	: function() {
-			console.log("Clearing line for: " + this.icao);
 			if (this.line) {
 				this.line.setMap(null);
 				this.line = null;
@@ -164,7 +163,6 @@ var planeObject = {
 				}
 			} else {
 				if (this.reapable == true) {
-					console.log(this.icao + ' has come back into range before the reaper!');
 				}
 				this.reapable = false;
 			}
@@ -216,7 +214,7 @@ var planeObject = {
 					position: new google.maps.LatLng(this.latitude, this.longitude),
 					map: GoogleMap,
 					icon: this.funcGetIcon(),
-					visable: true,
+					visable: true
 				});
 
 				// This is so we can match icao address
@@ -243,15 +241,14 @@ var planeObject = {
 				var path = this.line.getPath();
 				path.push(new google.maps.LatLng(this.latitude, this.longitude));
 			} else {
-				console.log("Starting new line");
 				this.line = new google.maps.Polyline({
 					strokeColor: '#000000',
 					strokeOpacity: 1.0,
 					strokeWeight: 3,
 					map: GoogleMap,
-					path: this.trackline,
+					path: this.trackline
 				});
 			}
 			return this.line;
-		},
+		}
 };

@@ -5,7 +5,7 @@ var PlanesOnMap   = 0;
 var PlanesOnTable = 0;
 var PlanesToReap  = 0;
 var SelectedPlane = null;
-var SpecialSqawk  = false;
+var SpecialSquawk = false;
 
 var iSortCol=-1;
 var bSortASC=true;
@@ -136,7 +136,7 @@ function initialize() {
 		zoom: ZoomLvl,
 		mapTypeId: google.maps.MapTypeId.ROADMAP,
 		mapTypeControlOptions: {
-			mapTypeIds: mapTypeIds,
+			mapTypeIds: mapTypeIds
 		}
 	};
 
