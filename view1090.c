@@ -193,6 +193,7 @@ int main(int argc, char **argv) {
     // the first Windows handle is usually in the 0x54 (84 decimal) region.
 
     if (fd >= MODES_NET_MAX_FD) { // Max number of clients reached
+        fprintf(stderr, "Max number of clients exceeded : fd = 0x%X\n", fd);
         close(fd);
         exit(1);
     }
