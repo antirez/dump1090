@@ -451,7 +451,7 @@ function refreshTableInfo() {
 			html += '<td align="right">';
 			if (tableplane.vTrack) {
     			 html += normalizeTrack(tableplane.track, tableplane.vTrack)[2];
-    			 html += ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')';
+    			 // html += ' (' + normalizeTrack(tableplane.track, tableplane.vTrack)[1] + ')';
     	    } else {
     	        html += '&nbsp;';
     	    }
