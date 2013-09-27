@@ -15,7 +15,7 @@ LIBS=`pkg-config --libs librtlsdr` -lpthread -lm
 CC=gcc
 
 
-all: dump1090 view1090
+all: dump1090 view1090 ppup1090
 
 %.o: %.c
 	$(CC) $(CFLAGS) $(EXTRACFLAGS) -c $<
@@ -26,5 +26,8 @@ dump1090: dump1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o
 view1090: view1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o
 	$(CC) -g -o view1090 view1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o $(LIBS)
 
+ppup1090: ppup1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o
+	$(CC) -g -o ppup1090 ppup1090.o anet.o interactive.o mode_ac.o mode_s.o net_io.o coaa1090.obj $(LIBS)
+
 clean:
-	rm -f *.o dump1090 view1090
+	rm -f *.o dump1090 view1090 ppup1090

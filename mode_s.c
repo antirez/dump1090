@@ -1816,13 +1816,8 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 void useModesMessage(struct modesMessage *mm) {
     if ((Modes.check_crc == 0) || (mm->crcok) || (mm->correctedbits)) { // not checking, ok or fixed
 
-        // Track aircrafts if...
-        if ( (Modes.interactive)          //       in interactive mode
-          || (Modes.stat_http_requests)   // or if the HTTP interface is enabled
-          || (Modes.stat_sbs_connections) // or if sbs connections are established 
-          || (Modes.mode_ac) ) {          // or if mode A/C decoding is enabled
-            interactiveReceiveData(mm);
-        }
+        // Always track aircraft
+        interactiveReceiveData(mm);
 
         // In non-interactive non-quiet mode, display messages on standard output
         if (!Modes.interactive && !Modes.quiet) {
