@@ -104,8 +104,8 @@ void ppup1090Init(void) {
     modesInitErrorInfo();
 
     // Setup the uploader - read the user paramaters from the coaa.h header file
-    coaa1090.fUserLat = USER_LATITUDE;
-    coaa1090.fUserLon = USER_LONGITUDE;
+    coaa1090.fUserLat = MODES_USER_LATITUDE_DFLT;
+    coaa1090.fUserLon = MODES_USER_LONGITUDE_DFLT;
     strcpy(coaa1090.strAuthCode,STR(USER_AUTHCODE));
     strcpy(coaa1090.strRegNo,   STR(USER_REGNO));
 

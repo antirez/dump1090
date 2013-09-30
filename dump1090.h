@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.07.2709.13"
+#define MODES_DUMP1090_VERSION     "1.07.2909.13"
 
 // ============================= Include files ==========================
 
@@ -64,7 +64,10 @@
 #endif
 
 // ============================= #defines ===============================
-
+//
+// If you have a valid coaa.h, these values will come from it. If not, 
+// then you can enter your own values in the #else section here
+//
 #ifdef USER_LATITUDE
     #define MODES_USER_LATITUDE_DFLT   (USER_LATITUDE)
     #define MODES_USER_LONGITUDE_DFLT  (USER_LONGITUDE)
