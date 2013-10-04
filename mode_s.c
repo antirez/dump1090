@@ -362,9 +362,9 @@ void dumpMagnitudeBar(int index, int magnitude) {
     buf[div+1] = '\0';
 
     if (index >= 0)
-        printf("[%.3d] |%-66s %d\n", index, buf, magnitude);
+        printf("[%.3d] |%-66s 0x%04X\n", index, buf, magnitude);
     else
-        printf("[%.2d] |%-66s %d\n", index, buf, magnitude);
+        printf("[%.2d] |%-66s 0x%04X\n", index, buf, magnitude);
 }
 //
 //=========================================================================
@@ -443,10 +443,10 @@ void dumpRawMessage(char *descr, unsigned char *msg, uint16_t *m, uint32_t offse
     char bitpos[MODES_MAX_BITERRORS];
 
     for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
-	    bitpos[j] = -1;
+        bitpos[j] = -1;
     }
     if (msgtype == 17) {
-	fixable = fixBitErrors(msg, MODES_LONG_MSG_BITS, MODES_MAX_BITERRORS, bitpos);
+        fixable = fixBitErrors(msg, MODES_LONG_MSG_BITS, MODES_MAX_BITERRORS, bitpos);
     }
 
     if (Modes.debug & MODES_DEBUG_JS) {
@@ -625,8 +625,9 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
     uint32_t h = ICAOCacheHashAddress(addr);
     uint32_t a = Modes.icao_cache[h*2];
     uint32_t t = Modes.icao_cache[h*2+1];
+    uint64_t tn = time(NULL);
 
-    return a && a == addr && time(NULL)-t <= MODES_ICAO_CACHE_TTL;
+    return ( (a) && (a == addr) && ( (tn - t) <= MODES_ICAO_CACHE_TTL) );
 }
 //
 //=========================================================================
@@ -750,7 +751,7 @@ char *ca_str[8] = {
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
     /* 3 */ "Level 4 (DF0,4,5,11,20,21,24)",
     /* 4 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on ground)",
-    /* 5 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is on airborne)",
+    /* 5 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7 - is airborne)",
     /* 6 */ "Level 2+3+4 (DF0,4,5,11,20,21,24,code7)",
     /* 7 */ "Level 7 ???"
 };
@@ -1128,6 +1129,9 @@ void displayModesMessage(struct modesMessage *mm) {
 
     if (mm->msgtype == 0) { // DF 0
         printf("DF 0: Short Air-Air Surveillance.\n");
+        printf("  VS             : %s\n",  (mm->msg[0] & 0x04) ? "Ground" : "Airborne");
+        printf("  CC             : %d\n", ((mm->msg[0] & 0x02) >> 1));
+        printf("  SL             : %d\n", ((mm->msg[1] & 0xE0) >> 5));
         printf("  Altitude       : %d %s\n", mm->altitude,
             (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
         printf("  ICAO Address   : %06x\n", mm->addr);
@@ -1212,6 +1216,12 @@ void displayModesMessage(struct modesMessage *mm) {
 
     } else if (mm->msgtype == 16) { // DF 16
         printf("DF 16: Long Air to Air ACAS\n");
+        printf("  VS             : %s\n",  (mm->msg[0] & 0x04) ? "Ground" : "Airborne");
+        printf("  CC             : %d\n", ((mm->msg[0] & 0x02) >> 1));
+        printf("  SL             : %d\n", ((mm->msg[1] & 0xE0) >> 5));
+        printf("  Altitude       : %d %s\n", mm->altitude,
+            (mm->unit == MODES_UNIT_METERS) ? "meters" : "feet");
+        printf("  ICAO Address   : %06x\n", mm->addr);
 
     } else if (mm->msgtype == 17) { // DF 17
         printf("DF 17: ADS-B message.\n");
