@@ -258,36 +258,38 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
     if ((mm->bFlags & MODES_ACFLAGS_AOG_VALID) && ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG)) {
         a->bFlags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
+    } 
 
-    } else  if (   (mm->bFlags & MODES_ACFLAGS_LLEITHER_VALID) 
-              && (((mm->bFlags | a->bFlags) & MODES_ACFLAGS_LLEITHER_VALID) == MODES_ACFLAGS_LLBOTH_VALID) ) {
-        // If it's a new even/odd raw lat/lon, and we now have both even and odd,decode the CPR
-        int fflag;
+    // If we've got a new cprlat or cprlon
+    if (mm->bFlags & MODES_ACFLAGS_LLEITHER_VALID) {
 
         if (mm->bFlags & MODES_ACFLAGS_LLODD_VALID) {
-            fflag = 1;
             a->odd_cprlat  = mm->raw_latitude;
             a->odd_cprlon  = mm->raw_longitude;
             a->odd_cprtime = mstime();
         } else {
-            fflag = 0;
             a->even_cprlat  = mm->raw_latitude;
             a->even_cprlon  = mm->raw_longitude;
             a->even_cprtime = mstime();
         }
-        // Try relative CPR first
-        if (decodeCPRrelative(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG))) {
-            // If it fails then try global if the two data are less than 10 seconds apart
-            if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
-                decodeCPR(a, fflag, (mm->bFlags & MODES_ACFLAGS_AOG));
-            }
-        }
 
-        //If we sucessfully decoded, back copy the results to mm so that we can print them in list output
-        if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
-            mm->bFlags |= MODES_ACFLAGS_LATLON_VALID;
-            mm->fLat    = a->lat;
-            mm->fLon    = a->lon;
+        if (((mm->bFlags | a->bFlags) & MODES_ACFLAGS_LLEITHER_VALID) == MODES_ACFLAGS_LLBOTH_VALID) {
+        // If we now have both even and odd, decode the CPR
+
+            // Try relative CPR first
+            if (decodeCPRrelative(a, (mm->bFlags & MODES_ACFLAGS_LLODD_VALID), (mm->bFlags & MODES_ACFLAGS_AOG))) {
+                // If relative CPR fails then try global if the two data are less than 10 seconds apart
+                if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
+                    decodeCPR(a, (mm->bFlags & MODES_ACFLAGS_LLODD_VALID), (mm->bFlags & MODES_ACFLAGS_AOG));
+                }
+            }
+
+            //If we sucessfully decoded, back copy the results to mm so that we can print them in list output
+            if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
+                mm->bFlags |= MODES_ACFLAGS_LATLON_VALID;
+                mm->fLat    = a->lat;
+                mm->fLon    = a->lon;
+            }
         }
     }
 
