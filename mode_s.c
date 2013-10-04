@@ -842,8 +842,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
         // If we correct, validate ICAO addr to help filter birthday paradox solutions.
         if (mm->correctedbits) {
-            uint32_t addr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
-            if (!ICAOAddressWasRecentlySeen(addr))
+            uint32_t ulAddr = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
+            if (!ICAOAddressWasRecentlySeen(ulAddr))
                 mm->correctedbits = 0;
         }
     }
@@ -852,32 +852,34 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     // single/two bit errors, otherwise we would need to recompute the fields again.
     //
     if (mm->msgtype == 11) { // DF 11
-        mm->crcok = (mm->crc < 80);
         mm->iid   =  mm->crc;
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
         mm->ca    = (msg[0] & 0x07); // Responder capabilities
 
-        if (0 == mm->crc) {
+        if ((mm->crcok = (0 == mm->crc))) {
             // DF 11 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
+        } else if (mm->crc < 80) {
+            mm->crcok = ICAOAddressWasRecentlySeen(mm->addr);
+            if (mm->crcok) {
+                addRecentlySeenICAOAddr(mm->addr);
+            }
         }
 
     } else if (mm->msgtype == 17) { // DF 17
-        mm->crcok = (mm->crc == 0);
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
         mm->ca    = (msg[0] & 0x07); // Responder capabilities
 
-        if (0 == mm->crc) {
+        if ((mm->crcok = (0 == mm->crc))) {
             // DF 17 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
 
     } else if (mm->msgtype == 18) { // DF 18
-        mm->crcok = (mm->crc == 0);
         mm->addr  = (msg[1] << 16) | (msg[2] << 8) | (msg[3]); 
         mm->ca    = (msg[0] & 0x07); // Control Field
 
-        if (0 == mm->crc) {
+        if ((mm->crcok = (0 == mm->crc))) {
             // DF 18 : if crc == 0 try to populate our ICAO addresses whitelist.
             addRecentlySeenICAOAddr(mm->addr);
         }
@@ -885,8 +887,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     } else { // All other DF's
         // Compare the checksum with the whitelist of recently seen ICAO 
         // addresses. If it matches one, then declare the message as valid
-        mm->addr  = mm->crc;
-        mm->crcok = ICAOAddressWasRecentlySeen(mm->crc);
+        mm->crcok = ICAOAddressWasRecentlySeen(mm->addr = mm->crc);
     }
 
     // Fields for DF0, DF16
