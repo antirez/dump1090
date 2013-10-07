@@ -108,6 +108,7 @@ void ppup1090Init(void) {
     coaa1090.fUserLon = MODES_USER_LONGITUDE_DFLT;
     strcpy(coaa1090.strAuthCode,STR(USER_AUTHCODE));
     strcpy(coaa1090.strRegNo,   STR(USER_REGNO));
+    strcpy(coaa1090.strVersion, MODES_DUMP1090_VERSION);
 
     if ((iErr = initCOAA (coaa1090)))
     {
@@ -121,7 +122,7 @@ void ppup1090Init(void) {
 void showHelp(void) {
     printf(
 "-----------------------------------------------------------------------------\n"
-"|                        ppup1090 dump1090 Uploader      Ver : "MODES_DUMP1090_VERSION " |\n"
+"|    ppup1090 RPi Uploader for COAA Planeplotter         Ver : "MODES_DUMP1090_VERSION " |\n"
 "-----------------------------------------------------------------------------\n"
   "--net-bo-ipaddr <IPv4>   TCP Beast output listen IPv4 (default: 127.0.0.1)\n"
   "--net-bo-port <port>     TCP Beast output listen port (default: 30005)\n"

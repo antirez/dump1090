@@ -81,6 +81,7 @@ struct _coaa1090 {
     double fUserLon;
     char   strAuthCode[16];
     char   strRegNo[16];
+    char   strVersion[16];
 }  coaa1090;
 
 // ======================== function declarations =========================
