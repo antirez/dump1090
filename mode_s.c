@@ -762,7 +762,7 @@ char *cf_str[8] = {
     /* 1 */ "ADS-B ES/NT device with other address",
     /* 2 */ "Fine format TIS-B",
     /* 3 */ "Coarse format TIS-B",
-    /* 4 */ "TIS-B managment message",
+    /* 4 */ "TIS-B management message",
     /* 5 */ "TIS-B relay of ADS-B message with other address",
     /* 6 */ "ADS-B rebroadcast using DF-17 message format",
     /* 7 */ "Reserved"
