@@ -1975,14 +1975,18 @@ void modesFreeClient(int fd) {
     if (Modes.debug & MODES_DEBUG_NET)
         printf("Closing client %d\n", fd);
 
-    /* If this was our maxfd, rescan the full clients array to check what's
-     * the new max. */
+    /* If this was our maxfd, scan the clients array to find the new max.
+     * Note that we are sure there is no active fd greater than the closed
+     * fd, so we scan from fd-1 to 0. */
     if (Modes.maxfd == fd) {
         int j;
 
         Modes.maxfd = -1;
-        for (j = 0; j < MODES_NET_MAX_FD; j++) {
-            if (Modes.clients[j]) Modes.maxfd = j;
+        for (j = fd-1; j >= 0; j--) {
+            if (Modes.clients[j]) {
+                Modes.maxfd = j;
+                break;
+            }
         }
     }
 }
