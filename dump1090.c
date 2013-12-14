@@ -1069,12 +1069,11 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             if (mvt == 0) {         /* unknown */
                 mm->velocity = 0;
             } else if (mvt == 1) {  /* less than 0.125 kt */
-                mm->velocity = 0.124;
+                mm->velocity = 0;
             } else if (mvt == 124) {
                 mm->velocity = 175;
             } else if (mvt >=   2 && mvt <=   8) {
-                mm->velocity  = 0.125; 
-                mm->velocity += (mvt-2) * 0.125;
+                mm->velocity = 0.125+((mvt-2) * 0.125);
             } else if (mvt >=   9 && mvt <=  12) {
                 mm->velocity  = 1;
                 mm->velocity += (mvt-9) * 0.25;
