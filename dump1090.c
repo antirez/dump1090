@@ -2264,8 +2264,8 @@ int handleHTTPRequest(struct client *c) {
         printf("HTTP Reply header:\n%s", hdr);
 
     /* Send header and content. */
-    if (write(c->fd, hdr, hdrlen) == -1 ||
-        write(c->fd, content, clen) == -1)
+    if (write(c->fd, hdr, hdrlen) != hdrlen ||
+        write(c->fd, content, clen) != clen)
     {
         free(content);
         return 1;
