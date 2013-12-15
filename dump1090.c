@@ -1936,7 +1936,12 @@ void modesAcceptClients(void) {
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
         fd = anetTcpAccept(Modes.aneterr, *modesNetServices[j].socket,
                            NULL, &port);
-        if (fd == -1) continue;
+        if (fd == -1) {
+            if (Modes.debug & MODES_DEBUG_NET && errno != EAGAIN)
+                printf("Accept %d: %s\n", *modesNetServices[j].socket,
+                       strerror(errno));
+            continue;
+        }
 
         if (fd >= MODES_NET_MAX_FD) {
             close(fd);
