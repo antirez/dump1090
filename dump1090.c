@@ -41,6 +41,8 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <sys/select.h>
 #include "rtl-sdr.h"
 #include "anet.h"
 
@@ -159,10 +161,6 @@ struct {
     int debug;                      /* Debugging mode. */
     int net;                        /* Enable networking. */
     int net_only;                   /* Enable just networking. */
-    int net_output_sbs_port;        /* SBS output TCP port. */
-    int net_output_raw_port;        /* Raw output TCP port. */
-    int net_input_raw_port;         /* Raw input TCP port. */
-    int net_http_port;              /* HTTP port. */
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows. */
     int interactive_ttl;            /* Interactive mode: TTL before deletion. */
@@ -241,6 +239,8 @@ void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
+void sigWinchCallback();
+int getTermRows();
 
 /* ============================= Utility functions ========================== */
 
@@ -267,16 +267,13 @@ void modesInitConfig(void) {
     Modes.raw = 0;
     Modes.net = 0;
     Modes.net_only = 0;
-    Modes.net_output_sbs_port = MODES_NET_OUTPUT_SBS_PORT;
-    Modes.net_output_raw_port = MODES_NET_OUTPUT_RAW_PORT;
-    Modes.net_input_raw_port = MODES_NET_INPUT_RAW_PORT;
-    Modes.net_http_port = MODES_NET_HTTP_PORT;
     Modes.onlyaddr = 0;
     Modes.debug = 0;
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.aggressive = 0;
+    Modes.interactive_rows = getTermRows();
 }
 
 void modesInit(void) {
@@ -1885,36 +1882,44 @@ void snipMode(int level) {
  *    user space buffering.
  * 2) We don't register any kind of event handler, from time to time a
  *    function gets called and we accept new connections. All the rest is
- *    handled via non-blocking I/O and manually pullign clients to see if
+ *    handled via non-blocking I/O and manually pulling clients to see if
  *    they have something new to share with us when reading is needed.
  */
 
+#define MODES_NET_SERVICE_RAWO 0
+#define MODES_NET_SERVICE_RAWI 1
+#define MODES_NET_SERVICE_HTTP 2
+#define MODES_NET_SERVICE_SBS 3
+#define MODES_NET_SERVICES_NUM 4
+struct {
+    char *descr;
+    int *socket;
+    int port;
+} modesNetServices[MODES_NET_SERVICES_NUM] = {
+    {"Raw TCP output", &Modes.ros, MODES_NET_OUTPUT_RAW_PORT},
+    {"Raw TCP input", &Modes.ris, MODES_NET_INPUT_RAW_PORT},
+    {"HTTP server", &Modes.https, MODES_NET_HTTP_PORT},
+    {"Basestation TCP output", &Modes.sbsos, MODES_NET_OUTPUT_SBS_PORT}
+};
+
 /* Networking "stack" initialization. */
 void modesInitNet(void) {
-    struct {
-        char *descr;
-        int *socket;
-        int port;
-    } services[4] = {
-        {"Raw TCP output", &Modes.ros, Modes.net_output_raw_port},
-        {"Raw TCP input", &Modes.ris, Modes.net_input_raw_port},
-        {"HTTP server", &Modes.https, Modes.net_http_port},
-        {"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port}
-    };
     int j;
 
     memset(Modes.clients,0,sizeof(Modes.clients));
     Modes.maxfd = -1;
 
-    for (j = 0; j < 4; j++) {
-        int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+        int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
-                services[j].port, services[j].descr, strerror(errno));
+                modesNetServices[j].port,
+                modesNetServices[j].descr,
+                strerror(errno));
             exit(1);
         }
         anetNonBlock(Modes.aneterr, s);
-        *services[j].socket = s;
+        *modesNetServices[j].socket = s;
     }
 
     signal(SIGPIPE, SIG_IGN);
@@ -1927,16 +1932,16 @@ void modesAcceptClients(void) {
     int fd, port;
     unsigned int j;
     struct client *c;
-    int services[4];
 
-    services[0] = Modes.ros;
-    services[1] = Modes.ris;
-    services[2] = Modes.https;
-    services[3] = Modes.sbsos;
-
-    for (j = 0; j < sizeof(services)/sizeof(int); j++) {
-        fd = anetTcpAccept(Modes.aneterr, services[j], NULL, &port);
-        if (fd == -1) continue;
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+        fd = anetTcpAccept(Modes.aneterr, *modesNetServices[j].socket,
+                           NULL, &port);
+        if (fd == -1) {
+            if (Modes.debug & MODES_DEBUG_NET && errno != EAGAIN)
+                printf("Accept %d: %s\n", *modesNetServices[j].socket,
+                       strerror(errno));
+            continue;
+        }
 
         if (fd >= MODES_NET_MAX_FD) {
             close(fd);
@@ -1945,14 +1950,15 @@ void modesAcceptClients(void) {
 
         anetNonBlock(Modes.aneterr, fd);
         c = malloc(sizeof(*c));
-        c->service = services[j];
+        c->service = *modesNetServices[j].socket;
         c->fd = fd;
         c->buflen = 0;
         Modes.clients[fd] = c;
         anetSetSendBuffer(Modes.aneterr,fd,MODES_NET_SNDBUF_SIZE);
 
         if (Modes.maxfd < fd) Modes.maxfd = fd;
-        if (services[j] == Modes.sbsos) Modes.stat_sbs_connections++;
+        if (*modesNetServices[j].socket == Modes.sbsos)
+            Modes.stat_sbs_connections++;
 
         j--; /* Try again with the same listening port. */
 
@@ -1970,14 +1976,18 @@ void modesFreeClient(int fd) {
     if (Modes.debug & MODES_DEBUG_NET)
         printf("Closing client %d\n", fd);
 
-    /* If this was our maxfd, rescan the full clients array to check what's
-     * the new max. */
+    /* If this was our maxfd, scan the clients array to find the new max.
+     * Note that we are sure there is no active fd greater than the closed
+     * fd, so we scan from fd-1 to 0. */
     if (Modes.maxfd == fd) {
         int j;
 
         Modes.maxfd = -1;
-        for (j = 0; j < MODES_NET_MAX_FD; j++) {
-            if (Modes.clients[j]) Modes.maxfd = j;
+        for (j = fd-1; j >= 0; j--) {
+            if (Modes.clients[j]) {
+                Modes.maxfd = j;
+                break;
+            }
         }
     }
 }
@@ -2259,8 +2269,8 @@ int handleHTTPRequest(struct client *c) {
         printf("HTTP Reply header:\n%s", hdr);
 
     /* Send header and content. */
-    if (write(c->fd, hdr, hdrlen) == -1 ||
-        write(c->fd, content, clen) == -1)
+    if (write(c->fd, hdr, hdrlen) != hdrlen ||
+        write(c->fd, content, clen) != clen)
     {
         free(content);
         return 1;
@@ -2351,6 +2361,56 @@ void modesReadFromClients(void) {
         else if (c->service == Modes.https)
             modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
     }
+}
+
+/* This function is used when "net only" mode is enabled to know when there
+ * is at least a new client to serve. Note that the dump1090 networking model
+ * is extremely trivial and a function takes care of handling all the clients
+ * that have something to serve, without a proper event library, so the
+ * function here returns as long as there is a single client ready, or
+ * when the specified timeout in milliesconds elapsed, without specifying to
+ * the caller what client requires to be served. */
+void modesWaitReadableClients(int timeout_ms) {
+    struct timeval tv;
+    fd_set fds;
+    int j, maxfd = Modes.maxfd;
+
+    FD_ZERO(&fds);
+
+    /* Set client FDs */
+    for (j = 0; j <= Modes.maxfd; j++) {
+        if (Modes.clients[j]) FD_SET(j,&fds);
+    }
+
+    /* Set listening sockets to accept new clients ASAP. */
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+        int s = *modesNetServices[j].socket;
+        FD_SET(s,&fds);
+        if (s > maxfd) maxfd = s;
+    }
+
+    tv.tv_sec = timeout_ms/1000;
+    tv.tv_usec = (timeout_ms%1000)*1000;
+    /* We don't care why select returned here, timeout, error, or
+     * FDs ready are all conditions for which we just return. */
+    select(maxfd+1,&fds,NULL,NULL,&tv);
+}
+
+/* ============================ Terminal handling  ========================== */
+
+/* Handle resizing terminal. */
+void sigWinchCallback() {
+    signal(SIGWINCH, SIG_IGN);
+    Modes.interactive_rows = getTermRows();
+    interactiveShowData();
+    signal(SIGWINCH, sigWinchCallback);
+}
+
+/* Get the number of rows after the terminal changes size. */
+int getTermRows() {
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    return w.ws_row;
 }
 
 /* ================================ Main ==================================== */
@@ -2445,13 +2505,13 @@ int main(int argc, char **argv) {
             Modes.net = 1;
             Modes.net_only = 1;
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
-            Modes.net_output_raw_port = atoi(argv[++j]);
+            modesNetServices[MODES_NET_SERVICE_RAWO].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
-            Modes.net_input_raw_port = atoi(argv[++j]);
+            modesNetServices[MODES_NET_SERVICE_RAWI].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-http-port") && more) {
-            Modes.net_http_port = atoi(argv[++j]);
+            modesNetServices[MODES_NET_SERVICE_HTTP].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
-            Modes.net_output_sbs_port = atoi(argv[++j]);
+            modesNetServices[MODES_NET_SERVICE_SBS].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--onlyaddr")) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
@@ -2499,6 +2559,9 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Setup for SIGWINCH for handling lines */
+    if (Modes.interactive == 1) signal(SIGWINCH, sigWinchCallback);
+
     /* Initialization */
     modesInit();
     if (Modes.net_only) {
@@ -2519,7 +2582,7 @@ int main(int argc, char **argv) {
      * clients without reading data from the RTL device. */
     while (Modes.net_only) {
         backgroundTasks();
-        usleep(100000);
+        modesWaitReadableClients(100);
     }
 
     /* Create the thread that will read the data from the device. */
@@ -2568,3 +2631,5 @@ int main(int argc, char **argv) {
     rtlsdr_close(Modes.dev);
     return 0;
 }
+
+
