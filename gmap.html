@@ -41,6 +41,7 @@
     Map=null;
     CenterLat=45.0;
     CenterLon=9.0;
+    GotCenter=false;
     Planes={};
     NumPlanes = 0;
     Selected=null
@@ -120,6 +121,11 @@
                     myplane.flight = plane.flight;
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
+
+                    if (!GotCenter) {
+                        Map.panTo(newpos);
+                        GotCenter = true;
+                    }
                 } else {
                     marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
