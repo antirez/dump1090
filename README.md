@@ -19,7 +19,7 @@ The main features are:
 * Interactive command-line-interfae mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
-* TCP server streaming and recceiving raw data to/from connected clients
+* TCP server streaming and receiving raw data to/from connected clients
   (using --net).
 
 Installation
