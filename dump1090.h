@@ -81,7 +81,7 @@
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
 #define MODES_DEFAULT_HEIGHT       700
-#define MODES_ASYNC_BUF_NUMBER     12
+#define MODES_ASYNC_BUF_NUMBER     16
 #define MODES_ASYNC_BUF_SIZE       (16*16384)                 // 256k
 #define MODES_ASYNC_BUF_SAMPLES    (MODES_ASYNC_BUF_SIZE / 2) // Each sample is 2 bytes
 #define MODES_AUTO_GAIN            -100                       // Use automatic gain
@@ -225,15 +225,21 @@ struct aircraft {
 // Program global state
 struct {                             // Internal state
     pthread_t       reader_thread;
+
     pthread_mutex_t data_mutex;      // Mutex to synchronize buffer access
     pthread_cond_t  data_cond;       // Conditional variable associated
-    uint16_t       *data;            // Raw IQ samples buffer
+    uint16_t       *pData          [MODES_ASYNC_BUF_NUMBER]; // Raw IQ sample buffers from RTL
+    struct timeb    stSystemTimeRTL[MODES_ASYNC_BUF_NUMBER]; // System time when RTL passed us this block
+    int             iDataIn;    // Fifo input pointer
+    int             iDataOut;   // Fifo output pointer
+    int             iDataReady; // Fifo content count 
+    int             iDataLost;  // Count of missed buffers
+
+    uint16_t       *pFileData;       // Raw IQ samples buffer (from a File)
     uint16_t       *magnitude;       // Magnitude vector
-    struct timeb    stSystemTimeRTL; // System time when RTL passed us the Latest block
     uint64_t        timestampBlk;    // Timestamp of the start of the current block
     struct timeb    stSystemTimeBlk; // System time when RTL passed us currently processing this block
     int             fd;              // --ifile option file descriptor
-    int             data_ready;      // Data ready to be processed
     uint32_t       *icao_cache;      // Recently seen ICAO addresses cache
     uint16_t       *maglut;          // I/Q -> Magnitude lookup table
     int             exit;            // Exit from the main loop when true
@@ -403,7 +409,7 @@ void detectModeS        (uint16_t *m, uint32_t mlen);
 void decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
 void displayModesMessage(struct modesMessage *mm);
 void useModesMessage    (struct modesMessage *mm);
-void computeMagnitudeVector();
+void computeMagnitudeVector(uint16_t *pData);
 void decodeCPR          (struct aircraft *a, int fflag, int surface);
 int  decodeCPRrelative  (struct aircraft *a, int fflag, int surface);
 void modesInitErrorInfo ();

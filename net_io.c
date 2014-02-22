@@ -96,7 +96,7 @@ void modesAcceptClients(void) {
     services[4] = Modes.https;
     services[5] = Modes.sbsos;
 
-    for (j = 0; j < sizeof(services)/sizeof(int); j++) {
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
         fd = anetTcpAccept(Modes.aneterr, services[j], NULL, &port);
         if (fd == -1) continue;
 

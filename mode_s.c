@@ -1372,9 +1372,8 @@ void displayModesMessage(struct modesMessage *mm) {
 // Turn I/Q samples pointed by Modes.data into the magnitude vector
 // pointed by Modes.magnitude.
 //
-void computeMagnitudeVector(void) {
+void computeMagnitudeVector(uint16_t *p) {
     uint16_t *m = &Modes.magnitude[MODES_PREAMBLE_SAMPLES+MODES_LONG_MSG_SAMPLES];
-    uint16_t *p = Modes.data;
     uint32_t j;
 
     memcpy(Modes.magnitude,&Modes.magnitude[MODES_ASYNC_BUF_SAMPLES], MODES_PREAMBLE_SIZE+MODES_LONG_MSG_SIZE);
