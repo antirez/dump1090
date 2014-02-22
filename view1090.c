@@ -38,6 +38,27 @@ void sigintHandler(int dummy) {
     Modes.exit = 1;           // Signal to threads that we are done
 }
 //
+// =============================== Terminal handling ========================
+//
+#ifndef _WIN32
+// Get the number of rows after the terminal changes size.
+int getTermRows() { 
+    struct winsize w; 
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w); 
+    return (w.ws_row); 
+} 
+
+// Handle resizing terminal
+void sigWinchCallback() {
+    signal(SIGWINCH, SIG_IGN);
+    Modes.interactive_rows = getTermRows();
+    interactiveShowData();
+    signal(SIGWINCH, sigWinchCallback); 
+}
+#else 
+int getTermRows() { return MODES_INTERACTIVE_ROWS;}
+#endif
+//
 // =============================== Initialization ===========================
 //
 void view1090InitConfig(void) {
@@ -49,7 +70,7 @@ void view1090InitConfig(void) {
     Modes.check_crc               = 1;
     strcpy(View1090.net_input_beast_ipaddr,VIEW1090_NET_OUTPUT_IP_ADDRESS); 
     Modes.net_input_beast_port    = MODES_NET_OUTPUT_BEAST_PORT;
-    Modes.interactive_rows        = MODES_INTERACTIVE_ROWS;
+    Modes.interactive_rows        = getTermRows();
     Modes.interactive_delete_ttl  = MODES_INTERACTIVE_DELETE_TTL;
     Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
     Modes.fUserLat                = MODES_USER_LATITUDE_DFLT;
@@ -173,6 +194,11 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+
+#ifndef _WIN32
+    // Setup for SIGWINCH for handling lines
+    if (Modes.interactive) {signal(SIGWINCH, sigWinchCallback);}
+#endif
 
     // Initialization
     view1090Init();

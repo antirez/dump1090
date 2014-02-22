@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.07.0710.13"
+#define MODES_DUMP1090_VERSION     "1.07.2202.14"
 
 // ============================= Include files ==========================
 
@@ -56,6 +56,7 @@
     #include <fcntl.h>
     #include <ctype.h>
     #include <sys/stat.h>
+    #include <sys/ioctl.h>
     #include "rtl-sdr.h"
     #include "anet.h"
 #else
