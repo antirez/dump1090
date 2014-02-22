@@ -51,7 +51,7 @@ void modesInitNet(void) {
         char *descr;
         int *socket;
         int port;
-    } services[6] = {
+    } services[MODES_NET_SERVICES_NUM] = {
         {"Raw TCP output", &Modes.ros, Modes.net_output_raw_port},
         {"Raw TCP input", &Modes.ris, Modes.net_input_raw_port},
         {"Beast TCP output", &Modes.bos, Modes.net_output_beast_port},
@@ -64,7 +64,7 @@ void modesInitNet(void) {
     memset(Modes.clients,0,sizeof(Modes.clients));
     Modes.maxfd = -1;
 
-    for (j = 0; j < 6; j++) {
+    for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
         int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
