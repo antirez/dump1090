@@ -189,7 +189,9 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     char *p = &Modes.beastOut[Modes.beastOutUsed];
     int  msgLen = mm->msgbits / 8;
     char * pTimeStamp;
+    char ch;
     int  j;
+    int  iOutLen = msgLen + 9; // Escape, message type, timestamp, sigLevel and msg
 
     *p++ = 0x1a;
     if      (msgLen == MODES_SHORT_MSG_BYTES)
@@ -203,14 +205,19 @@ void modesSendBeastOutput(struct modesMessage *mm) {
 
     pTimeStamp = (char *) &mm->timestampMsg;
     for (j = 5; j >= 0; j--) {
-        *p++ = pTimeStamp[j];
+        *p++ = (ch = pTimeStamp[j]);
+        if (0x1A == ch) {*p++ = ch; iOutLen++;} 
     }
 
-    *p++ = mm->signalLevel;
+    *p++ = (ch = mm->signalLevel);
+    if (0x1A == ch) {*p++ = ch; iOutLen++;} 
 
-    memcpy(p, mm->msg, msgLen);
+    for (j = 0; j < msgLen; j++) {
+        *p++ = (ch = mm->msg[j]);
+        if (0x1A == ch) {*p++ = ch; iOutLen++;} 
+    }
 
-    Modes.beastOutUsed += (msgLen + 9);
+    Modes.beastOutUsed +=  iOutLen;
     if (Modes.beastOutUsed >= Modes.net_output_raw_size)
       {
       modesSendAllClients(Modes.bos, Modes.beastOut, Modes.beastOutUsed);
@@ -427,7 +434,9 @@ void modesQueueOutput(struct modesMessage *mm) {
 // case where we want broken messages here to close the client connection.
 //
 int decodeBinMessage(struct client *c, char *p) {
-    int msgLen = 0;
+    int  msgLen = 0;
+    int  j;
+    char ch;
     unsigned char msg[MODES_LONG_MSG_BYTES];
     struct modesMessage mm;
     MODES_NOTUSED(c);
@@ -445,9 +454,17 @@ int decodeBinMessage(struct client *c, char *p) {
         // Mark messages received over the internet as remote so that we don't try to
         // pass them off as being received by this instance when forwarding them
         mm.remote      =    1;
-        p += 7;                 // Skip the timestamp       
-        mm.signalLevel = *p++;  // Grab the signal level
-        memcpy(msg, p, msgLen); // and the data
+        for (j = 0; j < 7; j++) { // Skip the message type and timestamp
+          ch = *p++; 
+          if (0x1A == ch) {p++;}
+        }                        
+        mm.signalLevel = ch = *p++;  // Grab the signal level
+        if (0x1A == ch) {p++;}
+
+        for (j = 0; j < msgLen; j++) { // and the data
+          msg[j] = ch = *p++; 
+          if (0x1A == ch) {p++;}
+          }
 
         if (msgLen == MODEAC_MSG_BYTES) { // ModeA or ModeC
             decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1])); 
@@ -767,7 +784,7 @@ void modesReadFromClient(struct client *c, char *sep,
     int nread;
     int fullmsg;
     int bContinue = 1;
-    char *s, *e;
+    char *s, *e, *p;
 
     while(bContinue) {
 
@@ -816,6 +833,15 @@ void modesReadFromClient(struct client *c, char *sep,
                     e = s;                                     // Not a valid beast message, skip
                     left = &(c->buf[c->buflen]) - e;
                     continue;
+                }
+                // we need to be careful of double escape characters in the message body
+                for (p = s; p < e; p++) {
+                    if (0x1A == *p) {
+                        p++; e++;
+                        if (e > &(c->buf[c->buflen])) {
+                            break;
+                        }
+                    }
                 }
                 left = &(c->buf[c->buflen]) - e;
                 if (left < 0) {                                // Incomplete message in buffer
