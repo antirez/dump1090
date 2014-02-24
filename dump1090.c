@@ -254,8 +254,6 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     // Lock the data buffer variables before accessing them
     pthread_mutex_lock(&Modes.data_mutex);
 
-    rtlsdrStats(buf);
-
     Modes.iDataIn &= (MODES_ASYNC_BUF_NUMBER-1); // Just incase!!!
 
     // Get the system time for this block
@@ -642,7 +640,6 @@ int main(int argc, char **argv) {
             // If we lost some blocks, correct the timestamp
             if (Modes.iDataLost) {
                 Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES * 6 * Modes.iDataLost);
-                uRtlLost+= Modes.iDataLost;
                 Modes.iDataLost = 0;
             }
 

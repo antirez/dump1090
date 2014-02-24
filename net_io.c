@@ -146,18 +146,18 @@ void modesFreeClient(int fd) {
     if (Modes.debug & MODES_DEBUG_NET)
         printf("Closing client %d\n", fd);
 
-    // If this was our maxfd, scan the clients array to find the new max. 
-    // Note that we are sure there is no active fd greater than the closed 
+    // If this was our maxfd, scan the clients array to find trhe new max.
+    // Note that we are sure there is no active fd greater than the closed
     // fd, so we scan from fd-1 to 0.
     if (Modes.maxfd == fd) {
         int j;
 
         Modes.maxfd = -1;
-        for (j = fd-1; j >= 0; j--) { 
-            if (Modes.clients[j]) { 
-                Modes.maxfd = j; 
-                break; 
-            } 
+        for (j = fd-1; j >= 0; j--) {
+            if (Modes.clients[j]) {
+                 Modes.maxfd = j;
+                 break;
+            }
         }
     }
 }
@@ -191,7 +191,7 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     char * pTimeStamp;
     char ch;
     int  j;
-    int  iOutLen = msgLen + 9; // Escape, message type, timestamp, sigLevel and msg
+    int  iOutLen = msgLen + 9; // Escape, msgtype, timestamp, sigLevel, msg
 
     *p++ = 0x1a;
     if      (msgLen == MODES_SHORT_MSG_BYTES)
@@ -206,11 +206,11 @@ void modesSendBeastOutput(struct modesMessage *mm) {
     pTimeStamp = (char *) &mm->timestampMsg;
     for (j = 5; j >= 0; j--) {
         *p++ = (ch = pTimeStamp[j]);
-        if (0x1A == ch) {*p++ = ch; iOutLen++;} 
+        if (0x1A == ch) {*p++ = ch; iOutLen++;}
     }
 
     *p++ = (ch = mm->signalLevel);
-    if (0x1A == ch) {*p++ = ch; iOutLen++;} 
+    if (0x1A == ch) {*p++ = ch; iOutLen++;}
 
     for (j = 0; j < msgLen; j++) {
         *p++ = (ch = mm->msg[j]);
@@ -368,10 +368,10 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Field 19 is the Squawk Changing Alert flag (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_FS_VALID) {
         if ((mm->fs >= 2) && (mm->fs <= 4)) {
-            p += sprintf(p, ",-1");  
-        } else {    
+            p += sprintf(p, ",-1");
+        } else {
             p += sprintf(p, ",0");
-        }  
+        }
     } else {
         p += sprintf(p, ",");
     }
@@ -380,7 +380,7 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     if (mm->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
         if ((mm->modeA == 0x7500) || (mm->modeA == 0x7600) || (mm->modeA == 0x7700)) {
             p += sprintf(p, ",-1");
-        } else {      
+        } else {
             p += sprintf(p, ",0");
         }
     } else {
@@ -390,10 +390,10 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Field 21 is the Squawk Ident flag (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_FS_VALID) {
         if ((mm->fs >= 4) && (mm->fs <= 5)) {
-            p += sprintf(p, ",-1");  
-        } else {    
+            p += sprintf(p, ",-1");
+        } else {
             p += sprintf(p, ",0");
-        }  
+        }
     } else {
         p += sprintf(p, ",");
     }
@@ -424,17 +424,17 @@ void modesQueueOutput(struct modesMessage *mm) {
 //=========================================================================
 //
 // This function decodes a Beast binary format message
-// 
+//
 // The message is passed to the higher level layers, so it feeds
 // the selected screen output, the network output and so forth.
-// 
+//
 // If the message looks invalid it is silently discarded.
 //
-// The function always returns 0 (success) to the caller as there is no 
+// The function always returns 0 (success) to the caller as there is no
 // case where we want broken messages here to close the client connection.
 //
 int decodeBinMessage(struct client *c, char *p) {
-    int  msgLen = 0;
+    int msgLen = 0;
     int  j;
     char ch;
     unsigned char msg[MODES_LONG_MSG_BYTES];
@@ -455,23 +455,24 @@ int decodeBinMessage(struct client *c, char *p) {
         // pass them off as being received by this instance when forwarding them
         mm.remote      =    1;
         for (j = 0; j < 7; j++) { // Skip the message type and timestamp
-          ch = *p++; 
-          if (0x1A == ch) {p++;}
-        }                        
+            ch = *p++;
+            if (0x1A == ch) {p++;}
+        }
+
         mm.signalLevel = ch = *p++;  // Grab the signal level
         if (0x1A == ch) {p++;}
 
         for (j = 0; j < msgLen; j++) { // and the data
-          msg[j] = ch = *p++; 
-          if (0x1A == ch) {p++;}
-          }
+            msg[j] = ch = *p++;
+            if (0x1A == ch) {p++;}
+        }
 
         if (msgLen == MODEAC_MSG_BYTES) { // ModeA or ModeC
-            decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1])); 
+            decodeModeAMessage(&mm, ((msg[0] << 8) | msg[1]));
         } else {
             decodeModesMessage(&mm, msg);
         }
-    
+
         useModesMessage(&mm);
     }
     return (0);
@@ -850,7 +851,7 @@ void modesReadFromClient(struct client *c, char *sep,
                 }
                 // Have a 0x1a followed by 1, 2 or 3 - pass message less 0x1a to handler.
                 if (handler(c, s)) {
-                    modesFreeClient(c->fd);          
+                    modesFreeClient(c->fd);
                     return;
                 }
                 fullmsg = 1;
@@ -865,7 +866,7 @@ void modesReadFromClient(struct client *c, char *sep,
             //
             while ((e = strstr(s, sep)) != NULL) { // end of first message if found
                 *e = '\0';                         // The handler expects null terminated strings
-                if (handler(c, s)) {               // Pass message to handler. 
+                if (handler(c, s)) {               // Pass message to handler.
                     modesFreeClient(c->fd);        // Handler returns 1 on error to signal we .
                     return;                        // should close the client connection
                 }
@@ -873,8 +874,8 @@ void modesReadFromClient(struct client *c, char *sep,
                 fullmsg = 1;
             }
         }
-        
-        if (fullmsg) {                             // We processed something - so 
+
+        if (fullmsg) {                             // We processed something - so
             c->buflen = &(c->buf[c->buflen]) - s;  //     Update the unprocessed buffer length
             memmove(c->buf, s, c->buflen);         //     Move what's remaining to the start of the buffer
         } else {                                   // If no message was decoded process the next client

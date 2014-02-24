@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.07.2202.14"
+#define MODES_DUMP1090_VERSION     "1.08.2302.14"
 
 // ============================= Include files ==========================
 
@@ -230,10 +230,10 @@ struct {                             // Internal state
     pthread_cond_t  data_cond;       // Conditional variable associated
     uint16_t       *pData          [MODES_ASYNC_BUF_NUMBER]; // Raw IQ sample buffers from RTL
     struct timeb    stSystemTimeRTL[MODES_ASYNC_BUF_NUMBER]; // System time when RTL passed us this block
-    int             iDataIn;    // Fifo input pointer
-    int             iDataOut;   // Fifo output pointer
-    int             iDataReady; // Fifo content count 
-    int             iDataLost;  // Count of missed buffers
+    int             iDataIn;         // Fifo input pointer
+    int             iDataOut;        // Fifo output pointer
+    int             iDataReady;      // Fifo content count 
+    int             iDataLost;       // Count of missed buffers
 
     uint16_t       *pFileData;       // Raw IQ samples buffer (from a File)
     uint16_t       *magnitude;       // Magnitude vector
