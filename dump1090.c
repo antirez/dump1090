@@ -69,6 +69,7 @@ void modesInitConfig(void) {
     Modes.gain                    = MODES_MAX_GAIN;
     Modes.freq                    = MODES_DEFAULT_FREQ;
     Modes.check_crc               = 1;
+    Modes.net_heartbeat_rate      = MODES_NET_HEARTBEAT_RATE;
     Modes.net_output_sbs_port     = MODES_NET_OUTPUT_SBS_PORT;
     Modes.net_output_raw_port     = MODES_NET_OUTPUT_RAW_PORT;
     Modes.net_input_raw_port      = MODES_NET_INPUT_RAW_PORT;
@@ -412,6 +413,7 @@ void showHelp(void) {
 "--net-bo-port <port>     TCP Beast output listen port (default: 30005)\n"
 "--net-ro-size <size>     TCP raw output minimum size (default: 0)\n"
 "--net-ro-rate <rate>     TCP raw output memory flush rate (default: 0)\n"
+"--net-heartbeat <rate>   TCP heartbeat rate in seconds (default: 60 sec)\n"
 "--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
 "--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
 "--fix                    Enable single-bits error correction using CRC\n"
@@ -503,7 +505,9 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--net-only")) {
             Modes.net = 1;
             Modes.net_only = 1;
-        } else if (!strcmp(argv[j],"--net-ro-size") && more) {
+       } else if (!strcmp(argv[j],"--net-heartbeat") && more) {
+            Modes.net_heartbeat_rate = atoi(argv[++j]) * 15;
+       } else if (!strcmp(argv[j],"--net-ro-size") && more) {
             Modes.net_output_raw_size = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-rate") && more) {
             Modes.net_output_raw_rate = atoi(argv[++j]);

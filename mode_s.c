@@ -1812,6 +1812,25 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         Modes.net_output_raw_rate_count = 0;
         }
       }
+    else if ( (Modes.net) 
+           && (Modes.net_heartbeat_rate) 
+           && ((++Modes.net_heartbeat_count) > Modes.net_heartbeat_rate) ) {
+      //
+      // We haven't received any Mode A/C/S messages for some time. To try and keep any TCP
+      // links alive, send a null frame. This will help stop any routers discarding our TCP 
+      // link which will cause an un-recoverable link error if/when a real frame arrives.   
+      //
+      // Fudge up a null message
+      memset(&mm, 0, sizeof(mm));
+      mm.msgbits      = MODES_SHORT_MSG_BITS;
+      mm.timestampMsg = Modes.timestampBlk;
+
+      // Feed output clients
+      modesQueueOutput(&mm);
+
+      // Reset the heartbeat counter
+      Modes.net_heartbeat_count = 0;
+      }
 }
 //
 //=========================================================================
@@ -1836,6 +1855,9 @@ void useModesMessage(struct modesMessage *mm) {
 
         // Feed output clients
         if (Modes.net) {modesQueueOutput(mm);}
+
+        // Heartbeat not required whilst we're seeing real messages
+        Modes.net_heartbeat_count = 0;
     }
 }
 //

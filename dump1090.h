@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.08.2302.14"
+#define MODES_DUMP1090_VERSION     "1.08.1003.14"
 
 // ============================= Include files ==========================
 
@@ -163,6 +163,8 @@
 #define MODES_INTERACTIVE_DELETE_TTL   300      // Delete from the list after 300 seconds
 #define MODES_INTERACTIVE_DISPLAY_TTL   60      // Delete from display after 60 seconds
 
+#define MODES_NET_HEARTBEAT_RATE       900      // Each block is approx 65mS - default is > 1 min
+
 #define MODES_NET_SERVICES_NUM          6
 #define MODES_NET_MAX_FD             1024
 #define MODES_NET_INPUT_RAW_PORT    30001
@@ -281,6 +283,8 @@ struct {                             // Internal state
     int   debug;                     // Debugging mode
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
+    int   net_heartbeat_count;       // TCP heartbeat counter
+    int   net_heartbeat_rate;        // TCP heartbeat rate
     int   net_output_sbs_port;       // SBS output TCP port
     int   net_output_raw_size;       // Minimum Size of the output raw data
     int   net_output_raw_rate;       // Rate (in 64mS increments) of output raw data
