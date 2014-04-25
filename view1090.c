@@ -1,6 +1,6 @@
 // view1090, a Mode S messages viewer for dump1090 devices.
 //
-// Copyright (C) 2013 by Malcolm Robb <Support@ATTAvionics.com>
+// Copyright (C) 2014 by Malcolm Robb <Support@ATTAvionics.com>
 //
 // All rights reserved.
 //
@@ -140,6 +140,41 @@ void showHelp(void) {
   "--help                   Show this help\n"
     );
 }
+
+#ifdef _WIN32
+void showCopyright(void) {
+    uint64_t llTime = time(NULL) + 1;
+
+    printf(
+"-----------------------------------------------------------------------------\n"
+"|                        view1090 ModeS Viewer           Ver : " MODES_DUMP1090_VERSION " |\n"
+"-----------------------------------------------------------------------------\n"
+"\n"
+" Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>\n"
+" Copyright (C) 2014 by Malcolm Robb <support@attavionics.com>\n"
+"\n"
+" All rights reserved.\n"
+"\n"
+" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n"
+" ""AS IS"" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\n"
+" LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\n"
+" A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\n"
+" HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n"
+" SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\n"
+" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
+" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
+" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
+" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
+" OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+"\n"
+" For further details refer to <https://github.com/MalcolmRobb/dump1090>\n" 
+"\n"
+    );
+
+  // delay for 1 second to give the user a chance to read the copyright
+  while (llTime >= time(NULL)) {}
+}
+#endif
 //
 //=========================================================================
 //
@@ -195,6 +230,11 @@ int main(int argc, char **argv) {
         }
     }
 
+#ifdef _WIN32
+    // Try to comply with the Copyright license conditions for binary distribution
+    if (!Modes.quiet) {showCopyright();}
+#endif
+
 #ifndef _WIN32
     // Setup for SIGWINCH for handling lines
     if (Modes.interactive) {signal(SIGWINCH, sigWinchCallback);}
@@ -219,21 +259,13 @@ int main(int argc, char **argv) {
     // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
     // the first Windows handle is usually in the 0x54 (84 decimal) region.
 
-    if (fd >= MODES_NET_MAX_FD) { // Max number of clients reached
-        fprintf(stderr, "Max number of clients exceeded : fd = 0x%X\n", fd);
-        close(fd);
-        exit(1);
-    }
-
     c = (struct client *) malloc(sizeof(*c));
+    c->next    = NULL;
     c->buflen  = 0;
     c->fd      = 
     c->service =
     Modes.bis  = fd;
-    Modes.clients[fd] = c;
-    if (Modes.maxfd < fd) {
-        Modes.maxfd = fd;
-    }
+    Modes.clients = c;
 
     // Keep going till the user does something that stops us
     while (!Modes.exit) {
@@ -246,9 +278,11 @@ int main(int argc, char **argv) {
     if (fd != ANET_ERR) 
       {close(fd);}
 
+#ifndef _WIN32
     pthread_exit(0);
-
+#else
     return (0);
+#endif
 }
 //
 //=========================================================================

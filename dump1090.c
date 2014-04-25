@@ -440,6 +440,41 @@ void showHelp(void) {
 "                  j = Log frames to frames.js, loadable by debug.html\n"
     );
 }
+
+#ifdef _WIN32
+void showCopyright(void) {
+    uint64_t llTime = time(NULL) + 1;
+
+    printf(
+"-----------------------------------------------------------------------------\n"
+"|                        dump1090 ModeS Receiver         Ver : " MODES_DUMP1090_VERSION " |\n"
+"-----------------------------------------------------------------------------\n"
+"\n"
+" Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>\n"
+" Copyright (C) 2014 by Malcolm Robb <support@attavionics.com>\n"
+"\n"
+" All rights reserved.\n"
+"\n"
+" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n"
+" ""AS IS"" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\n"
+" LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\n"
+" A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\n"
+" HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n"
+" SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\n"
+" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
+" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
+" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
+" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
+" OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+"\n"
+" For further details refer to <https://github.com/MalcolmRobb/dump1090>\n" 
+"\n"
+    );
+
+  // delay for 1 second to give the user a chance to read the copyright
+  while (llTime >= time(NULL)) {}
+}
+#endif
 //
 //=========================================================================
 //
@@ -585,6 +620,11 @@ int main(int argc, char **argv) {
             exit(1);
         }
     }
+
+#ifdef _WIN32
+    // Try to comply with the Copyright license conditions for binary distribution
+    if (!Modes.quiet) {showCopyright();}
+#endif
 
 #ifndef _WIN32
     // Setup for SIGWINCH for handling lines
