@@ -178,7 +178,9 @@ void modesSendAllClients(int service, void *msg, int len) {
     struct client *c = Modes.clients;
 
     while (c) {
+        // Read next before servicing client incase the service routine deletes the client! 
         struct client *next = c->next;
+
         if (c->service == service) {
 #ifndef _WIN32
             int nwritten = write(c->fd, msg, len);
@@ -921,6 +923,9 @@ void modesReadFromClients(void) {
     struct client *c = modesAcceptClients();
 
     while (c) {
+        // Read next before servicing client incase the service routine deletes the client! 
+        struct client *next = c->next;
+
         if (c->service == Modes.ris) {
             modesReadFromClient(c,"\n",decodeHexMessage);
         } else if (c->service == Modes.bis) {
@@ -928,7 +933,7 @@ void modesReadFromClients(void) {
         } else if (c->service == Modes.https) {
             modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
         }
-        c = c->next;
+        c = next;
     }
 }
 //

@@ -282,18 +282,15 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
     while(1) {
         fd = accept(s,sa,len);
         if (fd == -1) {
-#ifdef _WIN32
-            errno = WSAGetLastError();
-#endif
-            if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
-
 #ifndef _WIN32
-            } else if (errno == EINTR) {
+            if (errno == EINTR) {
                 continue;
+#else
+            errno = WSAGetLastError();
+            if (errno == WSAEWOULDBLOCK) {
 #endif
             } else {
                 anetSetError(err, "accept: %s", strerror(errno));
-                return ANET_ERR;
             }
         }
         break;

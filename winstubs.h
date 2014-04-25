@@ -101,7 +101,6 @@ _inline int gettimeofday(struct timeval *tv, struct timezone *tz) {
 
 #define STDIN_FILENO 0
 #define EINPROGRESS  WSAEINPROGRESS
-#define EWOULDBLOCK  WSAEWOULDBLOCK
 
 #ifdef __cplusplus
 }
