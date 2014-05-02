@@ -22,6 +22,11 @@ The main features are:
 * TCP server streaming and recceiving raw data to/from connected clients
   (using --net).
 
+While from time to time I still add / fix stuff in my fork, I target
+minimalism of the implementation. However there is a
+[much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
+available, developed by MalcolmRobb.
+
 Installation
 ---
 
