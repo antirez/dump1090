@@ -721,12 +721,7 @@ int handleHTTPRequest(struct client *c, char *p) {
 
         if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
             content = (char *) malloc(sbuf.st_size);
-#ifndef _WIN32
             if (read(fd, content, sbuf.st_size) == -1) {
-#else
-            if (recv(fd, content, sbuf.st_size, 0) == -1) {
-                errno = WSAGetLastError();
-#endif
                 snprintf(content, sbuf.st_size, "Error reading from file: %s", strerror(errno));
             }
             clen = sbuf.st_size;
@@ -832,7 +827,11 @@ void modesReadFromClient(struct client *c, char *sep,
         if (nread != left) {
             bContinue = 0;
         }
+#ifndef _WIN32
         if ( (nread < 0) && (errno != EAGAIN)) { // Error, or end of file
+#else
+        if ( (nread < 0) && (errno != EWOULDBLOCK)) { // Error, or end of file
+#endif
             modesFreeClient(c);
         }
         if (nread <= 0) {

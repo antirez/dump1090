@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.08.2504.14"
+#define MODES_DUMP1090_VERSION     "1.08.0905.14"
 
 // ============================= Include files ==========================
 
