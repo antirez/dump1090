@@ -1774,7 +1774,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
 
             // Skip this message if we are sure it's fine
             if (mm.crcok) {
-                j += (MODES_PREAMBLE_US+msglen)*2;
+                j += (MODES_PREAMBLE_US+msglen)*2 - 1;
             }
 
             // Pass data to the next layer
