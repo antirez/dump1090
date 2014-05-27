@@ -139,6 +139,9 @@ int anetResolve(char *err, char *host, char *ipbuf)
 static int anetCreateSocket(char *err, int domain) {
     int s, on = 1;
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
+#ifdef _WIN32
+        errno = WSAGetLastError();
+#endif
         anetSetError(err, "creating socket: %s", strerror(errno));
         return ANET_ERR;
     }

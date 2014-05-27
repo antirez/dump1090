@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.08.0905.14"
+#define MODES_DUMP1090_VERSION     "1.08.2705.14"
 
 // ============================= Include files ==========================
 
@@ -175,6 +175,7 @@
 #define MODES_NET_HTTP_PORT          8080
 #define MODES_CLIENT_BUF_SIZE  1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
+#define MODES_NET_SNDBUF_MAX  (7)               
 
 #ifndef HTMLPATH
 #define HTMLPATH   "./public_html"      // default path for gmap.html etc
@@ -294,6 +295,7 @@ struct {                             // Internal state
     int   net_output_beast_port;     // Beast output TCP port
     int   net_input_beast_port;      // Beast input TCP port
     int   net_http_port;             // HTTP port
+    int   net_sndbuf_size;           // TCP output buffer size (64Kb * 2^n)
     int   quiet;                     // Suppress stdout
     int   interactive;               // Interactive mode
     int   interactive_rows;          // Interactive mode: max number of rows

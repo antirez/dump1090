@@ -119,7 +119,7 @@ struct client * modesAcceptClients(void) {
         c->fd         = fd;
         c->buflen     = 0;
         Modes.clients = c;
-        anetSetSendBuffer(Modes.aneterr,fd,MODES_NET_SNDBUF_SIZE);
+        anetSetSendBuffer(Modes.aneterr,fd, (MODES_NET_SNDBUF_SIZE << Modes.net_sndbuf_size));
 
         if (services[j] == Modes.sbsos) Modes.stat_sbs_connections++;
         if (services[j] == Modes.ros)   Modes.stat_raw_connections++;

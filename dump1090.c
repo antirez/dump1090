@@ -132,6 +132,8 @@ void modesInit(void) {
       {Modes.net_output_raw_size = MODES_RAWOUT_BUF_FLUSH;}
     if (Modes.net_output_raw_rate > (MODES_RAWOUT_BUF_RATE))
       {Modes.net_output_raw_rate = MODES_RAWOUT_BUF_RATE;}
+    if (Modes.net_sndbuf_size > (MODES_NET_SNDBUF_MAX))
+      {Modes.net_sndbuf_size = MODES_NET_SNDBUF_MAX;}
 
     // Initialise the Block Timers to something half sensible
     ftime(&Modes.stSystemTimeBlk);
@@ -414,6 +416,7 @@ void showHelp(void) {
 "--net-ro-size <size>     TCP raw output minimum size (default: 0)\n"
 "--net-ro-rate <rate>     TCP raw output memory flush rate (default: 0)\n"
 "--net-heartbeat <rate>   TCP heartbeat rate in seconds (default: 60 sec)\n"
+"--net-buffer <n>         TCP buffer size 64Kb * (2^n) (default: n=0, 64Kb)\n"
 "--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
 "--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
 "--fix                    Enable single-bits error correction using CRC\n"
@@ -561,6 +564,8 @@ int main(int argc, char **argv) {
             Modes.net_http_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
             Modes.net_output_sbs_port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-buffer") && more) {
+            Modes.net_sndbuf_size = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--onlyaddr")) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
