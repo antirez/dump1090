@@ -746,7 +746,7 @@ int decodeMovementField(int movement) {
 //
 // Capability table
 char *ca_str[8] = {
-    /* 0 */ "Level 1 (Survillance Only)",
+    /* 0 */ "Level 1 (Surveillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
     /* 3 */ "Level 4 (DF0,4,5,11,20,21,24)",
@@ -779,6 +779,20 @@ char *fs_str[8] = {
     /* 6 */ "Value 6 is not assigned",
     /* 7 */ "Value 7 is not assigned"
 };
+
+// Emergency state table
+// from https://www.ll.mit.edu/mission/aviation/publications/publication-files/atc-reports/Grappel_2007_ATC-334_WW-15318.pdf
+// and 1090-DO-260B_FRAC
+char *es_str[8] = {
+    /* 0 */ "No emergency",
+    /* 1 */ "General emergency (squawk 7700)",
+    /* 2 */ "Lifeguard/Medical",
+    /* 3 */ "Minimum fuel",
+    /* 4 */ "No communications (squawk 7600)",
+    /* 5 */ "Unlawful interference (squawk 7500)",
+    /* 6 */ "Downed Aircraft",
+    /* 7 */ "Reserved"
+};
 //
 //=========================================================================
 //
@@ -797,6 +811,8 @@ char *getMEDescription(int metype, int mesub) {
         mename = "Airborne Position (GNSS Height)";
     else if (metype == 23 && mesub == 0)
         mename = "Test Message";
+    else if (metype == 23 && mesub == 7)
+        mename = "Test Message -- Squawk";
     else if (metype == 24 && mesub == 1)
         mename = "Surface System Status";
     else if (metype == 28 && mesub == 1)
@@ -944,7 +960,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     if (  (mm->msgtype == 17) 
       || ((mm->msgtype == 18) && ((mm->ca == 0) || (mm->ca == 1) || (mm->ca == 6)) )) {
          int metype = mm->metype = msg[4] >> 3;   // Extended squitter message type
-         int mesub  = mm->mesub  = msg[4]  & 7;   // Extended squitter message subtype
+         int mesub  = mm->mesub  = (metype == 29 ? ((msg[4]&6)>>1) : (msg[4]  & 7));   // Extended squitter message subtype
 
         // Decode the extended squitter message
 
@@ -1060,7 +1076,23 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
                     mm->heading = ((((msg[5] & 0x03) << 8) | msg[6]) * 45) >> 7;
                 }
             }
-        }
+        } else if (mm->metype == 23) {	// Test metype squawk field
+			if (mm->mesub == 7) {		// (see 1090-WP-15-20)
+				int ID13Field = (((msg[5] << 8) | msg[6]) & 0xFFF1)>>3;
+				if (ID13Field) {
+					mm->bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+					mm->modeA   = decodeID13Field(ID13Field);
+				}
+            }
+        } else if (mm->metype == 28) { // Emergency status squawk field
+			if (mm->mesub == 1) {
+				int ID13Field = (((msg[5] << 8) | msg[6]) & 0x1FFF);
+				if (ID13Field) {
+					mm->bFlags |= MODES_ACFLAGS_SQUAWK_VALID;
+					mm->modeA   = decodeID13Field(ID13Field);
+				}
+            }
+		}
     }
 
     // Fields for DF20, DF21 Comm-B
@@ -1159,8 +1191,8 @@ void displayModesMessage(struct modesMessage *mm) {
             } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
                 printf("    BDS 3,0 ACAS Active Resolution Advisory\n");
 
-            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergecy/Priority Status
-                printf("    BDS 6,1 Emergecy/Priority Status\n");
+            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
+                printf("    BDS 6,1 Emergency/Priority Status\n");
 
             } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
                 printf("    BDS 6,2 Target State and Status\n");
@@ -1177,7 +1209,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  Flight Status  : %s\n", fs_str[mm->fs]);
         printf("  DR             : %d\n", ((mm->msg[1] >> 3) & 0x1F));
         printf("  UM             : %d\n", (((mm->msg[1]  & 7) << 3) | (mm->msg[2] >> 5)));
-        printf("  Squawk         : %x\n", mm->modeA);
+        printf("  Squawk         : %04x\n", mm->modeA);
         printf("  ICAO Address   : %06x\n", mm->addr);
 
         if (mm->msgtype == 21) {
@@ -1193,8 +1225,8 @@ void displayModesMessage(struct modesMessage *mm) {
             } else if ( mm->msg[4]       == 0x30) { // BDS 3,0 ACAS Active Resolution Advisory
                 printf("    BDS 3,0 ACAS Active Resolution Advisory\n");
 
-            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergecy/Priority Status
-                printf("    BDS 6,1 Emergecy/Priority Status\n");
+            } else if ((mm->msg[4] >> 3) ==   28) { // BDS 6,1 Extended Squitter Emergency/Priority Status
+                printf("    BDS 6,1 Emergency/Priority Status\n");
 
             } else if ((mm->msg[4] >> 3) ==   29) { // BDS 6,2 Target State and Status
                 printf("    BDS 6,2 Target State and Status\n");
@@ -1275,6 +1307,20 @@ void displayModesMessage(struct modesMessage *mm) {
 
       //} else if (mm->metype >= 20 && mm->metype <= 22) { // Airborne position GNSS
 
+        } else if (mm->metype == 28) { // Extended Squitter Aircraft Status
+            if (mm->mesub == 1) {
+				printf("    Emergency State: %s\n", es_str[(mm->msg[5] & 0xE0) >> 5]);
+				printf("    Squawk: %04x\n", mm->modeA);
+            } else {
+                printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
+            }
+
+        } else if (mm->metype == 23) { // Test Message
+			if (mm->mesub == 7) {
+				printf("    Squawk: %04x\n", mm->modeA);
+            } else {
+                printf("    Unrecognized ME subtype: %d subtype: %d\n", mm->metype, mm->mesub);
+			}
         } else {
             printf("    Unrecognized ME type: %d subtype: %d\n", mm->metype, mm->mesub);
         }
