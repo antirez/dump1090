@@ -46,20 +46,28 @@
 //
 // Networking "stack" initialization
 //
+struct service {
+	char *descr;
+	int *socket;
+	int port;
+	int enabled;
+};
+
+struct service services[MODES_NET_SERVICES_NUM];
+
 void modesInitNet(void) {
-    struct {
-        char *descr;
-        int *socket;
-        int port;
-    } services[MODES_NET_SERVICES_NUM] = {
-        {"Raw TCP output", &Modes.ros, Modes.net_output_raw_port},
-        {"Raw TCP input", &Modes.ris, Modes.net_input_raw_port},
-        {"Beast TCP output", &Modes.bos, Modes.net_output_beast_port},
-        {"Beast TCP input", &Modes.bis, Modes.net_input_beast_port},
-        {"HTTP server", &Modes.https, Modes.net_http_port},
-        {"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port}
-    };
     int j;
+
+	struct service svc[MODES_NET_SERVICES_NUM] = {
+		{"Raw TCP output", &Modes.ros, Modes.net_output_raw_port, 1},
+		{"Raw TCP input", &Modes.ris, Modes.net_input_raw_port, 1},
+		{"Beast TCP output", &Modes.bos, Modes.net_output_beast_port, 1},
+		{"Beast TCP input", &Modes.bis, Modes.net_input_beast_port, 1},
+		{"HTTP server", &Modes.https, Modes.net_http_port, 1},
+		{"Basestation TCP output", &Modes.sbsos, Modes.net_output_sbs_port, 1}
+	};
+
+	memcpy(&services, &svc, sizeof(svc));//services = svc;
 
     Modes.clients = NULL;
 
@@ -75,14 +83,19 @@ void modesInitNet(void) {
 #endif
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
-        int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
-        if (s == -1) {
-            fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
-                services[j].port, services[j].descr, strerror(errno));
-            exit(1);
-        }
-        anetNonBlock(Modes.aneterr, s);
-        *services[j].socket = s;
+		services[j].enabled = (services[j].port != 0);
+		if (services[j].enabled) {
+			int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
+			if (s == -1) {
+				fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
+					services[j].port, services[j].descr, strerror(errno));
+				exit(1);
+			}
+			anetNonBlock(Modes.aneterr, s);
+			*services[j].socket = s;
+		} else {
+			if (Modes.debug & MODES_DEBUG_NET) printf("%s port is disabled\n", services[j].descr);
+		}
     }
 
 #ifndef _WIN32
@@ -99,36 +112,30 @@ struct client * modesAcceptClients(void) {
     int fd, port;
     unsigned int j;
     struct client *c;
-    int services[6];
-
-    services[0] = Modes.ros;
-    services[1] = Modes.ris;
-    services[2] = Modes.bos;
-    services[3] = Modes.bis;
-    services[4] = Modes.https;
-    services[5] = Modes.sbsos;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
-        fd = anetTcpAccept(Modes.aneterr, services[j], NULL, &port);
-        if (fd == -1) continue;
+		if (services[j].enabled) {
+			fd = anetTcpAccept(Modes.aneterr, *services[j].socket, NULL, &port);
+			if (fd == -1) continue;
 
-        anetNonBlock(Modes.aneterr, fd);
-        c = (struct client *) malloc(sizeof(*c));
-        c->service    = services[j];
-        c->next       = Modes.clients;
-        c->fd         = fd;
-        c->buflen     = 0;
-        Modes.clients = c;
-        anetSetSendBuffer(Modes.aneterr,fd, (MODES_NET_SNDBUF_SIZE << Modes.net_sndbuf_size));
+			anetNonBlock(Modes.aneterr, fd);
+			c = (struct client *) malloc(sizeof(*c));
+			c->service    = *services[j].socket;
+			c->next       = Modes.clients;
+			c->fd         = fd;
+			c->buflen     = 0;
+			Modes.clients = c;
+			anetSetSendBuffer(Modes.aneterr,fd, (MODES_NET_SNDBUF_SIZE << Modes.net_sndbuf_size));
 
-        if (services[j] == Modes.sbsos) Modes.stat_sbs_connections++;
-        if (services[j] == Modes.ros)   Modes.stat_raw_connections++;
-        if (services[j] == Modes.bos)   Modes.stat_beast_connections++;
+			if (*services[j].socket == Modes.sbsos) Modes.stat_sbs_connections++;
+			if (*services[j].socket == Modes.ros)   Modes.stat_raw_connections++;
+			if (*services[j].socket == Modes.bos)   Modes.stat_beast_connections++;
 
-        j--; // Try again with the same listening port
+			j--; // Try again with the same listening port
 
-        if (Modes.debug & MODES_DEBUG_NET)
-            printf("Created new client %d\n", fd);
+			if (Modes.debug & MODES_DEBUG_NET)
+				printf("Created new client %d\n", fd);
+		}
     }
     return Modes.clients;
 }

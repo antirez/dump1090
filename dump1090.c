@@ -415,7 +415,7 @@ void showHelp(void) {
 "--net-bo-port <port>     TCP Beast output listen port (default: 30005)\n"
 "--net-ro-size <size>     TCP raw output minimum size (default: 0)\n"
 "--net-ro-rate <rate>     TCP raw output memory flush rate (default: 0)\n"
-"--net-heartbeat <rate>   TCP heartbeat rate in seconds (default: 60 sec)\n"
+"--net-heartbeat <rate>   TCP heartbeat rate in seconds (default: 60 sec; 0 to disable)\n"
 "--net-buffer <n>         TCP buffer size 64Kb * (2^n) (default: n=0, 64Kb)\n"
 "--lat <latitude>         Reference/receiver latitude for surface posn (opt)\n"
 "--lon <longitude>        Reference/receiver longitude for surface posn (opt)\n"
