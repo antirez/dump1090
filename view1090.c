@@ -122,6 +122,7 @@ int setupConnection(struct client *c) {
 
     // Try to connect to the selected ip address and port. We only support *ONE* input connection which we initiate.here.
     if ((fd = anetTcpConnect(Modes.aneterr, View1090.net_input_beast_ipaddr, Modes.net_input_beast_port)) != ANET_ERR) {
+		anetNonBlock(Modes.aneterr, fd);
 		//
 		// Setup a service callback client structure for a beast binary input (from dump1090)
 		// This is a bit dodgy under Windows. The fd parameter is a handle to the internet
