@@ -115,6 +115,33 @@ void view1090Init(void) {
     // Prepare error correction tables
     modesInitErrorInfo();
 }
+
+// Set up data connection
+int setupConnection(struct client *c) {
+    int fd;
+
+    // Try to connect to the selected ip address and port. We only support *ONE* input connection which we initiate.here.
+    if ((fd = anetTcpConnect(Modes.aneterr, View1090.net_input_beast_ipaddr, Modes.net_input_beast_port)) != ANET_ERR) {
+		//
+		// Setup a service callback client structure for a beast binary input (from dump1090)
+		// This is a bit dodgy under Windows. The fd parameter is a handle to the internet
+		// socket on which we are receiving data. Under Linux, these seem to start at 0 and 
+		// count upwards. However, Windows uses "HANDLES" and these don't nececeriy start at 0.
+		// dump1090 limits fd to values less than 1024, and then uses the fd parameter to 
+		// index into an array of clients. This is ok-ish if handles are allocated up from 0.
+		// However, there is no gaurantee that Windows will behave like this, and if Windows 
+		// allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
+		// the first Windows handle is usually in the 0x54 (84 decimal) region.
+
+		c->next    = NULL;
+		c->buflen  = 0;
+		c->fd      = 
+		c->service =
+		Modes.bis  = fd;
+		Modes.clients = c;
+    }
+    return fd;
+}
 //
 // ================================ Main ====================================
 //
@@ -181,6 +208,7 @@ void showCopyright(void) {
 int main(int argc, char **argv) {
     int j, fd;
     struct client *c;
+    char pk_buf[8];
 
     // Set sane defaults
 
@@ -244,34 +272,24 @@ int main(int argc, char **argv) {
     view1090Init();
 
     // Try to connect to the selected ip address and port. We only support *ONE* input connection which we initiate.here.
-    if ((fd = anetTcpConnect(Modes.aneterr, View1090.net_input_beast_ipaddr, Modes.net_input_beast_port)) == ANET_ERR) {
+    c = (struct client *) malloc(sizeof(*c));
+    if ((fd = setupConnection(c)) == ANET_ERR) {
         fprintf(stderr, "Failed to connect to %s:%d\n", View1090.net_input_beast_ipaddr, Modes.net_input_beast_port);
         exit(1);
     }
-    //
-    // Setup a service callback client structure for a beast binary input (from dump1090)
-    // This is a bit dodgy under Windows. The fd parameter is a handle to the internet
-    // socket on which we are receiving data. Under Linux, these seem to start at 0 and 
-    // count upwards. However, Windows uses "HANDLES" and these don't nececeriy start at 0.
-    // dump1090 limits fd to values less than 1024, and then uses the fd parameter to 
-    // index into an array of clients. This is ok-ish if handles are allocated up from 0.
-    // However, there is no gaurantee that Windows will behave like this, and if Windows 
-    // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
-    // the first Windows handle is usually in the 0x54 (84 decimal) region.
-
-    c = (struct client *) malloc(sizeof(*c));
-    c->next    = NULL;
-    c->buflen  = 0;
-    c->fd      = 
-    c->service =
-    Modes.bis  = fd;
-    Modes.clients = c;
 
     // Keep going till the user does something that stops us
     while (!Modes.exit) {
-        modesReadFromClient(c,"",decodeBinMessage);
         interactiveRemoveStaleAircrafts();
         interactiveShowData();
+        if ((fd == ANET_ERR) || (recv(c->fd, pk_buf, sizeof(pk_buf), MSG_PEEK | MSG_DONTWAIT) == 0)) {
+			free(c);
+			usleep(1000000);
+			c = (struct client *) malloc(sizeof(*c));
+			fd = setupConnection(c);
+			continue;
+        }
+        modesReadFromClient(c,"",decodeBinMessage);
     }
 
     // The user has stopped us, so close any socket we opened
