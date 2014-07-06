@@ -298,11 +298,7 @@ int main(int argc, char **argv) {
     if (fd != ANET_ERR) 
       {close(fd);}
 
-#ifndef _WIN32
-    pthread_exit(0);
-#else
     return (0);
-#endif
 }
 //
 //=========================================================================
