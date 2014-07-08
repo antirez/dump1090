@@ -515,7 +515,7 @@ int main(int argc, char **argv) {
         int more = j+1 < argc; // There are more arguments
 
         if (!strcmp(argv[j],"--device-index") && more) {
-            Modes.dev_index = atoi(argv[++j]);
+            Modes.dev_index = verbose_device_search(argv[++j]);
         } else if (!strcmp(argv[j],"--gain") && more) {
             Modes.gain = (int) atof(argv[++j])*10; // Gain is in tens of DBs
         } else if (!strcmp(argv[j],"--enable-agc")) {
