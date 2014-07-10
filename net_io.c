@@ -458,16 +458,20 @@ int decodeBinMessage(struct client *c, char *p) {
     int msgLen = 0;
     int  j;
     char ch;
+    char * ptr;
     unsigned char msg[MODES_LONG_MSG_BYTES];
     struct modesMessage mm;
     MODES_NOTUSED(c);
     memset(&mm, 0, sizeof(mm));
 
-    if ((*p == '1') && (Modes.mode_ac)) { // skip ModeA/C unless user enables --modes-ac
+    ch = *p++; /// Get the message type
+    if (0x1A == ch) {p++;} 
+
+    if       ((ch == '1') && (Modes.mode_ac)) { // skip ModeA/C unless user enables --modes-ac
         msgLen = MODEAC_MSG_BYTES;
-    } else if (*p == '2') {
+    } else if (ch == '2') {
         msgLen = MODES_SHORT_MSG_BYTES;
-    } else if (*p == '3') {
+    } else if (ch == '3') {
         msgLen = MODES_LONG_MSG_BYTES;
     }
 
@@ -475,8 +479,10 @@ int decodeBinMessage(struct client *c, char *p) {
         // Mark messages received over the internet as remote so that we don't try to
         // pass them off as being received by this instance when forwarding them
         mm.remote      =    1;
-        for (j = 0; j < 7; j++) { // Skip the message type and timestamp
-            ch = *p++;
+
+        ptr = (char*) &mm.timestampMsg;
+        for (j = 0; j < 6; j++) { // Grab the timestamp (big endian format)
+            ptr[5-j] = ch = *p++; 
             if (0x1A == ch) {p++;}
         }
 

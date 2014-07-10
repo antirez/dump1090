@@ -45,6 +45,9 @@
     #include <math.h>
     #include <sys/time.h>
     #include <sys/timeb.h>
+    #include <netinet/in.h>
+    #include <netinet/tcp.h>
+    #include <arpa/inet.h>
     #include <signal.h>
     #include <fcntl.h>
     #include <ctype.h>
@@ -69,19 +72,21 @@
 
 // Program global state
 struct {                           // Internal state
-    int     quiet;
+    int      quiet;
     // Networking
-    char    net_input_beast_ipaddr[32]; // IPv4 address or network name of server/RPi
+    uint32_t net_pp_ipaddr;              // IPv4 address of PP instance
+    char     net_input_beast_ipaddr[32]; // IPv4 address or network name of server/RPi
 }  ppup1090;
 
 
 // COAA Initialisation structure
 struct _coaa1090 {
-    double fUserLat;
-    double fUserLon;
-    char   strAuthCode[16];
-    char   strRegNo[16];
-    char   strVersion[16];
+    uint32_t ppIPAddr;
+    double   fUserLat;
+    double   fUserLon;
+    char     strAuthCode[16];
+    char     strRegNo[16];
+    char     strVersion[16];
 }  coaa1090;
 
 // ======================== function declarations =========================

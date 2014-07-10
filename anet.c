@@ -165,6 +165,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
     if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
         return ANET_ERR;
 
+    memset(&sa,0,sizeof(sa));
     sa.sin_family = AF_INET;
     sa.sin_port = htons((uint16_t)port);
     if (inet_aton(addr, (void*)&sa.sin_addr) == 0) {

@@ -83,6 +83,21 @@ void view1090InitConfig(void) {
 //
 void view1090Init(void) {
 
+    pthread_mutex_init(&Modes.pDF_mutex,NULL);
+    pthread_mutex_init(&Modes.data_mutex,NULL);
+    pthread_cond_init(&Modes.data_cond,NULL);
+
+#ifdef _WIN32
+    if ( (!Modes.wsaData.wVersion) 
+      && (!Modes.wsaData.wHighVersion) ) {
+      // Try to start the windows socket support
+      if (WSAStartup(MAKEWORD(2,1),&Modes.wsaData) != 0) 
+        {
+        fprintf(stderr, "WSAStartup returned Error\n");
+        }
+      }
+#endif
+
     // Allocate the various buffers used by Modes
     if ( NULL == (Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2)))
     {
@@ -262,6 +277,7 @@ int main(int argc, char **argv) {
 #ifdef _WIN32
     // Try to comply with the Copyright license conditions for binary distribution
     if (!Modes.quiet) {showCopyright();}
+#define MSG_DONTWAIT 0
 #endif
 
 #ifndef _WIN32

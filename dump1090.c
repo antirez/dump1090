@@ -68,6 +68,7 @@ void modesInitConfig(void) {
     // Now initialise things that should not be 0/NULL to their defaults
     Modes.gain                    = MODES_MAX_GAIN;
     Modes.freq                    = MODES_DEFAULT_FREQ;
+    Modes.ppm_error               = MODES_DEFAULT_PPM;
     Modes.check_crc               = 1;
     Modes.net_heartbeat_rate      = MODES_NET_HEARTBEAT_RATE;
     Modes.net_output_sbs_port     = MODES_NET_OUTPUT_SBS_PORT;
@@ -88,6 +89,7 @@ void modesInitConfig(void) {
 void modesInit(void) {
     int i, q;
 
+    pthread_mutex_init(&Modes.pDF_mutex,NULL);
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
 

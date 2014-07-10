@@ -42,6 +42,86 @@ static uint64_t mstime(void) {
     return mst;
 }
 //
+//=========================================================================
+//
+// Add a new DF structure to the interactive mode linked list
+//
+void interactiveCreateDF(struct aircraft *a, struct modesMessage *mm) {
+    struct stDF *pDF = (struct stDF *) malloc(sizeof(*pDF));
+
+    if (pDF) {
+        // Default everything to zero/NULL
+        memset(pDF, 0, sizeof(*pDF));
+
+        // Now initialise things
+        pDF->seen        = a->seen;
+        pDF->llTimestamp = mm->timestampMsg;
+        pDF->addr        = mm->addr;
+        pDF->pAircraft   = a;
+        memcpy(pDF->msg, mm->msg, MODES_LONG_MSG_BYTES);
+
+        if (!pthread_mutex_lock(&Modes.pDF_mutex)) {
+            pDF->pNext = Modes.pDF;
+            Modes.pDF  = pDF;
+            pthread_mutex_unlock(&Modes.pDF_mutex);
+        } else {
+            free(pDF);
+        }
+    }
+}
+//
+// Remove stale DF's from the interactive mode linked list
+//
+void interactiveRemoveStaleDF(time_t now) {
+    struct stDF *pDF  = NULL;
+    struct stDF *prev = NULL;
+
+    // Only fiddle with the DF list if we gain possession of the mutex
+    // If we fail to get the mutex we'll get another chance to tidy the
+    // DF list in a second or so.
+    if (!pthread_mutex_trylock(&Modes.pDF_mutex)) {
+        pDF  = Modes.pDF;
+        while(pDF) {
+            if ((now - pDF->seen) > Modes.interactive_delete_ttl) {
+                if (!prev) {
+                    Modes.pDF = NULL;
+                } else {
+                    prev->pNext = NULL;
+                }
+
+                // All DF's in the list from here onwards will be time
+                // expired, so delete them all
+                while ((prev = pDF)) {
+                    pDF = pDF->pNext;
+                    free(prev);
+                }
+
+            } else {
+                prev = pDF;
+                pDF  = pDF->pNext;
+            }
+        }
+        pthread_mutex_unlock (&Modes.pDF_mutex);
+    }
+}
+
+struct stDF *interactiveFindDF(uint32_t addr) {
+    struct stDF *pDF = NULL;
+
+    if (!pthread_mutex_lock(&Modes.pDF_mutex)) {
+        pDF = Modes.pDF;
+        while(pDF) {
+            if (pDF->addr == addr) {
+                pthread_mutex_unlock (&Modes.pDF_mutex);
+                return (pDF);
+            }
+            pDF = pDF->pNext;
+        }
+        pthread_mutex_unlock (&Modes.pDF_mutex);
+    }
+    return (NULL);
+}
+//
 //========================= Interactive mode ===============================
 //
 // Return a new aircraft structure for the interactive mode linked list
@@ -179,7 +259,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     struct aircraft *a, *aux;
 
     // Return if (checking crc) AND (not crcok) AND (not fixed)
-    if (Modes.check_crc && (mm->crcok == 0) && (mm->correctedbits == 0)) 
+    if (Modes.check_crc && (mm->crcok == 0) && (mm->correctedbits == 0))
         return NULL;
 
     // Lookup our aircraft or create a new one
@@ -298,20 +378,25 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 32) {
         int flags = a->modeACflags;
-        if ((flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD)) == MODEAC_MSG_MODEC_OLD) { 
+        if ((flags & (MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODEC_OLD)) == MODEAC_MSG_MODEC_OLD) {
             //
             // This Mode-C doesn't currently hit any known Mode-S, but it used to because MODEAC_MSG_MODEC_OLD is
             // set  So the aircraft it used to match has either changed altitude, or gone out of our receiver range
             //
             // We've now received this Mode-A/C again, so it must be a new aircraft. It could be another aircraft
-            // at the same Mode-C altitude, or it could be a new airctraft with a new Mods-A squawk. 
+            // at the same Mode-C altitude, or it could be a new airctraft with a new Mods-A squawk.
             //
             // To avoid masking this aircraft from the interactive display, clear the MODEAC_MSG_MODES_OLD flag
             // and set messages to 1;
             //
             a->modeACflags = flags & ~MODEAC_MSG_MODEC_OLD;
             a->messages    = 1;
-        }  
+        }
+    }
+
+    // If we are Logging DF's, and it's not a Mode A/C
+    if ((Modes.bEnableDFLogging) && (mm->msgtype < 32)) {
+        interactiveCreateDF(a,mm);
     }
 
     return (a);
@@ -427,7 +512,7 @@ void interactiveShowData(void) {
                         snprintf(strFl, 6, "%5d", altitude);
                     }
  
-                    printf("%06x  %-4s  %-4s  %-8s %5s  %3s  %3s  %7s %8s  %3d %5d   %2d\n",
+                    printf("%06X  %-4s  %-4s  %-8s %5s  %3s  %3s  %7s %8s  %3d %5d   %2d\n",
                     a->addr, strMode, strSquawk, a->flight, strFl, strGs, strTt,
                     strLat, strLon, signalAverage, msgs, (int)(now - a->seen));
                 }
@@ -448,17 +533,20 @@ void interactiveRemoveStaleAircrafts(void) {
     struct aircraft *prev = NULL;
     time_t now = time(NULL);
 
+    interactiveRemoveStaleDF(now);
+
     while(a) {
         if ((now - a->seen) > Modes.interactive_delete_ttl) {
             struct aircraft *next = a->next;
             // Remove the element from the linked list, with care
             // if we are removing the first element
 
-            if (!prev)
+            if (!prev) {
                 Modes.aircrafts = next;
-            else
+            } else {
                 prev->next = next;
-
+            }
+             
             free(a);
             a = next;
         } else {

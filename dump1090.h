@@ -30,14 +30,14 @@
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
-// File Version number 
+// File Version number
 // ====================
 // Format is : MajorVer.MinorVer.DayMonth.Year"
 // MajorVer changes only with significant changes
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.08.2705.14"
+#define MODES_DUMP1090_VERSION     "1.09.1007.14"
 
 // ============================= Include files ==========================
 
@@ -67,7 +67,7 @@
 
 // ============================= #defines ===============================
 //
-// If you have a valid coaa.h, these values will come from it. If not, 
+// If you have a valid coaa.h, these values will come from it. If not,
 // then you can enter your own values in the #else section here
 //
 #ifdef USER_LATITUDE
@@ -76,8 +76,9 @@
 #else
     #define MODES_USER_LATITUDE_DFLT   (0.0)
     #define MODES_USER_LONGITUDE_DFLT  (0.0)
-#endif 
+#endif
 
+#define MODES_DEFAULT_PPM          52
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -115,7 +116,7 @@
 #define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
 #define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
-#define MODES_RAWOUT_BUF_SIZE   (1500)           
+#define MODES_RAWOUT_BUF_SIZE   (1500)
 #define MODES_RAWOUT_BUF_FLUSH  (MODES_RAWOUT_BUF_SIZE - 200)
 #define MODES_RAWOUT_BUF_RATE   (1000)            // 1000 * 64mS = 1 Min approx
 
@@ -138,12 +139,12 @@
 #define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
 #define MODES_ACFLAGS_LLEVEN_VALID   (1<<10) // Aircraft Even Lot/Lon is known
 #define MODES_ACFLAGS_LLODD_VALID    (1<<11) // Aircraft Odd Lot/Lon is known
-#define MODES_ACFLAGS_AOG_VALID      (1<<12) // MODES_ACFLAGS_AOG is valid 
-#define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known 
+#define MODES_ACFLAGS_AOG_VALID      (1<<12) // MODES_ACFLAGS_AOG is valid
+#define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known
 #define MODES_ACFLAGS_NSEWSPD_VALID  (1<<14) // Aircraft EW and NS Speed is known
 #define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
 
-#define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID) 
+#define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
 #define MODES_ACFLAGS_LLBOTH_VALID   (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
 #define MODES_ACFLAGS_AOG_GROUND     (MODES_ACFLAGS_AOG_VALID    | MODES_ACFLAGS_AOG)
 
@@ -175,7 +176,7 @@
 #define MODES_NET_HTTP_PORT          8080
 #define MODES_CLIENT_BUF_SIZE  1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
-#define MODES_NET_SNDBUF_MAX  (7)               
+#define MODES_NET_SNDBUF_MAX  (7)
 
 #ifndef HTMLPATH
 #define HTMLPATH   "./public_html"      // default path for gmap.html etc
@@ -226,6 +227,15 @@ struct aircraft {
     struct aircraft *next;        // Next aircraft in our linked list
 };
 
+struct stDF {
+    struct stDF     *pNext;                      // Pointer to next item in the linked list
+    struct aircraft *pAircraft;                  // Pointer to the Aircraft structure for this DF
+    time_t           seen;                       // Dos/UNIX Time at which the this packet was received
+    uint64_t         llTimestamp;                // Timestamp at which the this packet was received
+    uint32_t         addr;                       // Timestamp at which the this packet was received
+    unsigned char    msg[MODES_LONG_MSG_BYTES];  // the binary
+} tDF;
+
 // Program global state
 struct {                             // Internal state
     pthread_t       reader_thread;
@@ -236,7 +246,7 @@ struct {                             // Internal state
     struct timeb    stSystemTimeRTL[MODES_ASYNC_BUF_NUMBER]; // System time when RTL passed us this block
     int             iDataIn;         // Fifo input pointer
     int             iDataOut;        // Fifo output pointer
-    int             iDataReady;      // Fifo content count 
+    int             iDataReady;      // Fifo content count
     int             iDataLost;       // Count of missed buffers
 
     uint16_t       *pFileData;       // Raw IQ samples buffer (from a File)
@@ -315,6 +325,11 @@ struct {                             // Internal state
     // Interactive mode
     struct aircraft *aircrafts;
     uint64_t         interactive_last_update; // Last screen update in milliseconds
+
+    // DF List mode
+    int             bEnableDFLogging; // Set to enable DF Logging
+    pthread_mutex_t pDF_mutex;        // Mutex to synchronize pDF access
+    struct stDF    *pDF;              // Pointer to DF list
 
     // Statistics
     unsigned int stat_valid_preamble;
@@ -426,6 +441,8 @@ struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void  interactiveShowData(void);
 void  interactiveRemoveStaleAircrafts(void);
 int   decodeBinMessage   (struct client *c, char *p);
+struct aircraft *interactiveFindAircraft(uint32_t addr);
+struct stDF     *interactiveFindDF      (uint32_t addr);
 
 //
 // Functions exported from net_io.c
