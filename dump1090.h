@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.09.1007.14"
+#define MODES_DUMP1090_VERSION     "1.09.1607.14"
 
 // ============================= Include files ==========================
 
@@ -229,6 +229,7 @@ struct aircraft {
 
 struct stDF {
     struct stDF     *pNext;                      // Pointer to next item in the linked list
+    struct stDF     *pPrev;                      // Pointer to previous item in the linked list
     struct aircraft *pAircraft;                  // Pointer to the Aircraft structure for this DF
     time_t           seen;                       // Dos/UNIX Time at which the this packet was received
     uint64_t         llTimestamp;                // Timestamp at which the this packet was received
@@ -325,6 +326,7 @@ struct {                             // Internal state
     // Interactive mode
     struct aircraft *aircrafts;
     uint64_t         interactive_last_update; // Last screen update in milliseconds
+    time_t           last_cleanup_time;       // Last cleanup time in seconds
 
     // DF List mode
     int             bEnableDFLogging; // Set to enable DF Logging

@@ -208,7 +208,7 @@ int main(int argc, char **argv) {
 
 #ifdef _WIN32
     // Try to comply with the Copyright license conditions for binary distribution
-    if (!Modes.quiet) {showCopyright();}
+    if (!ppup1090.quiet) {showCopyright();}
 #endif
 
     // Initialization
@@ -222,18 +222,18 @@ int main(int argc, char **argv) {
     //
     // Setup a service callback client structure for a beast binary input (from dump1090)
     // This is a bit dodgy under Windows. The fd parameter is a handle to the internet
-    // socket on which we are receiving data. Under Linux, these seem to start at 0 and 
+    // socket on which we are receiving data. Under Linux, these seem to start at 0 and
     // count upwards. However, Windows uses "HANDLES" and these don't nececeriy start at 0.
-    // dump1090 limits fd to values less than 1024, and then uses the fd parameter to 
+    // dump1090 limits fd to values less than 1024, and then uses the fd parameter to
     // index into an array of clients. This is ok-ish if handles are allocated up from 0.
-    // However, there is no gaurantee that Windows will behave like this, and if Windows 
-    // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
+    // However, there is no gaurantee that Windows will behave like this, and if Windows
+    // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine,
     // the first Windows handle is usually in the 0x54 (84 decimal) region.
 
     c = (struct client *) malloc(sizeof(*c));
     c->next    = NULL;
     c->buflen  = 0;
-    c->fd      = 
+    c->fd      =
     c->service =
     Modes.bis  = fd;
     Modes.clients = c;
@@ -246,7 +246,7 @@ int main(int argc, char **argv) {
     }
 
     // The user has stopped us, so close any socket we opened
-    if (fd != ANET_ERR) 
+    if (fd != ANET_ERR)
       {close(fd);}
 
     closeCOAA ();

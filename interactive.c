@@ -61,8 +61,10 @@ void interactiveCreateDF(struct aircraft *a, struct modesMessage *mm) {
         memcpy(pDF->msg, mm->msg, MODES_LONG_MSG_BYTES);
 
         if (!pthread_mutex_lock(&Modes.pDF_mutex)) {
-            pDF->pNext = Modes.pDF;
-            Modes.pDF  = pDF;
+            if ((pDF->pNext = Modes.pDF)) {
+                Modes.pDF->pPrev = pDF;
+            }
+            Modes.pDF = pDF;
             pthread_mutex_unlock(&Modes.pDF_mutex);
         } else {
             free(pDF);
@@ -83,7 +85,7 @@ void interactiveRemoveStaleDF(time_t now) {
         pDF  = Modes.pDF;
         while(pDF) {
             if ((now - pDF->seen) > Modes.interactive_delete_ttl) {
-                if (!prev) {
+                if (Modes.pDF == pDF) {
                     Modes.pDF = NULL;
                 } else {
                     prev->pNext = NULL;
@@ -91,14 +93,13 @@ void interactiveRemoveStaleDF(time_t now) {
 
                 // All DF's in the list from here onwards will be time
                 // expired, so delete them all
-                while ((prev = pDF)) {
-                    pDF = pDF->pNext;
+                while (pDF) {
+                    prev = pDF; pDF = pDF->pNext;
                     free(prev);
                 }
 
             } else {
-                prev = pDF;
-                pDF  = pDF->pNext;
+                prev = pDF; pDF = pDF->pNext;
             }
         }
         pthread_mutex_unlock (&Modes.pDF_mutex);
@@ -533,25 +534,24 @@ void interactiveRemoveStaleAircrafts(void) {
     struct aircraft *prev = NULL;
     time_t now = time(NULL);
 
-    interactiveRemoveStaleDF(now);
+    // Only do cleanup once per second
+    if (Modes.last_cleanup_time != now) {
+        Modes.last_cleanup_time = now;
 
-    while(a) {
-        if ((now - a->seen) > Modes.interactive_delete_ttl) {
-            struct aircraft *next = a->next;
-            // Remove the element from the linked list, with care
-            // if we are removing the first element
+        interactiveRemoveStaleDF(now);
 
-            if (!prev) {
-                Modes.aircrafts = next;
+        while(a) {
+            if ((now - a->seen) > Modes.interactive_delete_ttl) {
+                // Remove the element from the linked list, with care
+                // if we are removing the first element
+                if (!prev) {
+                    Modes.aircrafts = a->next; free(a); a = Modes.aircrafts;
+                } else {
+                    prev->next = a->next; free(a); a = prev->next;
+                }
             } else {
-                prev->next = next;
+                prev = a; a = a->next;
             }
-             
-            free(a);
-            a = next;
-        } else {
-            prev = a;
-            a = a->next;
         }
     }
 }

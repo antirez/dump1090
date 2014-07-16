@@ -2044,7 +2044,6 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
             surface_rlat = Modes.fUserLat;
             surface_rlon = Modes.fUserLon;
         } else {
-            surface_rlat = Modes.fUserLat;
             return;
         }
         rlat0 += floor(surface_rlat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
