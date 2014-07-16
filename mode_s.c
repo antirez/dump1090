@@ -2022,12 +2022,24 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     double rlat0 = AirDlat0 * (cprModFunction(j,60) + lat0 / 131072);
     double rlat1 = AirDlat1 * (cprModFunction(j,59) + lat1 / 131072);
 
+    time_t now = time(NULL);
+    double surface_rlat = MODES_USER_LATITUDE_DFLT;
+    double surface_rlon = MODES_USER_LONGITUDE_DFLT;
+
     if (surface) {
-        // If we're on the ground, make sure we have our receiver base station Lat/Lon
-        if (0 == (Modes.bUserFlags & MODES_USER_LATLON_VALID))
-            {return;}
-        rlat0 += floor(Modes.fUserLat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
-        rlat1 += floor(Modes.fUserLat / 90.0) * 90.0;
+        // If we're on the ground, make sure we have a (likely) valid Lat/Lon
+        if ((a->bFlags & MODES_ACFLAGS_LATLON_VALID) && (((int)(now - a->seenLatLon)) < Modes.interactive_display_ttl)) {
+            surface_rlat = a->lat;
+            surface_rlon = a->lon;
+        } else if (Modes.bUserFlags & MODES_USER_LATLON_VALID) {
+            surface_rlat = Modes.fUserLat;
+            surface_rlon = Modes.fUserLon;
+        } else {
+            surface_rlat = Modes.fUserLat;
+            return;
+        }
+        rlat0 += floor(surface_rlat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+        rlat1 += floor(surface_rlat / 90.0) * 90.0;
     } else {
         if (rlat0 >= 270) rlat0 -= 360;
         if (rlat1 >= 270) rlat1 -= 360;
@@ -2052,7 +2064,7 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     }
 
     if (surface) {
-        a->lon += floor(Modes.fUserLon / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
+        a->lon += floor(surface_rlon / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
     } else if (a->lon > 180) {
         a->lon -= 360;
     }
