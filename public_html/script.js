@@ -326,12 +326,12 @@ function refreshSelected() {
                 dist /= 1852;
             }
             dist = (Math.round((dist)*10)/10).toFixed(1);
-            html += '<tr><td colspan="' + columns + '">Distance from Site: ' + dist +
+            html += '<tr><td colspan="' + columns + '" align="center">Distance from Site: ' + dist +
                 (Metric ? ' km' : ' NM') + '</td></tr>';
         } // End of SiteShow
 	} else {
 	    if (SiteShow) {
-	        html += '<tr><td colspan="' + columns + '">Distance from Site: n/a ' + 
+	        html += '<tr><td colspan="' + columns + '" align="center">Distance from Site: n/a ' + 
 	            (Metric ? ' km' : ' NM') + '</td></tr>';
 	    } else {
     	    html += 'n/a</td></tr>';
