@@ -304,7 +304,7 @@ function refreshSelected() {
     
     html += '<tr><td>Track: ' 
 	if (selected && selected.vTrack) {
-	    html += selected.track + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')';
+	    html += selected.track + '&deg;' + ' (' + normalizeTrack(selected.track, selected.vTrack)[1] +')';
 	} else {
 	    html += 'n/a';
 	}
