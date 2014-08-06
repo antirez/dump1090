@@ -370,9 +370,19 @@ void modesSendSBSOutput(struct modesMessage *mm) {
         p += sprintf(p, ",");
     }
 
-    // Field 13 and 14 are the ground Speed and Heading (if we have them)
-    if (mm->bFlags & MODES_ACFLAGS_NSEWSPD_VALID) {p += sprintf(p, ",%d,%d", mm->velocity, mm->heading);}
-    else                                          {p += sprintf(p, ",,");}
+    // Field 13 is the ground Speed (if we have it)
+    if (mm->bFlags & MODES_ACFLAGS_SPEED_VALID) {
+        p += sprintf(p, ",%d", mm->velocity);
+    } else {
+        p += sprintf(p, ","); 
+    }
+
+    // Field 14 is the ground Heading (if we have it)       
+    if (mm->bFlags & MODES_ACFLAGS_HEADING_VALID) {
+        p += sprintf(p, ",%d", mm->heading);
+    } else {
+        p += sprintf(p, ",");
+    }
 
     // Fields 15 and 16 are the Lat/Lon (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_LATLON_VALID) {p += sprintf(p, ",%1.5f,%1.5f", mm->fLat, mm->fLon);}
