@@ -151,7 +151,7 @@ struct aircraft *interactiveCreateAircraft(struct modesMessage *mm) {
         } else {
             mm->altitude = modeC * 100;
             mm->bFlags  |= MODES_ACFLAGS_ALTITUDE_VALID;
-        } 
+        }
     }
     return (a);
 }
@@ -194,7 +194,7 @@ struct aircraft *interactiveFindAircraft(uint32_t addr) {
 //
 // Note : It's theoretically possible for an aircraft to have the same value for Mode A 
 // and Mode C. Therefore we have to check BOTH A AND C for EVERY S.
-//  
+//
 void interactiveUpdateAircraftModeA(struct aircraft *a) {
     struct aircraft *b = Modes.aircrafts;
 
@@ -208,12 +208,12 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
                     b->modeAcount   = a->messages;
                     b->modeACflags |= MODEAC_MSG_MODEA_HIT;
                     a->modeACflags |= MODEAC_MSG_MODEA_HIT;
-                    if ( (b->modeAcount > 0) && 
-                       ( (b->modeCcount > 1) 
+                    if ( (b->modeAcount > 0) &&
+                       ( (b->modeCcount > 1)
                       || (a->modeACflags & MODEAC_MSG_MODEA_ONLY)) ) // Allow Mode-A only matches if this Mode-A is invalid Mode-C
                         {a->modeACflags |= MODEAC_MSG_MODES_HIT;}    // flag this ModeA/C probably belongs to a known Mode S                    
                 }
-            } 
+            }
 
             // If both (a) and (b) have valid altitudes...
             if ((a->bFlags & b->bFlags) & MODES_ACFLAGS_ALTITUDE_VALID) {
@@ -224,7 +224,7 @@ void interactiveUpdateAircraftModeA(struct aircraft *a) {
                     b->modeCcount   = a->messages;
                     b->modeACflags |= MODEAC_MSG_MODEC_HIT;
                     a->modeACflags |= MODEAC_MSG_MODEC_HIT;
-                    if ( (b->modeAcount > 0) && 
+                    if ( (b->modeAcount > 0) &&
                          (b->modeCcount > 1) )
                         {a->modeACflags |= (MODEAC_MSG_MODES_HIT | MODEAC_MSG_MODEC_OLD);} // flag this ModeA/C probably belongs to a known Mode S                    
                 }
@@ -241,7 +241,7 @@ void interactiveUpdateAircraftModeS() {
 
     while(a) {
         int flags = a->modeACflags;
-        if (flags & MODEAC_MSG_FLAG) { // find any fudged ICAO records 
+        if (flags & MODEAC_MSG_FLAG) { // find any fudged ICAO records
 
             // clear the current A,C and S hit bits ready for this attempt
             a->modeACflags = flags & ~(MODEAC_MSG_MODEA_HIT | MODEAC_MSG_MODEC_HIT | MODEAC_MSG_MODES_HIT);
@@ -339,7 +339,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     // if the Aircraft has landed or taken off since the last message, clear the even/odd CPR flags
     if ((mm->bFlags & MODES_ACFLAGS_AOG_VALID) && ((a->bFlags ^ mm->bFlags) & MODES_ACFLAGS_AOG)) {
         a->bFlags &= ~(MODES_ACFLAGS_LLBOTH_VALID | MODES_ACFLAGS_AOG);
-    } 
+    }
 
     // If we've got a new cprlat or cprlon
     if (mm->bFlags & MODES_ACFLAGS_LLEITHER_VALID) {
@@ -418,10 +418,10 @@ void interactiveShowData(void) {
     if ((mstime() - Modes.interactive_last_update) < MODES_INTERACTIVE_REFRESH_TIME)
        {return;}
 
-    Modes.interactive_last_update = mstime();    
+    Modes.interactive_last_update = mstime();
 
     // Attempt to reconsile any ModeA/C with known Mode-S
-    // We can't condition on Modes.modeac because ModeA/C could be comming 
+    // We can't condition on Modes.modeac because ModeA/C could be comming
     // in from a raw input port which we can't turn off.
     interactiveUpdateAircraftModeS();
 
@@ -465,7 +465,7 @@ void interactiveShowData(void) {
                     altitude = (int) (altitude / 3.2828);
                     speed    = (int) (speed    * 1.852);
                 }
-        
+
                 if (a->bFlags & MODES_ACFLAGS_SQUAWK_VALID) {
                     snprintf(strSquawk,5,"%04x", a->modeA);}
 
@@ -474,10 +474,10 @@ void interactiveShowData(void) {
 
                 if (a->bFlags & MODES_ACFLAGS_HEADING_VALID) {
                     snprintf (strTt, 5,"%03d", a->track);}
-        
+
                 if (msgs > 99999) {
                     msgs = 99999;}
-        
+
                 if (Modes.interactive_rtl1090) { // RTL1090 display mode
 
                     if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
@@ -512,7 +512,7 @@ void interactiveShowData(void) {
                     } else if (a->bFlags & MODES_ACFLAGS_ALTITUDE_VALID) {
                         snprintf(strFl, 6, "%5d", altitude);
                     }
- 
+
                     printf("%06X  %-4s  %-4s  %-8s %5s  %3s  %3s  %7s %8s  %3d %5d   %2d\n",
                     a->addr, strMode, strSquawk, a->flight, strFl, strGs, strTt,
                     strLat, strLon, signalAverage, msgs, (int)(now - a->seen));
