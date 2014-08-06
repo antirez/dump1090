@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.09.1607.14"
+#define MODES_DUMP1090_VERSION     "1.09.0608.14"
 
 // ============================= Include files ==========================
 
@@ -346,7 +346,7 @@ struct {                             // Internal state
     // Histogram of fixed bit errors: index 0 for single bit erros,
     // index 1 for double bit errors etc.
     unsigned int stat_bit_fix[MODES_MAX_BITERRORS];
-							
+
     unsigned int stat_http_requests;
     unsigned int stat_sbs_connections;
     unsigned int stat_raw_connections;
@@ -362,7 +362,7 @@ struct {                             // Internal state
     // Histogram of fixed bit errors: index 0 for single bit erros,
     // index 1 for double bit errors etc.
     unsigned int stat_ph_bit_fix[MODES_MAX_BITERRORS];
-							
+
     unsigned int stat_DF_Len_Corrected;
     unsigned int stat_DF_Type_Corrected;
     unsigned int stat_ModeAC;
