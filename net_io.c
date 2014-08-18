@@ -787,7 +787,7 @@ int handleHTTPRequest(struct client *c, char *p) {
 
     // Create the header and send the reply
     hdrlen = snprintf(hdr, sizeof(hdr),
-        "HTTP/1.0 200 OK\r\n"
+        "HTTP/1.1 200 OK\r\n"
         "Server: Dump1090\r\n"
         "Content-Type: %s\r\n"
         "Connection: %s\r\n"
