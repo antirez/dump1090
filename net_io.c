@@ -741,14 +741,26 @@ int handleHTTPRequest(struct client *c, char *p) {
     } else {
         struct stat sbuf;
         int fd = -1;
+        char *rp, *hrp;
 
-        if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
-            content = (char *) malloc(sbuf.st_size);
-            if (read(fd, content, sbuf.st_size) == -1) {
-                snprintf(content, sbuf.st_size, "Error reading from file: %s", strerror(errno));
+        rp = realpath(getFile, NULL);
+        hrp = realpath(HTMLPATH, NULL);
+        hrp = (hrp ? hrp : HTMLPATH);
+        clen = -1;
+        content = "Server error";
+        if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
+            if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
+                content = (char *) malloc(sbuf.st_size);
+                if (read(fd, content, sbuf.st_size) != -1) {
+                    clen = sbuf.st_size;
+					free(content);
+                }
             }
-            clen = sbuf.st_size;
         } else {
+            errno = ENOENT;
+        }
+
+        if (clen < 0) {
             char buf[128];
             clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s", strerror(errno));
             content = strdup(buf);
