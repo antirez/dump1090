@@ -753,6 +753,7 @@ int handleHTTPRequest(struct client *c, char *p) {
                 content = (char *) malloc(sbuf.st_size);
                 if (read(fd, content, sbuf.st_size) != -1) {
                     clen = sbuf.st_size;
+				} else {
 					free(content);
                 }
             }
