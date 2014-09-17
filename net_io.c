@@ -749,15 +749,13 @@ int handleHTTPRequest(struct client *c, char *p) {
         hrp = realpath(HTMLPATH, NULL);
         hrp = (hrp ? hrp : HTMLPATH);
         clen = -1;
-        content = calloc(1, 1);
+        content = strdup("Server error occured");
         if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
             if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
-                content = (char *) malloc(sbuf.st_size);
+                content = (char *) realloc(content, sbuf.st_size);
                 if (read(fd, content, sbuf.st_size) != -1) {
                     clen = sbuf.st_size;
                     statuscode = 200;
-				} else {
-					free(content);
                 }
             }
         } else {
@@ -766,9 +764,9 @@ int handleHTTPRequest(struct client *c, char *p) {
 
         if (clen < 0) {
             char buf[128];
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s", strerror(errno));
+            content = realloc(content, sizeof(buf));
+            clen = snprintf(content,sizeof(buf),"Error opening HTML file: %s", strerror(errno));
             statuscode = 404;
-            content = strdup(buf);
         }
         
         if (fd != -1) {
@@ -800,7 +798,7 @@ int handleHTTPRequest(struct client *c, char *p) {
         "Cache-Control: no-cache, must-revalidate\r\n"
         "Expires: Sat, 26 Jul 1997 05:00:00 GMT\r\n"
         "\r\n",
-		statuscode,
+        statuscode,
         ctype,
         keepalive ? "keep-alive" : "close",
         clen);
