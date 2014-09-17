@@ -749,7 +749,7 @@ int handleHTTPRequest(struct client *c, char *p) {
         hrp = realpath(HTMLPATH, NULL);
         hrp = (hrp ? hrp : HTMLPATH);
         clen = -1;
-        content = "Server error";
+        content = calloc(1, 1);
         if (rp && (!strncmp(hrp, rp, strlen(hrp)))) {
             if (stat(getFile, &sbuf) != -1 && (fd = open(getFile, O_RDONLY)) != -1) {
                 content = (char *) malloc(sbuf.st_size);
