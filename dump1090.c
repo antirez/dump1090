@@ -490,10 +490,18 @@ void dumpMagnitudeBar(int index, int magnitude) {
     buf[div] = set[rem];
     buf[div+1] = '\0';
 
-    if (index >= 0)
-        printf("[%.3d] |%-66s %d\n", index, buf, magnitude);
-    else
+    if (index >= 0) {
+        int markchar = ']';
+
+        /* preamble peaks are marked with ">" */
+        if (index == 0 || index == 2 || index == 7 || index == 9)
+            markchar = '>';
+        /* Data peaks are marked to distinguish pairs of bits. */
+        if (index >= 16) markchar = ((index-16)/2 & 1) ? '|' : ')';
+        printf("[%.3d%c |%-66s %d\n", index, markchar, buf, magnitude);
+    } else {
         printf("[%.2d] |%-66s %d\n", index, buf, magnitude);
+    }
 }
 
 /* Display an ASCII-art alike graphical representation of the undecoded
