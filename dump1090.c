@@ -581,7 +581,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = verbose_device_search(argv[++j]);
         } else if (!strcmp(argv[j],"--gain") && more) {
-            Modes.gain = (int) atof(argv[++j])*10; // Gain is in tens of DBs
+            Modes.gain = (int) (atof(argv[++j])*10); // Gain is in tens of DBs
         } else if (!strcmp(argv[j],"--enable-agc")) {
             Modes.enable_agc++;
         } else if (!strcmp(argv[j],"--freq") && more) {
