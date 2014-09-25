@@ -492,10 +492,9 @@ static void display_stats(void) {
         interactiveShowData();
 
     printf("Statistics as at %s", ctime(&now));
+
     printf("%d sample blocks processed\n",                    Modes.stat_blocks_processed);
     printf("%d sample blocks dropped\n",                      Modes.stat_blocks_dropped);
-    Modes.stat_blocks_processed =
-        Modes.stat_blocks_dropped = 0;
 
     printf("%d ModeA/C detected\n",                           Modes.stat_ModeAC);
     printf("%d valid Mode-S preambles\n",                     Modes.stat_valid_preamble);
@@ -509,21 +508,8 @@ static void display_stats(void) {
     printf("%d with bad crc\n",                               Modes.stat_badcrc);
     printf("%d errors corrected\n",                           Modes.stat_fixed);
 
-    Modes.stat_ModeAC =
-        Modes.stat_valid_preamble =
-        Modes.stat_DF_Len_Corrected =
-        Modes.stat_DF_Type_Corrected =
-        Modes.stat_demodulated0 =
-        Modes.stat_demodulated1 =
-        Modes.stat_demodulated2 =
-        Modes.stat_demodulated3 =
-        Modes.stat_goodcrc =
-        Modes.stat_badcrc =
-        Modes.stat_fixed = 0;
-
     for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
         printf("   %d with %d bit %s\n", Modes.stat_bit_fix[j], j+1, (j==0)?"error":"errors");
-        Modes.stat_bit_fix[j] = 0;
     }
 
     if (Modes.phase_enhance) {
@@ -536,23 +522,42 @@ static void display_stats(void) {
         printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
         printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
 
-        Modes.stat_out_of_phase =
-            Modes.stat_ph_demodulated0 =
-            Modes.stat_ph_demodulated1 =
-            Modes.stat_ph_demodulated2 =
-            Modes.stat_ph_demodulated3 =
-            Modes.stat_ph_goodcrc =
-            Modes.stat_ph_badcrc =
-            Modes.stat_ph_fixed = 0;
-
         for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
             printf("   %d with %d bit %s\n", Modes.stat_ph_bit_fix[j], j+1, (j==0)?"error":"errors");
-            Modes.stat_ph_bit_fix[j] = 0;
         }
     }
 
     printf("%d total usable messages\n",                      Modes.stat_goodcrc + Modes.stat_ph_goodcrc + Modes.stat_fixed + Modes.stat_ph_fixed);
     fflush(stdout);
+
+    Modes.stat_blocks_processed =
+        Modes.stat_blocks_dropped = 0;
+
+    Modes.stat_ModeAC =
+        Modes.stat_valid_preamble =
+        Modes.stat_DF_Len_Corrected =
+        Modes.stat_DF_Type_Corrected =
+        Modes.stat_demodulated0 =
+        Modes.stat_demodulated1 =
+        Modes.stat_demodulated2 =
+        Modes.stat_demodulated3 =
+        Modes.stat_goodcrc =
+        Modes.stat_badcrc =
+        Modes.stat_fixed = 0;
+
+    Modes.stat_out_of_phase =
+        Modes.stat_ph_demodulated0 =
+        Modes.stat_ph_demodulated1 =
+        Modes.stat_ph_demodulated2 =
+        Modes.stat_ph_demodulated3 =
+        Modes.stat_ph_goodcrc =
+        Modes.stat_ph_badcrc =
+        Modes.stat_ph_fixed = 0;
+
+    for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
+        Modes.stat_ph_bit_fix[j] = 0;
+        Modes.stat_bit_fix[j] = 0;
+    }
 }
 
 
