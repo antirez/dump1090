@@ -492,6 +492,10 @@ static void display_stats(void) {
         interactiveShowData();
 
     printf("Statistics as at %s", ctime(&now));
+    printf("%d sample blocks processed\n",                    Modes.stat_blocks_processed);
+    printf("%d sample blocks dropped\n",                      Modes.stat_blocks_dropped);
+    Modes.stat_blocks_processed =
+        Modes.stat_blocks_dropped = 0;
 
     printf("%d ModeA/C detected\n",                           Modes.stat_ModeAC);
     printf("%d valid Mode-S preambles\n",                     Modes.stat_valid_preamble);
@@ -838,6 +842,7 @@ int main(int argc, char **argv) {
             // If we lost some blocks, correct the timestamp
             if (Modes.iDataLost) {
                 Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES * 6 * Modes.iDataLost);
+                Modes.stat_blocks_dropped += Modes.iDataLost;
                 Modes.iDataLost = 0;
             }
 
@@ -852,7 +857,7 @@ int main(int argc, char **argv) {
 
             // Update the timestamp ready for the next block
             Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES*6);
-
+            Modes.stat_blocks_processed++;
         } else {
             pthread_cond_signal (&Modes.data_cond);
             pthread_mutex_unlock(&Modes.data_mutex);
