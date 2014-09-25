@@ -433,7 +433,7 @@ void decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
 void displayModesMessage(struct modesMessage *mm);
 void useModesMessage    (struct modesMessage *mm);
 void computeMagnitudeVector(uint16_t *pData);
-void decodeCPR          (struct aircraft *a, int fflag, int surface);
+int  decodeCPR          (struct aircraft *a, int fflag, int surface);
 int  decodeCPRrelative  (struct aircraft *a, int fflag, int surface);
 void modesInitErrorInfo ();
 //

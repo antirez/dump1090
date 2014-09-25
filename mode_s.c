@@ -2014,11 +2014,8 @@ double cprDlonFunction(double lat, int fflag, int surface) {
 //
 // A few remarks:
 // 1) 131072 is 2^17 since CPR latitude and longitude are encoded in 17 bits.
-// 2) We assume that we always received the odd packet as last packet for
-//    simplicity. This may provide a position that is less fresh of a few
-//    seconds.
 //
-void decodeCPR(struct aircraft *a, int fflag, int surface) {
+int decodeCPR(struct aircraft *a, int fflag, int surface) {
     double AirDlat0 = (surface ? 90.0 : 360.0) / 60.0;
     double AirDlat1 = (surface ? 90.0 : 360.0) / 59.0;
     double lat0 = a->even_cprlat;
@@ -2044,7 +2041,8 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
             surface_rlat = Modes.fUserLat;
             surface_rlon = Modes.fUserLon;
         } else {
-            return;
+            // No local reference, give up
+            return (-1);
         }
         rlat0 += floor(surface_rlat / 90.0) * 90.0;  // Move from 1st quadrant to our quadrant
         rlat1 += floor(surface_rlat / 90.0) * 90.0;
@@ -2054,7 +2052,8 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     }
 
     // Check that both are in the same latitude zone, or abort.
-    if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
+    if (cprNLFunction(rlat0) != cprNLFunction(rlat1))
+        return (-1);
 
     // Compute ni and the Longitude Index "m"
     if (fflag) { // Use odd packet.
@@ -2080,6 +2079,8 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
     a->seenLatLon      = a->seen;
     a->timestampLatLon = a->timestamp;
     a->bFlags         |= (MODES_ACFLAGS_LATLON_VALID | MODES_ACFLAGS_LATLON_REL_OK);
+
+    return 0;
 }
 //
 //=========================================================================
