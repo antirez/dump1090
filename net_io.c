@@ -336,8 +336,8 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Fields 1 to 6 : SBS message type and ICAO address of the aircraft and some other stuff
     p += sprintf(p, "MSG,%d,111,11111,%06X,111111,", msgType, mm->addr); 
 
-    // Fields 7 & 8 are the current time and date
-    if (mm->timestampMsg) {                                       // Make sure the records' timestamp is valid before outputing it
+    // Fields 7 & 8 are the message reception time and date
+    if (mm->timestampMsg && !mm->remote) {                        // Make sure the records' timestamp is valid before outputing it
         epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
         offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
         offset   = offset / 12000;                                // convert to milliseconds
