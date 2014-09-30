@@ -710,7 +710,7 @@ int main(int argc, char **argv) {
     } else {
         if (Modes.filename[0] == '-' && Modes.filename[1] == '\0') {
             Modes.fd = STDIN_FILENO;
-        } else if ((Modes.fd = open(Modes.filename,O_RDONLY)) == -1) {
+        } else if ((Modes.fd = open(Modes.filename, (O_RDONLY | O_BINARY))) == -1) {
             perror("Opening data file");
             exit(1);
         }
