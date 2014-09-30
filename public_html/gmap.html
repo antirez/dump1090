@@ -18,36 +18,40 @@
 		<div id="dialog-modal" title="Basic modal dialog" style="display:none;">
 			<p>The settings feature is coming soon. Keep checking GitHub.</p>
 		</div>
-		<div id="map_canvas"></div>
-		<div id="sidebar_canvas">
-			<div id="timestamps" style="align: center">
-				<table width="100%"><tr>
-					<td>Local Time</td>
-					<td>
-						<canvas id="localclock" class="CoolClock:classic:40"></canvas>
-					</td>
-					<td>UTC Time</td>
-					<td>
-						<canvas id="gmtclock" class="CoolClock:classic:40::0"></canvas>
-					</td>
-				</tr></table>
-			</div>
-			<div id="sudo_buttons">
-				<table width="100%"><tr>
-					<td width="150" style="text-align: center;" class="pointer">
-						[ <span onclick="resetMap();">Reset Map</span> ]
-					</td>
-					<td>&nbsp;</td>
-					<td width="150" style="text-align: center;" id="setings_button" class="pointer">
-						[ <span onclick="optionsModal();">Settings</span> ]
-					</td>
-				</tr></table>
-			</div>
+		<div id="map_container">
+			<div id="map_canvas"></div>
+		</div>
+		<div id="sidebar_container">
+			<div id="sidebar_canvas">
+				<div id="timestamps" style="align: center">
+					<table width="100%"><tr>
+						<td>Local Time</td>
+						<td>
+							<canvas id="localclock" class="CoolClock:classic:40"></canvas>
+						</td>
+						<td>UTC Time</td>
+						<td>
+							<canvas id="gmtclock" class="CoolClock:classic:40::0"></canvas>
+						</td>
+					</tr></table>
+				</div>
+				<div id="sudo_buttons">
+					<table width="100%"><tr>
+						<td width="150" style="text-align: center;" class="pointer">
+						    [ <span onclick="resetMap();">Reset Map</span> ]
+						</td>
+						<td>&nbsp;</td>
+						<td width="150" style="text-align: center;" id="setings_button" class="pointer">
+						    [ <span onclick="optionsModal();">Settings</span> ]
+						</td>
+					</tr></table>
+				</div>
 
-			<div id="plane_detail"></div>
-			<div id="options"></div>
-			<div id="planes_table"></div>
-			<div id="plane_extension"></div>
+				<div id="plane_detail"></div>
+				<div id="options"></div>
+				<div id="planes_table"></div>
+				<div id="plane_extension"></div>
+			</div>
 		</div>
 		<div id="SpecialSquawkWarning">
 		    <b>Squak 7x00 is reported and shown.</b><br>
