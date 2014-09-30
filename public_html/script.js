@@ -135,8 +135,12 @@ function initialize() {
 		center: new google.maps.LatLng(CenterLat, CenterLon),
 		zoom: ZoomLvl,
 		mapTypeId: google.maps.MapTypeId.ROADMAP,
+		mapTypeControl: true,
+		streetViewControl: false,
 		mapTypeControlOptions: {
-			mapTypeIds: mapTypeIds
+			mapTypeIds: mapTypeIds,
+			position: google.maps.ControlPosition.TOP_LEFT,
+			style: google.maps.MapTypeControlStyle.DROPDOWN_MENU
 		}
 	};
 
