@@ -19,7 +19,7 @@ table#optionsTabs { width: 100%; font-size: small; font-family: monospace; backg
 
 #tableinfo, #sudo_buttons { font-family: monospace; }
 
-.vPosition  { font-weight: bold; background-color: #f5fff5; }
+.vPosition  { font-weight: bold; background-color: #d5ffd5; }
 .squawk7500 { font-weight: bold; background-color: #ff5555; }
 .squawk7600 { font-weight: bold; background-color: #00ffff; }
 .squawk7700 { font-weight: bold; background-color: #ffff00; }
