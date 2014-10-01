@@ -2053,6 +2053,9 @@ void decodeCPR(struct aircraft *a, int fflag, int surface) {
         if (rlat1 >= 270) rlat1 -= 360;
     }
 
+    // Check to see that the latitude is in range: -90 .. +90
+    if (rlat0 < -90 || rlat0 > 90 || rlat1 < -90 || rlat1 > 90) return;
+
     // Check that both are in the same latitude zone, or abort.
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
 
@@ -2128,6 +2131,12 @@ int decodeCPRrelative(struct aircraft *a, int fflag, int surface) {
                trunc(0.5 + cprModFunction((int)latr, (int)AirDlat)/AirDlat - lat/131072));
     rlat = AirDlat * (j + lat/131072);
     if (rlat >= 270) rlat -= 360;
+
+    // Check to see that the latitude is in range: -90 .. +90
+    if (rlat < -90 || rlat > 90) {
+        a->bFlags &= ~MODES_ACFLAGS_LATLON_REL_OK; // This will cause a quick exit next time if no global has been done
+        return (-1);                               // Time to give up - Latitude error
+    }
 
     // Check to see that answer is reasonable - ie no more than 1/2 cell away 
     if (fabs(rlat - a->lat) > (AirDlat/2)) {
