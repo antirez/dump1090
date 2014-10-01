@@ -581,7 +581,7 @@ int main(int argc, char **argv) {
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = verbose_device_search(argv[++j]);
         } else if (!strcmp(argv[j],"--gain") && more) {
-            Modes.gain = (int) atof(argv[++j])*10; // Gain is in tens of DBs
+            Modes.gain = (int) (atof(argv[++j])*10); // Gain is in tens of DBs
         } else if (!strcmp(argv[j],"--enable-agc")) {
             Modes.enable_agc++;
         } else if (!strcmp(argv[j],"--freq") && more) {
@@ -710,7 +710,13 @@ int main(int argc, char **argv) {
     } else {
         if (Modes.filename[0] == '-' && Modes.filename[1] == '\0') {
             Modes.fd = STDIN_FILENO;
-        } else if ((Modes.fd = open(Modes.filename,O_RDONLY)) == -1) {
+        } else if ((Modes.fd = open(Modes.filename,
+#ifdef _WIN32
+                                    (O_RDONLY | O_BINARY)
+#else
+                                    (O_RDONLY)
+#endif
+                                    )) == -1) {
             perror("Opening data file");
             exit(1);
         }
