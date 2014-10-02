@@ -53,9 +53,15 @@ var planeObject = {
 
 	// Should create an icon for us to use on the map...
 	funcGetIcon	: function() {
+			this.markerColor = MarkerColor;
 			// If this marker is selected we should make it lighter than the rest.
 			if (this.is_selected == true) {
 				this.markerColor = SelectedColor;
+			}
+
+			// If we have not seen a recent update, change color
+			if (this.seen > 15) {
+				this.markerColor = StaleColor;
 			}
 			
 			// Plane marker
