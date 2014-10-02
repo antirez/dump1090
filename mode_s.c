@@ -909,7 +909,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
     // If we're checking CRC and the CRC is invalid, then we can't trust any 
     // of the data contents, so save time and give up now.
-    if ((Modes.check_crc) && (!mm->crcok)) { return;}
+    if ((Modes.check_crc) && (!mm->crcok) && (!mm->correctedbits)) { return;}
 
     // Fields for DF0, DF16
     if (mm->msgtype == 0  || mm->msgtype == 16) {
