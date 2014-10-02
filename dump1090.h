@@ -366,6 +366,9 @@ struct {                             // Internal state
     unsigned int stat_DF_Len_Corrected;
     unsigned int stat_DF_Type_Corrected;
     unsigned int stat_ModeAC;
+
+    unsigned int stat_blocks_processed;
+    unsigned int stat_blocks_dropped;
 } Modes;
 
 // The struct we use to store information about a decoded message.
