@@ -88,7 +88,7 @@ void modesInitNet(void) {
 			int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
 			if (s == -1) {
 				fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
-					services[j].port, services[j].descr, strerror(errno));
+					services[j].port, services[j].descr, Modes.aneterr);
 				exit(1);
 			}
 			anetNonBlock(Modes.aneterr, s);
