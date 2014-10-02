@@ -858,11 +858,12 @@ void modesReadFromClient(struct client *c, char *sep,
             bContinue = 0;
         }
 #ifndef _WIN32
-        if ( (nread < 0) && (errno != EAGAIN)) { // Error, or end of file
+        if ( (nread < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || nread == 0 ) { // Error, or end of file
 #else
         if ( (nread < 0) && (errno != EWOULDBLOCK)) { // Error, or end of file
 #endif
             modesFreeClient(c);
+            return;
         }
         if (nread <= 0) {
             break; // Serve next client
