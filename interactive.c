@@ -343,6 +343,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     // If we've got a new cprlat or cprlon
     if (mm->bFlags & MODES_ACFLAGS_LLEITHER_VALID) {
+        int location_ok = 0;
 
         if (mm->bFlags & MODES_ACFLAGS_LLODD_VALID) {
             a->odd_cprlat  = mm->raw_latitude;
@@ -354,23 +355,23 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             a->even_cprtime = mstime();
         }
 
-        if (((mm->bFlags | a->bFlags) & MODES_ACFLAGS_LLEITHER_VALID) == MODES_ACFLAGS_LLBOTH_VALID) {
-        // If we now have both even and odd, decode the CPR
-
-            // Try relative CPR first
-            if (decodeCPRrelative(a, (mm->bFlags & MODES_ACFLAGS_LLODD_VALID), (mm->bFlags & MODES_ACFLAGS_AOG))) {
-                // If relative CPR fails then try global if the two data are less than 10 seconds apart
-                if (abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
-                    decodeCPR(a, (mm->bFlags & MODES_ACFLAGS_LLODD_VALID), (mm->bFlags & MODES_ACFLAGS_AOG));
-                }
+        // If we have enough recent data, try global CPR
+        if (((mm->bFlags | a->bFlags) & MODES_ACFLAGS_LLEITHER_VALID) == MODES_ACFLAGS_LLBOTH_VALID && abs((int)(a->even_cprtime - a->odd_cprtime)) <= 10000) {
+            if (decodeCPR(a, (mm->bFlags & MODES_ACFLAGS_LLODD_VALID), (mm->bFlags & MODES_ACFLAGS_AOG)) == 0) {
+                location_ok = 1;
             }
+        }
 
-            //If we sucessfully decoded, back copy the results to mm so that we can print them in list output
-            if (a->bFlags & MODES_ACFLAGS_LATLON_VALID) {
-                mm->bFlags |= MODES_ACFLAGS_LATLON_VALID;
-                mm->fLat    = a->lat;
-                mm->fLon    = a->lon;
-            }
+        // Otherwise try relative CPR.
+        if (!location_ok && decodeCPRrelative(a, (mm->bFlags & MODES_ACFLAGS_LLODD_VALID), (mm->bFlags & MODES_ACFLAGS_AOG)) == 0) {
+            location_ok = 1;
+        }
+
+        //If we sucessfully decoded, back copy the results to mm so that we can print them in list output
+        if (location_ok) {
+            mm->bFlags |= MODES_ACFLAGS_LATLON_VALID;
+            mm->fLat    = a->lat;
+            mm->fLon    = a->lon;
         }
     }
 

@@ -88,7 +88,7 @@ void modesInitNet(void) {
 			int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
 			if (s == -1) {
 				fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
-					services[j].port, services[j].descr, strerror(errno));
+					services[j].port, services[j].descr, Modes.aneterr);
 				exit(1);
 			}
 			anetNonBlock(Modes.aneterr, s);
@@ -304,8 +304,8 @@ void modesSendRawOutput(struct modesMessage *mm) {
 void modesSendSBSOutput(struct modesMessage *mm) {
     char msg[256], *p = msg;
     uint32_t     offset;
-    struct timeb epocTime;
-    struct tm    stTime;
+    struct timeb epocTime_receive, epocTime_now;
+    struct tm    stTime_receive, stTime_now;
     int          msgType;
 
     //
@@ -347,26 +347,33 @@ void modesSendSBSOutput(struct modesMessage *mm) {
     // Fields 1 to 6 : SBS message type and ICAO address of the aircraft and some other stuff
     p += sprintf(p, "MSG,%d,111,11111,%06X,111111,", msgType, mm->addr); 
 
-    // Fields 7 & 8 are the message reception time and date
-    if (mm->timestampMsg && !mm->remote) {                        // Make sure the records' timestamp is valid before outputing it
-        epocTime = Modes.stSystemTimeBlk;                         // This is the time of the start of the Block we're processing
+    // Find current system time
+    ftime(&epocTime_now);                                         // get the current system time & date
+    stTime_now = *localtime(&epocTime_now.time);
+
+    // Find message reception time
+    if (mm->timestampMsg && !mm->remote) {                        // Make sure the records' timestamp is valid before using it
+        epocTime_receive = Modes.stSystemTimeBlk;                 // This is the time of the start of the Block we're processing
         offset   = (int) (mm->timestampMsg - Modes.timestampBlk); // This is the time (in 12Mhz ticks) into the Block
         offset   = offset / 12000;                                // convert to milliseconds
-        epocTime.millitm += offset;                               // add on the offset time to the Block start time
-        if (epocTime.millitm > 999)                               // if we've caused an overflow into the next second...
-            {epocTime.millitm -= 1000; epocTime.time ++;}         //    ..correct the overflow
-        stTime   = *localtime(&epocTime.time);                    // convert the time to year, month  day, hours, min, sec
-        p += sprintf(p, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
-        p += sprintf(p, "%02d:%02d:%02d.%03d,", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+        epocTime_receive.millitm += offset;                       // add on the offset time to the Block start time
+        if (epocTime_receive.millitm > 999) {                     // if we've caused an overflow into the next second...
+            epocTime_receive.millitm -= 1000;
+            epocTime_receive.time ++;                             //    ..correct the overflow
+        }
+        stTime_receive = *localtime(&epocTime_receive.time);
     } else {
-        p += sprintf(p, ",,");
-    }  
+        epocTime_receive = epocTime_now;                          // We don't have a usable reception time; use the current system time
+        stTime_receive = stTime_now;
+    }
+
+    // Fields 7 & 8 are the message reception time and date
+    p += sprintf(p, "%04d/%02d/%02d,", (stTime_receive.tm_year+1900),(stTime_receive.tm_mon+1), stTime_receive.tm_mday);
+    p += sprintf(p, "%02d:%02d:%02d.%03d,", stTime_receive.tm_hour, stTime_receive.tm_min, stTime_receive.tm_sec, epocTime_receive.millitm);
 
     // Fields 9 & 10 are the current time and date
-    ftime(&epocTime);                                         // get the current system time & date
-    stTime = *localtime(&epocTime.time);                      // convert the time to year, month  day, hours, min, sec
-    p += sprintf(p, "%04d/%02d/%02d,", (stTime.tm_year+1900),(stTime.tm_mon+1), stTime.tm_mday); 
-    p += sprintf(p, "%02d:%02d:%02d.%03d", stTime.tm_hour, stTime.tm_min, stTime.tm_sec, epocTime.millitm); 
+    p += sprintf(p, "%04d/%02d/%02d,", (stTime_now.tm_year+1900),(stTime_now.tm_mon+1), stTime_now.tm_mday);
+    p += sprintf(p, "%02d:%02d:%02d.%03d", stTime_now.tm_hour, stTime_now.tm_min, stTime_now.tm_sec, epocTime_now.millitm);
 
     // Field 11 is the callsign (if we have it)
     if (mm->bFlags & MODES_ACFLAGS_CALLSIGN_VALID) {p += sprintf(p, ",%s", mm->flight);}
@@ -867,11 +874,12 @@ void modesReadFromClient(struct client *c, char *sep,
             bContinue = 0;
         }
 #ifndef _WIN32
-        if ( (nread < 0) && (errno != EAGAIN)) { // Error, or end of file
+        if ( (nread < 0 && errno != EAGAIN && errno != EWOULDBLOCK) || nread == 0 ) { // Error, or end of file
 #else
         if ( (nread < 0) && (errno != EWOULDBLOCK)) { // Error, or end of file
 #endif
             modesCloseClient(c);
+            return;
         }
         if (nread <= 0) {
             break; // Serve next client
