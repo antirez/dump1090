@@ -428,6 +428,7 @@ void showHelp(void) {
 "--aggressive             More CPU for more messages (two bits fixes, ...)\n"
 "--mlat                   display raw messages in Beast ascii mode\n"
 "--stats                  With --ifile print stats at exit. No other output\n"
+"--stats-every <seconds>  Show and reset stats every <seconds> seconds\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes)\n"
 "--metric                 Use metric units (meters, km/h, ...)\n"
 "--snip <level>           Strip IQ file removing samples < level\n"
@@ -480,6 +481,86 @@ void showCopyright(void) {
   while (llTime >= time(NULL)) {}
 }
 #endif
+
+
+static void display_stats(void) {
+    int j;
+    time_t now = time(NULL);
+
+    printf("\n\n");
+    if (Modes.interactive)
+        interactiveShowData();
+
+    printf("Statistics as at %s", ctime(&now));
+
+    printf("%d sample blocks processed\n",                    Modes.stat_blocks_processed);
+    printf("%d sample blocks dropped\n",                      Modes.stat_blocks_dropped);
+
+    printf("%d ModeA/C detected\n",                           Modes.stat_ModeAC);
+    printf("%d valid Mode-S preambles\n",                     Modes.stat_valid_preamble);
+    printf("%d DF-?? fields corrected for length\n",          Modes.stat_DF_Len_Corrected);
+    printf("%d DF-?? fields corrected for type\n",            Modes.stat_DF_Type_Corrected);
+    printf("%d demodulated with 0 errors\n",                  Modes.stat_demodulated0);
+    printf("%d demodulated with 1 error\n",                   Modes.stat_demodulated1);
+    printf("%d demodulated with 2 errors\n",                  Modes.stat_demodulated2);
+    printf("%d demodulated with > 2 errors\n",                Modes.stat_demodulated3);
+    printf("%d with good crc\n",                              Modes.stat_goodcrc);
+    printf("%d with bad crc\n",                               Modes.stat_badcrc);
+    printf("%d errors corrected\n",                           Modes.stat_fixed);
+
+    for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
+        printf("   %d with %d bit %s\n", Modes.stat_bit_fix[j], j+1, (j==0)?"error":"errors");
+    }
+
+    if (Modes.phase_enhance) {
+        printf("%d phase enhancement attempts\n",                 Modes.stat_out_of_phase);
+        printf("%d phase enhanced demodulated with 0 errors\n",   Modes.stat_ph_demodulated0);
+        printf("%d phase enhanced demodulated with 1 error\n",    Modes.stat_ph_demodulated1);
+        printf("%d phase enhanced demodulated with 2 errors\n",   Modes.stat_ph_demodulated2);
+        printf("%d phase enhanced demodulated with > 2 errors\n", Modes.stat_ph_demodulated3);
+        printf("%d phase enhanced with good crc\n",               Modes.stat_ph_goodcrc);
+        printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
+        printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
+
+        for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
+            printf("   %d with %d bit %s\n", Modes.stat_ph_bit_fix[j], j+1, (j==0)?"error":"errors");
+        }
+    }
+
+    printf("%d total usable messages\n",                      Modes.stat_goodcrc + Modes.stat_ph_goodcrc + Modes.stat_fixed + Modes.stat_ph_fixed);
+    fflush(stdout);
+
+    Modes.stat_blocks_processed =
+        Modes.stat_blocks_dropped = 0;
+
+    Modes.stat_ModeAC =
+        Modes.stat_valid_preamble =
+        Modes.stat_DF_Len_Corrected =
+        Modes.stat_DF_Type_Corrected =
+        Modes.stat_demodulated0 =
+        Modes.stat_demodulated1 =
+        Modes.stat_demodulated2 =
+        Modes.stat_demodulated3 =
+        Modes.stat_goodcrc =
+        Modes.stat_badcrc =
+        Modes.stat_fixed = 0;
+
+    Modes.stat_out_of_phase =
+        Modes.stat_ph_demodulated0 =
+        Modes.stat_ph_demodulated1 =
+        Modes.stat_ph_demodulated2 =
+        Modes.stat_ph_demodulated3 =
+        Modes.stat_ph_goodcrc =
+        Modes.stat_ph_badcrc =
+        Modes.stat_ph_fixed = 0;
+
+    for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
+        Modes.stat_ph_bit_fix[j] = 0;
+        Modes.stat_bit_fix[j] = 0;
+    }
+}
+
+
 //
 //=========================================================================
 //
@@ -488,6 +569,8 @@ void showCopyright(void) {
 // from the net, refreshing the screen in interactive mode, and so forth
 //
 void backgroundTasks(void) {
+    static time_t next_stats;
+
     if (Modes.net) {
         modesReadFromClients();
     }    
@@ -500,6 +583,15 @@ void backgroundTasks(void) {
     // Refresh screen when in interactive mode
     if (Modes.interactive) {
         interactiveShowData();
+    }
+
+    if (Modes.stats > 0) {
+        time_t now = time(NULL);
+        if (now > next_stats) {
+            if (next_stats != 0)
+                display_stats();
+            next_stats = now + Modes.stats;
+        }
     }
 }
 //
@@ -665,7 +757,9 @@ int main(int argc, char **argv) {
                 f++;
             }
         } else if (!strcmp(argv[j],"--stats")) {
-            Modes.stats = 1;
+            Modes.stats = -1;
+        } else if (!strcmp(argv[j],"--stats-every") && more) {
+            Modes.stats = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--snip") && more) {
             snipMode(atoi(argv[++j]));
             exit(0);
@@ -759,6 +853,7 @@ int main(int argc, char **argv) {
             // If we lost some blocks, correct the timestamp
             if (Modes.iDataLost) {
                 Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES * 6 * Modes.iDataLost);
+                Modes.stat_blocks_dropped += Modes.iDataLost;
                 Modes.iDataLost = 0;
             }
 
@@ -773,7 +868,7 @@ int main(int argc, char **argv) {
 
             // Update the timestamp ready for the next block
             Modes.timestampBlk += (MODES_ASYNC_BUF_SAMPLES*6);
-
+            Modes.stat_blocks_processed++;
         } else {
             pthread_cond_signal (&Modes.data_cond);
             pthread_mutex_unlock(&Modes.data_mutex);
@@ -785,37 +880,7 @@ int main(int argc, char **argv) {
 
     // If --stats were given, print statistics
     if (Modes.stats) {
-        printf("\n\n");
-        if (Modes.interactive)
-            interactiveShowData();
-        printf("%d ModeA/C detected\n",                           Modes.stat_ModeAC);
-        printf("%d valid Mode-S preambles\n",                     Modes.stat_valid_preamble);
-        printf("%d DF-?? fields corrected for length\n",          Modes.stat_DF_Len_Corrected);
-        printf("%d DF-?? fields corrected for type\n",            Modes.stat_DF_Type_Corrected);
-        printf("%d demodulated with 0 errors\n",                  Modes.stat_demodulated0);
-        printf("%d demodulated with 1 error\n",                   Modes.stat_demodulated1);
-        printf("%d demodulated with 2 errors\n",                  Modes.stat_demodulated2);
-        printf("%d demodulated with > 2 errors\n",                Modes.stat_demodulated3);
-        printf("%d with good crc\n",                              Modes.stat_goodcrc);
-        printf("%d with bad crc\n",                               Modes.stat_badcrc);
-        printf("%d errors corrected\n",                           Modes.stat_fixed);
-        for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
-            printf("   %d with %d bit %s\n", Modes.stat_bit_fix[j], j+1, (j==0)?"error":"errors");
-        }
-        if (Modes.phase_enhance) {
-            printf("%d phase enhancement attempts\n",                 Modes.stat_out_of_phase);
-            printf("%d phase enhanced demodulated with 0 errors\n",   Modes.stat_ph_demodulated0);
-            printf("%d phase enhanced demodulated with 1 error\n",    Modes.stat_ph_demodulated1);
-            printf("%d phase enhanced demodulated with 2 errors\n",   Modes.stat_ph_demodulated2);
-            printf("%d phase enhanced demodulated with > 2 errors\n", Modes.stat_ph_demodulated3);
-            printf("%d phase enhanced with good crc\n",               Modes.stat_ph_goodcrc);
-            printf("%d phase enhanced with bad crc\n",                Modes.stat_ph_badcrc);
-            printf("%d phase enhanced errors corrected\n",            Modes.stat_ph_fixed);
-            for (j = 0;  j < MODES_MAX_BITERRORS;  j++) {
-                printf("   %d with %d bit %s\n", Modes.stat_ph_bit_fix[j], j+1, (j==0)?"error":"errors");
-            }
-        }
-        printf("%d total usable messages\n",                      Modes.stat_goodcrc + Modes.stat_ph_goodcrc + Modes.stat_fixed + Modes.stat_ph_fixed);
+        display_stats();
     }
 
     if (Modes.filename == NULL) {
