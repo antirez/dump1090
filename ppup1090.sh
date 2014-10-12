@@ -15,6 +15,10 @@ PROG="dump1090"
 PROG_PATH="/home/pi/dump1090"
 PROG_ARGS="--quiet --net --net-ro-size 500 --net-ro-rate 5 --net-buffer 5"
 PIDFILE="/var/run/dump1090.pid"
+PROG2="ppup1090"
+PROG2_ARGS="--quiet --net-pp-addr 192.168.1.64"
+PIDFILE2="/var/run/$PROG2.pid"
+DELAY=5
 
 start() {
       if [ -e $PIDFILE ]; then
@@ -25,8 +29,13 @@ start() {
           ## Change from /dev/null to something like /var/log/$PROG if you want to save output.
           cd $PROG_PATH
           ./$PROG $PROG_ARGS 2>&1 >/dev/null &
-          echo "$PROG started"
+          echo "$PROG started, waiting $DELAY seconds"
           touch $PIDFILE
+          sleep $DELAY
+          echo "Attempting to start $PROG2.."
+          ./$PROG2 $PROG2_ARGS 2>1 >/dev/null &
+          echo "$PROG2 started"
+          touch $PIDFILE2
       fi
 }
 
@@ -34,7 +43,9 @@ stop() {
       if [ -e $PIDFILE ]; then
           ## Program is running, so stop it
          echo "$PROG is running"
+         killall $PROG2
          killall $PROG
+         rm -f $PIDFILE2
          rm -f $PIDFILE
          echo "$PROG stopped"
       else

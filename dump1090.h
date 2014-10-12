@@ -30,14 +30,14 @@
 #ifndef __DUMP1090_H
 #define __DUMP1090_H
 
-// File Version number 
+// File Version number
 // ====================
 // Format is : MajorVer.MinorVer.DayMonth.Year"
 // MajorVer changes only with significant changes
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.08.2302.14"
+#define MODES_DUMP1090_VERSION     "1.09.0608.14"
 
 // ============================= Include files ==========================
 
@@ -62,11 +62,12 @@
 #else
     #include "winstubs.h" //Put everything Windows specific in here
     #include "rtl-sdr.h"
+    #include "anet.h"
 #endif
 
 // ============================= #defines ===============================
 //
-// If you have a valid coaa.h, these values will come from it. If not, 
+// If you have a valid coaa.h, these values will come from it. If not,
 // then you can enter your own values in the #else section here
 //
 #ifdef USER_LATITUDE
@@ -75,8 +76,9 @@
 #else
     #define MODES_USER_LATITUDE_DFLT   (0.0)
     #define MODES_USER_LONGITUDE_DFLT  (0.0)
-#endif 
+#endif
 
+#define MODES_DEFAULT_PPM          52
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -114,7 +116,7 @@
 #define MODES_LONG_MSG_SIZE     (MODES_LONG_MSG_SAMPLES  * sizeof(uint16_t))
 #define MODES_SHORT_MSG_SIZE    (MODES_SHORT_MSG_SAMPLES * sizeof(uint16_t))
 
-#define MODES_RAWOUT_BUF_SIZE   (1500)           
+#define MODES_RAWOUT_BUF_SIZE   (1500)
 #define MODES_RAWOUT_BUF_FLUSH  (MODES_RAWOUT_BUF_SIZE - 200)
 #define MODES_RAWOUT_BUF_RATE   (1000)            // 1000 * 64mS = 1 Min approx
 
@@ -137,12 +139,12 @@
 #define MODES_ACFLAGS_AOG            (1<<9)  // Aircraft is On the Ground
 #define MODES_ACFLAGS_LLEVEN_VALID   (1<<10) // Aircraft Even Lot/Lon is known
 #define MODES_ACFLAGS_LLODD_VALID    (1<<11) // Aircraft Odd Lot/Lon is known
-#define MODES_ACFLAGS_AOG_VALID      (1<<12) // MODES_ACFLAGS_AOG is valid 
-#define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known 
+#define MODES_ACFLAGS_AOG_VALID      (1<<12) // MODES_ACFLAGS_AOG is valid
+#define MODES_ACFLAGS_FS_VALID       (1<<13) // Aircraft Flight Status is known
 #define MODES_ACFLAGS_NSEWSPD_VALID  (1<<14) // Aircraft EW and NS Speed is known
 #define MODES_ACFLAGS_LATLON_REL_OK  (1<<15) // Indicates it's OK to do a relative CPR
 
-#define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID) 
+#define MODES_ACFLAGS_LLEITHER_VALID (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
 #define MODES_ACFLAGS_LLBOTH_VALID   (MODES_ACFLAGS_LLEVEN_VALID | MODES_ACFLAGS_LLODD_VALID)
 #define MODES_ACFLAGS_AOG_GROUND     (MODES_ACFLAGS_AOG_VALID    | MODES_ACFLAGS_AOG)
 
@@ -163,8 +165,9 @@
 #define MODES_INTERACTIVE_DELETE_TTL   300      // Delete from the list after 300 seconds
 #define MODES_INTERACTIVE_DISPLAY_TTL   60      // Delete from display after 60 seconds
 
+#define MODES_NET_HEARTBEAT_RATE       900      // Each block is approx 65mS - default is > 1 min
+
 #define MODES_NET_SERVICES_NUM          6
-#define MODES_NET_MAX_FD             1024
 #define MODES_NET_INPUT_RAW_PORT    30001
 #define MODES_NET_OUTPUT_RAW_PORT   30002
 #define MODES_NET_OUTPUT_SBS_PORT   30003
@@ -173,6 +176,7 @@
 #define MODES_NET_HTTP_PORT          8080
 #define MODES_CLIENT_BUF_SIZE  1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
+#define MODES_NET_SNDBUF_MAX  (7)
 
 #ifndef HTMLPATH
 #define HTMLPATH   "./public_html"      // default path for gmap.html etc
@@ -184,10 +188,11 @@
 
 // Structure used to describe a networking client
 struct client {
-    int  fd;                           // File descriptor
-    int  service;                      // TCP port the client is connected to
-    int  buflen;                       // Amount of data on buffer
-    char buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
+    struct client*  next;                // Pointer to next client
+    int    fd;                           // File descriptor
+    int    service;                      // TCP port the client is connected to
+    int    buflen;                       // Amount of data on buffer
+    char   buf[MODES_CLIENT_BUF_SIZE+1]; // Read buffer
 };
 
 // Structure used to describe an aircraft in iteractive mode
@@ -222,6 +227,16 @@ struct aircraft {
     struct aircraft *next;        // Next aircraft in our linked list
 };
 
+struct stDF {
+    struct stDF     *pNext;                      // Pointer to next item in the linked list
+    struct stDF     *pPrev;                      // Pointer to previous item in the linked list
+    struct aircraft *pAircraft;                  // Pointer to the Aircraft structure for this DF
+    time_t           seen;                       // Dos/UNIX Time at which the this packet was received
+    uint64_t         llTimestamp;                // Timestamp at which the this packet was received
+    uint32_t         addr;                       // Timestamp at which the this packet was received
+    unsigned char    msg[MODES_LONG_MSG_BYTES];  // the binary
+} tDF;
+
 // Program global state
 struct {                             // Internal state
     pthread_t       reader_thread;
@@ -232,7 +247,7 @@ struct {                             // Internal state
     struct timeb    stSystemTimeRTL[MODES_ASYNC_BUF_NUMBER]; // System time when RTL passed us this block
     int             iDataIn;         // Fifo input pointer
     int             iDataOut;        // Fifo output pointer
-    int             iDataReady;      // Fifo content count 
+    int             iDataReady;      // Fifo content count
     int             iDataLost;       // Count of missed buffers
 
     uint16_t       *pFileData;       // Raw IQ samples buffer (from a File)
@@ -254,20 +269,19 @@ struct {                             // Internal state
 
     // Networking
     char           aneterr[ANET_ERR_LEN];
-    struct client *clients[MODES_NET_MAX_FD]; // Our clients
-    int            maxfd;                     // Greatest fd currently active
-    int            sbsos;                     // SBS output listening socket
-    int            ros;                       // Raw output listening socket
-    int            ris;                       // Raw input listening socket
-    int            bos;                       // Beast output listening socket
-    int            bis;                       // Beast input listening socket
-    int            https;                     // HTTP listening socket
-    char          *rawOut;                    // Buffer for building raw output data
-    int            rawOutUsed;                // How much of the buffer is currently used
-    char          *beastOut;                  // Buffer for building beast output data
-    int            beastOutUsed;              // How much if the buffer is currently used
+    struct client *clients;          // Our clients
+    int            sbsos;            // SBS output listening socket
+    int            ros;              // Raw output listening socket
+    int            ris;              // Raw input listening socket
+    int            bos;              // Beast output listening socket
+    int            bis;              // Beast input listening socket
+    int            https;            // HTTP listening socket
+    char          *rawOut;           // Buffer for building raw output data
+    int            rawOutUsed;       // How much of the buffer is currently used
+    char          *beastOut;         // Buffer for building beast output data
+    int            beastOutUsed;     // How much if the buffer is currently used
 #ifdef _WIN32
-    WSADATA        wsaData;                   // Windows socket initialisation
+    WSADATA        wsaData;          // Windows socket initialisation
 #endif
 
     // Configuration
@@ -281,6 +295,8 @@ struct {                             // Internal state
     int   debug;                     // Debugging mode
     int   net;                       // Enable networking
     int   net_only;                  // Enable just networking
+    int   net_heartbeat_count;       // TCP heartbeat counter
+    int   net_heartbeat_rate;        // TCP heartbeat rate
     int   net_output_sbs_port;       // SBS output TCP port
     int   net_output_raw_size;       // Minimum Size of the output raw data
     int   net_output_raw_rate;       // Rate (in 64mS increments) of output raw data
@@ -290,6 +306,7 @@ struct {                             // Internal state
     int   net_output_beast_port;     // Beast output TCP port
     int   net_input_beast_port;      // Beast input TCP port
     int   net_http_port;             // HTTP port
+    int   net_sndbuf_size;           // TCP output buffer size (64Kb * 2^n)
     int   quiet;                     // Suppress stdout
     int   interactive;               // Interactive mode
     int   interactive_rows;          // Interactive mode: max number of rows
@@ -309,6 +326,12 @@ struct {                             // Internal state
     // Interactive mode
     struct aircraft *aircrafts;
     uint64_t         interactive_last_update; // Last screen update in milliseconds
+    time_t           last_cleanup_time;       // Last cleanup time in seconds
+
+    // DF List mode
+    int             bEnableDFLogging; // Set to enable DF Logging
+    pthread_mutex_t pDF_mutex;        // Mutex to synchronize pDF access
+    struct stDF    *pDF;              // Pointer to DF list
 
     // Statistics
     unsigned int stat_valid_preamble;
@@ -323,7 +346,7 @@ struct {                             // Internal state
     // Histogram of fixed bit errors: index 0 for single bit erros,
     // index 1 for double bit errors etc.
     unsigned int stat_bit_fix[MODES_MAX_BITERRORS];
-							
+
     unsigned int stat_http_requests;
     unsigned int stat_sbs_connections;
     unsigned int stat_raw_connections;
@@ -339,10 +362,13 @@ struct {                             // Internal state
     // Histogram of fixed bit errors: index 0 for single bit erros,
     // index 1 for double bit errors etc.
     unsigned int stat_ph_bit_fix[MODES_MAX_BITERRORS];
-							
+
     unsigned int stat_DF_Len_Corrected;
     unsigned int stat_DF_Type_Corrected;
     unsigned int stat_ModeAC;
+
+    unsigned int stat_blocks_processed;
+    unsigned int stat_blocks_dropped;
 } Modes;
 
 // The struct we use to store information about a decoded message.
@@ -410,7 +436,7 @@ void decodeModesMessage (struct modesMessage *mm, unsigned char *msg);
 void displayModesMessage(struct modesMessage *mm);
 void useModesMessage    (struct modesMessage *mm);
 void computeMagnitudeVector(uint16_t *pData);
-void decodeCPR          (struct aircraft *a, int fflag, int surface);
+int  decodeCPR          (struct aircraft *a, int fflag, int surface);
 int  decodeCPRrelative  (struct aircraft *a, int fflag, int surface);
 void modesInitErrorInfo ();
 //
@@ -420,6 +446,8 @@ struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void  interactiveShowData(void);
 void  interactiveRemoveStaleAircrafts(void);
 int   decodeBinMessage   (struct client *c, char *p);
+struct aircraft *interactiveFindAircraft(uint32_t addr);
+struct stDF     *interactiveFindDF      (uint32_t addr);
 
 //
 // Functions exported from net_io.c

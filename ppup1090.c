@@ -51,7 +51,8 @@ void ppup1090InitConfig(void) {
     // Now initialise things that should not be 0/NULL to their defaults
     Modes.check_crc               = 1;
     Modes.quiet                   = 1;
-    strcpy(ppup1090.net_input_beast_ipaddr,PPUP1090_NET_OUTPUT_IP_ADDRESS); 
+    Modes.bEnableDFLogging        = 1;
+    strcpy(ppup1090.net_input_beast_ipaddr,PPUP1090_NET_OUTPUT_IP_ADDRESS);
     Modes.net_input_beast_port    = MODES_NET_OUTPUT_BEAST_PORT;
     Modes.interactive_delete_ttl  = MODES_INTERACTIVE_DELETE_TTL;
     Modes.interactive_display_ttl = MODES_INTERACTIVE_DISPLAY_TTL;
@@ -70,6 +71,10 @@ void ppup1090InitConfig(void) {
 void ppup1090Init(void) {
 
     int iErr;
+
+    pthread_mutex_init(&Modes.pDF_mutex,NULL);
+    pthread_mutex_init(&Modes.data_mutex,NULL);
+    pthread_cond_init(&Modes.data_cond,NULL);
 
     // Allocate the various buffers used by Modes
     if ( NULL == (Modes.icao_cache = (uint32_t *) malloc(sizeof(uint32_t) * MODES_ICAO_CACHE_LEN * 2)))
@@ -104,6 +109,7 @@ void ppup1090Init(void) {
     modesInitErrorInfo();
 
     // Setup the uploader - read the user paramaters from the coaa.h header file
+    coaa1090.ppIPAddr = ppup1090.net_pp_ipaddr;
     coaa1090.fUserLat = MODES_USER_LATITUDE_DFLT;
     coaa1090.fUserLon = MODES_USER_LONGITUDE_DFLT;
     strcpy(coaa1090.strAuthCode,STR(USER_AUTHCODE));
@@ -126,10 +132,46 @@ void showHelp(void) {
 "-----------------------------------------------------------------------------\n"
   "--net-bo-ipaddr <IPv4>   TCP Beast output listen IPv4 (default: 127.0.0.1)\n"
   "--net-bo-port <port>     TCP Beast output listen port (default: 30005)\n"
+  "--net-pp-ipaddr <IPv4>   Plane Plotter LAN IPv4 Address (default: 0.0.0.0)\n"
   "--quiet                  Disable output to stdout. Use for daemon applications\n"
   "--help                   Show this help\n"
     );
 }
+
+#ifdef _WIN32
+void showCopyright(void) {
+    uint64_t llTime = time(NULL) + 1;
+
+    printf(
+"-----------------------------------------------------------------------------\n"
+"|    ppup1090 RPi Uploader for COAA Planeplotter         Ver : "MODES_DUMP1090_VERSION " |\n"
+"-----------------------------------------------------------------------------\n"
+"\n"
+" Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>\n"
+" Copyright (C) 2014 by Malcolm Robb <support@attavionics.com>\n"
+"\n"
+" All rights reserved.\n"
+"\n"
+" THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS\n"
+" ""AS IS"" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT\n"
+" LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR\n"
+" A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT\n"
+" HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,\n"
+" SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT\n"
+" LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,\n"
+" DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY\n"
+" THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT\n"
+" (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE\n"
+" OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.\n"
+"\n"
+" For further details refer to <https://github.com/MalcolmRobb/dump1090>\n" 
+"\n"
+    );
+
+  // delay for 1 second to give the user a chance to read the copyright
+  while (llTime >= time(NULL)) {}
+}
+#endif
 //
 //=========================================================================
 //
@@ -150,6 +192,8 @@ int main(int argc, char **argv) {
             Modes.net_input_beast_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-bo-ipaddr") && more) {
             strcpy(ppup1090.net_input_beast_ipaddr, argv[++j]);
+        } else if (!strcmp(argv[j],"--net-pp-ipaddr") && more) {
+            inet_aton(argv[++j], (void *)&ppup1090.net_pp_ipaddr);
         } else if (!strcmp(argv[j],"--quiet")) {
             ppup1090.quiet = 1;
         } else if (!strcmp(argv[j],"--help")) {
@@ -162,6 +206,11 @@ int main(int argc, char **argv) {
         }
     }
 
+#ifdef _WIN32
+    // Try to comply with the Copyright license conditions for binary distribution
+    if (!ppup1090.quiet) {showCopyright();}
+#endif
+
     // Initialization
     ppup1090Init();
 
@@ -173,28 +222,21 @@ int main(int argc, char **argv) {
     //
     // Setup a service callback client structure for a beast binary input (from dump1090)
     // This is a bit dodgy under Windows. The fd parameter is a handle to the internet
-    // socket on which we are receiving data. Under Linux, these seem to start at 0 and 
+    // socket on which we are receiving data. Under Linux, these seem to start at 0 and
     // count upwards. However, Windows uses "HANDLES" and these don't nececeriy start at 0.
-    // dump1090 limits fd to values less than 1024, and then uses the fd parameter to 
+    // dump1090 limits fd to values less than 1024, and then uses the fd parameter to
     // index into an array of clients. This is ok-ish if handles are allocated up from 0.
-    // However, there is no gaurantee that Windows will behave like this, and if Windows 
-    // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine, 
+    // However, there is no gaurantee that Windows will behave like this, and if Windows
+    // allocates a handle greater than 1024, then dump1090 won't like it. On my test machine,
     // the first Windows handle is usually in the 0x54 (84 decimal) region.
 
-    if (fd >= MODES_NET_MAX_FD) { // Max number of clients reached
-        close(fd);
-        exit(1);
-    }
-
     c = (struct client *) malloc(sizeof(*c));
+    c->next    = NULL;
     c->buflen  = 0;
-    c->fd      = 
+    c->fd      =
     c->service =
     Modes.bis  = fd;
-    Modes.clients[fd] = c;
-    if (Modes.maxfd < fd) {
-        Modes.maxfd = fd;
-    }
+    Modes.clients = c;
 
     // Keep going till the user does something that stops us
     while (!Modes.exit) {
@@ -204,11 +246,15 @@ int main(int argc, char **argv) {
     }
 
     // The user has stopped us, so close any socket we opened
-    if (fd != ANET_ERR) 
+    if (fd != ANET_ERR)
       {close(fd);}
 
     closeCOAA ();
+#ifndef _WIN32
     pthread_exit(0);
+#else
+    return (0);
+#endif
 }
 //
 //=========================================================================
