@@ -3,3 +3,4 @@ TODO
 * Extract more information from captured Mode S messages.
 * Improve the web interface gmap.html.
 * Enhance the algorithm to reliably decode more messages.
+* Handle DF-18 control field 5 / TIS-B 

@@ -1,6 +1,5 @@
 CFLAGS=-O2 -g -Wall -W `pkg-config --cflags librtlsdr`
 LIBS=`pkg-config --libs librtlsdr` -lpthread -lm
-CC=gcc
 PROGNAME=dump1090
 
 all: dump1090
