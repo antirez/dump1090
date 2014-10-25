@@ -85,7 +85,7 @@ void modesInitNet(void) {
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
 		services[j].enabled = (services[j].port != 0);
 		if (services[j].enabled) {
-			int s = anetTcpServer(Modes.aneterr, services[j].port, NULL);
+			int s = anetTcpServer(Modes.aneterr, services[j].port, Modes.net_bind_address);
 			if (s == -1) {
 				fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
 					services[j].port, services[j].descr, Modes.aneterr);
