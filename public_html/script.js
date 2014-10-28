@@ -403,11 +403,16 @@ function refreshTableInfo() {
 	    'align="right">Altitude</td>';
 	html += '<td onclick="setASC_DESC(\'4\');sortTable(\'tableinfo\',\'4\');" ' +
 	    'align="right">Speed</td>';
-	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" ' +
+        // Add distance column header to table if site coordinates are provided
+        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+            html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'5\');" ' +
+                'align="right">Distance</td>';
+        }
+	html += '<td onclick="setASC_DESC(\'5\');sortTable(\'tableinfo\',\'6\');" ' +
 	    'align="right">Track</td>';
-	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'6\');" ' +
+	html += '<td onclick="setASC_DESC(\'6\');sortTable(\'tableinfo\',\'7\');" ' +
 	    'align="right">Msgs</td>';
-	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'7\');" ' +
+	html += '<td onclick="setASC_DESC(\'7\');sortTable(\'tableinfo\',\'8\');" ' +
 	    'align="right">Seen</td></thead><tbody>';
 	for (var tablep in Planes) {
 		var tableplane = Planes[tablep]
@@ -451,6 +456,25 @@ function refreshTableInfo() {
     	        html += '<td align="right">' + tableplane.altitude + '</td>';
     	        html += '<td align="right">' + tableplane.speed + '</td>';
     	    }
+                        // Add distance column to table if site coordinates are provided
+                        if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+                        html += '<td align="right">';
+                            if (tableplane.vPosition) {
+                                var siteLatLon  = new google.maps.LatLng(SiteLat, SiteLon);
+                                var planeLatLon = new google.maps.LatLng(tableplane.latitude, tableplane.longitude);
+                                var dist = google.maps.geometry.spherical.computeDistanceBetween (siteLatLon, planeLatLon);
+                                    if (Metric) {
+                                        dist /= 1000;
+                                    } else {
+                                        dist /= 1852;
+                                    }
+                                dist = (Math.round((dist)*10)/10).toFixed(1);
+                                html += dist;
+                            } else {
+                            html += '0';
+                            }
+                            html += '</td>';
+                        }
 			
 			html += '<td align="right">';
 			if (tableplane.vTrack) {
@@ -503,6 +527,8 @@ function sortTable(szTableID,iCol) {
 	if (typeof iCol==='undefined'){
 		if(iSortCol!=-1){
 			var iCol=iSortCol;
+                } else if (SiteShow && (typeof SiteLat !==  'undefined' || typeof SiteLon !==  'undefined')) {
+                        var iCol=5;
 		} else {
 			var iCol=iDefaultSortCol;
 		}
