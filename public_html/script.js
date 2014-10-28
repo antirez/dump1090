@@ -267,6 +267,7 @@ function refreshSelected() {
 	} else if (selected && selected.squawk == 7700) { // General Emergency
 		html += '&nbsp;<span class="squawk7700">&nbsp;Squawking: General Emergency&nbsp;</span>';
 	} else if (selected && selected.flight != '') {
+		html += '&nbsp;<a href="http://fr24.com/'+selected.flight+'" target="_blank">[FR24]</a>';
 	    html += '&nbsp;<a href="http://www.flightstats.com/go/FlightStatus/flightStatusByFlight.do?';
         html += 'flightNumber='+selected.flight+'" target="_blank">[FlightStats]</a>';
 	}
