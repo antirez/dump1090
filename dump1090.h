@@ -37,7 +37,7 @@
 // MinorVer changes when additional features are added, but not for bug fixes (range 00-99)
 // DayDate & Year changes for all changes, including for bug fixes. It represent the release date of the update
 //
-#define MODES_DUMP1090_VERSION     "1.09.0608.14"
+#define MODES_DUMP1090_VERSION     "1.10.2910.14"
 
 // ============================= Include files ==========================
 
@@ -173,7 +173,7 @@
 #define MODES_NET_OUTPUT_SBS_PORT   30003
 #define MODES_NET_INPUT_BEAST_PORT  30004
 #define MODES_NET_OUTPUT_BEAST_PORT 30005
-#define MODES_NET_BIND_ADDRESS      "127.0.0.1"
+#define MODES_NET_BIND_ADDRESS      "0.0.0.0"
 #define MODES_NET_HTTP_PORT          8080
 #define MODES_CLIENT_BUF_SIZE  1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
