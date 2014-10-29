@@ -161,8 +161,15 @@ void modesFreeClient(struct client *c) {
         }
     }
 
-    // It's now safe to remove this client
-    close(c->fd);
+    free(c);
+}
+//
+//=========================================================================
+//
+// Close the client connection and mark it as closed
+//
+void modesCloseClient(struct client *c) {
+	close(c->fd);
     if (c->service == Modes.sbsos) {
         if (Modes.stat_sbs_connections) Modes.stat_sbs_connections--;
     } else if (c->service == Modes.ros) {
@@ -174,7 +181,7 @@ void modesFreeClient(struct client *c) {
     if (Modes.debug & MODES_DEBUG_NET)
         printf("Closing client %d\n", c->fd);
 
-    free(c);
+    c->fd = -1;
 }
 //
 //=========================================================================
@@ -188,15 +195,19 @@ void modesSendAllClients(int service, void *msg, int len) {
         // Read next before servicing client incase the service routine deletes the client! 
         struct client *next = c->next;
 
-        if (c->service == service) {
+        if (c->fd != -1) {
+            if (c->service == service) {
 #ifndef _WIN32
-            int nwritten = write(c->fd, msg, len);
+                int nwritten = write(c->fd, msg, len);
 #else
-            int nwritten = send(c->fd, msg, len, 0 );
+                int nwritten = send(c->fd, msg, len, 0 );
 #endif
-            if (nwritten != len) {
-                modesFreeClient(c);
+                if (nwritten != len) {
+                    modesCloseClient(c);
+                }
             }
+        } else {
+            modesFreeClient(c);
         }
         c = next;
     }
@@ -714,11 +725,12 @@ int handleHTTPRequest(struct client *c, char *p) {
     httpver = (strstr(p, "HTTP/1.1") != NULL) ? 11 : 10;
     if (httpver == 10) {
         // HTTP 1.0 defaults to close, unless otherwise specified.
-        keepalive = strstr(p, "Connection: keep-alive") != NULL;
+        //keepalive = strstr(p, "Connection: keep-alive") != NULL;
     } else if (httpver == 11) {
         // HTTP 1.1 defaults to keep-alive, unless close is specified.
-        keepalive = strstr(p, "Connection: close") == NULL;
+        //keepalive = strstr(p, "Connection: close") == NULL;
     }
+    keepalive = 0;
 
     // Identify he URL.
     p = strchr(p,' ');
@@ -852,6 +864,10 @@ void modesReadFromClient(struct client *c, char *sep,
         nread = recv(c->fd, c->buf+c->buflen, left, 0);
         if (nread < 0) {errno = WSAGetLastError();}
 #endif
+        if (nread == 0) {
+			modesCloseClient(c);
+			return;
+		}
 
         // If we didn't get all the data we asked for, then return once we've processed what we did get.
         if (nread != left) {
@@ -862,7 +878,7 @@ void modesReadFromClient(struct client *c, char *sep,
 #else
         if ( (nread < 0) && (errno != EWOULDBLOCK)) { // Error, or end of file
 #endif
-            modesFreeClient(c);
+            modesCloseClient(c);
             return;
         }
         if (nread <= 0) {
@@ -910,7 +926,7 @@ void modesReadFromClient(struct client *c, char *sep,
                 }
                 // Have a 0x1a followed by 1, 2 or 3 - pass message less 0x1a to handler.
                 if (handler(c, s)) {
-                    modesFreeClient(c);
+                    modesCloseClient(c);
                     return;
                 }
                 fullmsg = 1;
@@ -926,7 +942,7 @@ void modesReadFromClient(struct client *c, char *sep,
             while ((e = strstr(s, sep)) != NULL) { // end of first message if found
                 *e = '\0';                         // The handler expects null terminated strings
                 if (handler(c, s)) {               // Pass message to handler.
-                    modesFreeClient(c);            // Handler returns 1 on error to signal we .
+                    modesCloseClient(c);           // Handler returns 1 on error to signal we .
                     return;                        // should close the client connection
                 }
                 s = e + strlen(sep);               // Move to start of next message
@@ -953,15 +969,19 @@ void modesReadFromClients(void) {
     struct client *c = modesAcceptClients();
 
     while (c) {
-        // Read next before servicing client incase the service routine deletes the client! 
-        struct client *next = c->next;
+            // Read next before servicing client incase the service routine deletes the client! 
+            struct client *next = c->next;
 
-        if (c->service == Modes.ris) {
-            modesReadFromClient(c,"\n",decodeHexMessage);
-        } else if (c->service == Modes.bis) {
-            modesReadFromClient(c,"",decodeBinMessage);
-        } else if (c->service == Modes.https) {
-            modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
+        if (c->fd >= 0) {
+            if (c->service == Modes.ris) {
+                modesReadFromClient(c,"\n",decodeHexMessage);
+            } else if (c->service == Modes.bis) {
+                modesReadFromClient(c,"",decodeBinMessage);
+            } else if (c->service == Modes.https) {
+                modesReadFromClient(c,"\r\n\r\n",handleHTTPRequest);
+            }
+        } else {
+            modesFreeClient(c);
         }
         c = next;
     }
