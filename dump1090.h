@@ -173,6 +173,7 @@
 #define MODES_NET_OUTPUT_SBS_PORT   30003
 #define MODES_NET_INPUT_BEAST_PORT  30004
 #define MODES_NET_OUTPUT_BEAST_PORT 30005
+#define MODES_NET_BIND_ADDRESS      "127.0.0.1"
 #define MODES_NET_HTTP_PORT          8080
 #define MODES_CLIENT_BUF_SIZE  1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
@@ -305,6 +306,7 @@ struct {                             // Internal state
     int   net_input_raw_port;        // Raw input TCP port
     int   net_output_beast_port;     // Beast output TCP port
     int   net_input_beast_port;      // Beast input TCP port
+    char  *net_bind_address;         // Bind address
     int   net_http_port;             // HTTP port
     int   net_sndbuf_size;           // TCP output buffer size (64Kb * 2^n)
     int   quiet;                     // Suppress stdout
