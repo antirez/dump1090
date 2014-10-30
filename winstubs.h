@@ -72,7 +72,7 @@ _inline double trunc(double d) {return (d>0) ? floor(d):ceil(d) ;}
 //usleep works in microseconds, and isn't supported in Windows. This will do for our use.
 _inline void usleep(UINT32 ulSleep) {Sleep(ulSleep/1000);} 
 _inline uint64_t strtoll(const char *p, void *e, UINT32 base) {return _atoi64(p);}
-_inline int inet_aton(const char * cp, DWORD * ulAddr) { *ulAddr = inet_addr(cp); return 0;} 
+_inline int inet_aton(const char * cp, DWORD * ulAddr) { *ulAddr = inet_addr(cp); return (INADDR_NONE != *ulAddr);} 
 #define snprintf  _snprintf
 #define vsnprintf _vsnprintf
 #define realpath(N,R) _fullpath((R),(N),_MAX_PATH)

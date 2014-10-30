@@ -76,7 +76,6 @@ void modesInitConfig(void) {
     Modes.net_input_raw_port      = MODES_NET_INPUT_RAW_PORT;
     Modes.net_output_beast_port   = MODES_NET_OUTPUT_BEAST_PORT;
     Modes.net_input_beast_port    = MODES_NET_INPUT_BEAST_PORT;
-    Modes.net_bind_address        = MODES_NET_BIND_ADDRESS;
     Modes.net_http_port           = MODES_NET_HTTP_PORT;
     Modes.interactive_rows        = getTermRows();
     Modes.interactive_delete_ttl  = MODES_INTERACTIVE_DELETE_TTL;
@@ -410,7 +409,7 @@ void showHelp(void) {
 "--modeac                 Enable decoding of SSR Modes 3/A & 3/C\n"
 "--net-beast              TCP raw output in Beast binary format\n"
 "--net-only               Enable just networking, no RTL device or file used\n"
-"--net-bind-address <ip>  IP address to bind to (default: 127.0.0.1; 0.0.0.0 for public)\n"
+"--net-bind-address <ip>  IP address to bind to (default: Any; Use 127.0.0.1 for private)\n"
 "--net-http-port <port>   HTTP server port (default: 8080)\n"
 "--net-ri-port <port>     TCP raw input listen port  (default: 30001)\n"
 "--net-ro-port <port>     TCP raw output listen port (default: 30002)\n"
@@ -719,7 +718,7 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--net-bi-port") && more) {
             Modes.net_input_beast_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-bind-address") && more) {
-            Modes.net_bind_address = argv[++j];
+            Modes.net_bind_address = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--net-http-port") && more) {
             Modes.net_http_port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
