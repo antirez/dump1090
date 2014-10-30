@@ -52,7 +52,7 @@ BEGIN
             VALUE "FileDescription", "Mode A/C/S decoder for RTL Dongles\0"
             VALUE "FileVersion", "1, 10, 2910, 14\0"
             VALUE "InternalName", "DUMP1090.EXE\0"
-            VALUE "LegalCopyright", "Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>\r\nCopyright (C) 2014 by Malcolm Robb <support@attavionics.com>\0"
+            VALUE "LegalCopyright", "Copyright © 2012 by Salvatore Sanfilippo <antirez@gmail.com>\r\nCopyright © 2014 by Malcolm Robb <support@attavionics.com>\0"
             VALUE "LegalTrademarks", "\0"
             VALUE "OriginalFilename", "DUMP1090.EXE\0"
             VALUE "PrivateBuild", "\0"
