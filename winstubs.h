@@ -75,6 +75,7 @@ _inline uint64_t strtoll(const char *p, void *e, UINT32 base) {return _atoi64(p)
 _inline int inet_aton(const char * cp, DWORD * ulAddr) { *ulAddr = inet_addr(cp); return 0;} 
 #define snprintf  _snprintf
 #define vsnprintf _vsnprintf
+#define realpath(N,R) _fullpath((R),(N),_MAX_PATH)
 
 _inline void cls() {
     HANDLE hStdOut = GetStdHandle(STD_OUTPUT_HANDLE);
