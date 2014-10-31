@@ -1456,46 +1456,75 @@ int detectOutOfPhase(uint16_t *pPreamble) {
     if (pPreamble[-1] > pPreamble[1]/3) return -1;
     return 0;
 }
+
+
+uint16_t clamped_scale(uint16_t v, uint16_t scale) {
+    uint32_t scaled = (uint32_t)v * scale / 16384;
+    if (scaled > 65535) return 65535;
+    return (uint16_t) scaled;
+}
+// This function decides whether we are sampling early or late,
+// and by approximately how much, by looking at the energy in
+// preamble bits before and after the expected pulse locations.
 //
-//=========================================================================
+// It then deals with one sample pair at a time, comparing samples
+// to make a decision about the bit value. Based on this decision it
+// modifies the sample value of the *adjacent* sample which will
+// contain some of the energy from the bit we just inspected.
 //
-// This function does not really correct the phase of the message, it just
-// applies a transformation to the first sample representing a given bit:
-//
-// If the previous bit was one, we amplify it a bit.
-// If the previous bit was zero, we decrease it a bit.
-//
-// This simple transformation makes the message a bit more likely to be
-// correctly decoded for out of phase messages:
-//
-// When messages are out of phase there is more uncertainty in
-// sequences of the same bit multiple times, since 11111 will be
-// transmitted as continuously altering magnitude (high, low, high, low...)
-// 
-// However because the message is out of phase some part of the high
-// is mixed in the low part, so that it is hard to distinguish if it is
-// a zero or a one.
-//
-// However when the message is out of phase passing from 0 to 1 or from
-// 1 to 0 happens in a very recognizable way, for instance in the 0 -> 1
-// transition, magnitude goes low, high, high, low, and one of of the
-// two middle samples the high will be *very* high as part of the previous
-// or next high signal will be mixed there.
-//
-// Applying our simple transformation we make more likely if the current
-// bit is a zero, to detect another zero. Symmetrically if it is a one
-// it will be more likely to detect a one because of the transformation.
-// In this way similar levels will be interpreted more likely in the
-// correct way.
-//
+// pPayload[0] should be the start of the preamble,
+// pPayload[-1 .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] should be accessible.
+// pPayload[MODES_PREAMBLE_SAMPLES .. MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] will be updated.
 void applyPhaseCorrection(uint16_t *pPayload) {
     int j;
 
-    for (j = 0; j < MODES_LONG_MSG_SAMPLES; j += 2, pPayload += 2) {
-        if (pPayload[0] > pPayload[1]) { // One
-            pPayload[2] = (pPayload[2] * 5) / 4;
-        } else {                         // Zero
-            pPayload[2] = (pPayload[2] * 4) / 5;
+    // we expect 1 bits at 0, 2, 7, 9
+    // and 0 bits at -1, 1, 3, 4, 5, 6, 8, 10, 11, 12, 13, 14
+    // use bits -1,6 for early detection (bit 0/7 arrived a little early, our sample period starts after the bit phase so we include some of the next bit)
+    // use bits 3,10 for late detection (bit 2/9 arrived a little late, our sample period starts before the bit phase so we include some of the last bit)
+
+    uint32_t onTime = (pPayload[0] + pPayload[2] + pPayload[7] + pPayload[9]);
+    uint32_t early = (pPayload[-1] + pPayload[6]) << 1;
+    uint32_t late = (pPayload[3] + pPayload[10]) << 1;
+
+    if (early > late) {
+        // Our sample period starts late and so includes some of the next bit.
+
+        uint16_t scaleUp = 16384 + 16384 * early / (early + onTime);   // 1 + early / (early+onTime)
+        uint16_t scaleDown = 16384 - 16384 * early / (early + onTime); // 1 - early / (early+onTime)
+
+        // trailing bits are 0; final data sample will be a bit low.
+        pPayload[MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1] =
+            clamped_scale(pPayload[MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 1],  scaleUp);
+        for (j = MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2; j > MODES_PREAMBLE_SAMPLES; j -= 2) {
+            if (pPayload[j] > pPayload[j+1]) {
+                // x [1 0] y
+                // x overlapped with the "1" bit and is slightly high
+                pPayload[j-1] = clamped_scale(pPayload[j-1], scaleDown);
+            } else {
+                // x [0 1] y
+                // x overlapped with the "0" bit and is slightly low
+                pPayload[j-1] = clamped_scale(pPayload[j-1], scaleUp);
+            }
+        }
+    } else {
+        // Our sample period starts early and so includes some of the previous bit.
+
+        uint16_t scaleUp = 16384 + 16384 * late / (late + onTime);   // 1 + late / (late+onTime)
+        uint16_t scaleDown = 16384 - 16384 * late / (late + onTime); // 1 - late / (late+onTime)
+
+        // leading bits are 0; first data sample will be a bit low.
+        pPayload[MODES_PREAMBLE_SAMPLES] = clamped_scale(pPayload[MODES_PREAMBLE_SAMPLES], scaleUp);
+        for (j = MODES_PREAMBLE_SAMPLES; j < MODES_PREAMBLE_SAMPLES + MODES_LONG_MSG_SAMPLES - 2; j += 2) {
+            if (pPayload[j] > pPayload[j+1]) {
+                // x [1 0] y
+                // y overlapped with the "0" bit and is slightly low
+                pPayload[j+2] = clamped_scale(pPayload[j+2], scaleUp);
+            } else {
+                // x [0 1] y
+                // y overlapped with the "1" bit and is slightly high
+                pPayload[j+2] = clamped_scale(pPayload[j+2], scaleDown);
+            }
         }
     }
 }
@@ -1509,7 +1538,7 @@ void applyPhaseCorrection(uint16_t *pPayload) {
 void detectModeS(uint16_t *m, uint32_t mlen) {
     struct modesMessage mm;
     unsigned char msg[MODES_LONG_MSG_BYTES], *pMsg;
-    uint16_t aux[MODES_LONG_MSG_SAMPLES];
+    uint16_t aux[MODES_PREAMBLE_SAMPLES+MODES_LONG_MSG_SAMPLES+1];
     uint32_t j;
     int use_correction = 0;
 
@@ -1631,10 +1660,10 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             // If the previous attempt with this message failed, retry using
             // magnitude correction
             // Make a copy of the Payload, and phase correct the copy
-            memcpy(aux, pPayload, sizeof(aux));
-            applyPhaseCorrection(aux);
+            memcpy(aux, &pPreamble[-1], sizeof(aux));
+            applyPhaseCorrection(&aux[1]);
             Modes.stat_out_of_phase++;
-            pPayload = aux;
+            pPayload = &aux[1 + MODES_PREAMBLE_SAMPLES];
             // TODO ... apply other kind of corrections
             }
 
