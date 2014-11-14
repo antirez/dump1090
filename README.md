@@ -53,7 +53,7 @@ with your browser to http://localhost:8080 to see live traffic:
 
     ./dump1090 --interactive --net
 
-In iteractive mode it is possible to have a less information dense but more
+In interactive mode it is possible to have less information dense but more
 "arcade style" output, where the screen is refreshed every second displaying
 all the recently seen aircrafts with some additional information such as
 altitude and flight number, extracted from the received Mode S packets.
@@ -85,7 +85,7 @@ gain, frequency, and so forth. For a list of options use:
 
     ./dump1090 --help
 
-Everything is not documented here should be obvious, and for most users calling
+Everything not documented here should be obvious, and for most users calling
 it without arguments at all is the best thing to do.
 
 Reliability
@@ -109,13 +109,13 @@ better or worse compared to other similar programs.
 
 If you can capture traffic that Dump1090 is not able to decode properly, drop
 me an email with a download link. I may try to improve the detection during
-my free time (this is just an hobby project).
+my free time (this is just a hobby project).
 
 Network server features
 ---
 
 By enabling the networking support with --net Dump1090 starts listening
-for clients connections on port 30002 and 30001 (you can change both the
+for client connections on port 30002 and 30001 (you can change both the
 ports if you want, see --help output).
 
 Port 30002
@@ -147,7 +147,7 @@ broadcasted to clients listening to port 30002.
 In general everything received from port 30001 is handled exactly like the
 normal traffic from RTL devices or from file when --ifile is used.
 
-It is possible to use Dump1090 just as an hub using --ifile with /dev/zero
+It is possible to use Dump1090 just as a hub using --ifile with /dev/zero
 as argument as in the following example:
 
     ./dump1090 --net-only
@@ -195,17 +195,17 @@ Aggressive mode
 
 With --aggressive it is possible to activate the *aggressive mode* that is a
 modified version of the Mode S packet detection and decoding.
-THe aggresive mode uses more CPU usually (especially if there are many planes
+The aggressive mode uses more CPU usually (especially if there are many planes
 sending DF17 packets), but can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
 
-* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
+* Up to two demodulation errors are tolerated (adjacent entries in the magnitude
   vector with the same eight). Normally only messages without errors are
   checked.
 * It tries to fix DF17 messages trying every two bits combination.
 
-The use of aggressive mdoe is only advised in places where there is low traffic
+The use of aggressive mode is only advised in places where there is low traffic
 in order to have a chance to capture some more messages.
 
 Debug mode
@@ -229,7 +229,7 @@ Debug mode includes an optional javascript output that is used to visualize
 packets using a web browser, you can use the file debug.html under the
 'tools' directory to load the generated frames.js file.
 
-How this program works?
+How does this program work?
 ---
 
 The code is very documented and written in order to be easy to understand.
@@ -237,7 +237,7 @@ For the diligent programmer with a Mode S specification on his hands it
 should be trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
-as displayed using a trow-away SDL program, and trying to model the algorithm
+as displayed using a throw-away SDL program, and trying to model the algorithm
 based on how the messages look graphically.
 
 How to test the program?
