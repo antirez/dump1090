@@ -38,6 +38,7 @@
       src="https://maps.googleapis.com/maps/api/js?sensor=true">
     </script>
     <script type="text/javascript">
+    hrefFlightawareLookup = "http://uk.flightaware.com/live/flight/";
     Map=null;
     CenterLat=45.0;
     CenterLon=9.0;
@@ -88,7 +89,7 @@
         if (!p) return;
         var html = 'ICAO: '+p.hex+'<br>';
         if (p.flight.length) {
-            html += '<b>'+p.flight+'</b><br>';
+            html += '<b><a href="' +hrefFlightawareLookup + p.flight + '" target="_blank">'+p.flight+'</a></b><br>';
         }
         html += 'Altitude: '+p.altitude+' feet<br>';
         html += 'Speed: '+p.speed+' knots<br>';
