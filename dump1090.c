@@ -1493,7 +1493,7 @@ good_preamble:
             }
 
             /* Output debug mode info if needed. */
-            if (use_correction) {
+            if (use_correction == 0) {
                 if (Modes.debug & MODES_DEBUG_DEMOD)
                     dumpRawMessage("Demodulated with 0 errors", msg, m, j);
                 else if (Modes.debug & MODES_DEBUG_BADCRC &&
@@ -2260,6 +2260,7 @@ int handleHTTPRequest(struct client *c) {
         "Content-Type: %s\r\n"
         "Connection: %s\r\n"
         "Content-Length: %d\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
         "\r\n",
         ctype,
         keepalive ? "keep-alive" : "close",

@@ -19,8 +19,13 @@ The main features are:
 * Interactive command-line-interfae mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
-* TCP server streaming and recceiving raw data to/from connected clients
+* TCP server streaming and receiving raw data to/from connected clients
   (using --net).
+
+While from time to time I still add / fix stuff in my fork, I target
+minimalism of the implementation. However there is a
+[much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
+available, developed by MalcolmRobb.
 
 Installation
 ---
