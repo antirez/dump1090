@@ -168,6 +168,7 @@ struct {
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
     int aggressive;                 /* Aggressive detection algorithm. */
+    int quiet;                      /* Quiet mode, not printing any human readable messages */
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -274,6 +275,7 @@ void modesInitConfig(void) {
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
+    Modes.quiet = 0;
 }
 
 void modesInit(void) {
@@ -1553,7 +1555,7 @@ void useModesMessage(struct modesMessage *mm) {
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
         }
         /* In non-interactive way, display messages on standard output. */
-        if (!Modes.interactive) {
+        if (!Modes.interactive && !Modes.quiet) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
@@ -2456,6 +2458,7 @@ void showHelp(void) {
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
 "--list-devices           Lists available devices and then exit.\n"
+"--quiet                  Makes the console quiet, for use with the --net flag.\n"
 "--help                   Show this help.\n"
 "\n"
 "Debug mode flags: d = Log frames decoded with errors\n"
@@ -2566,6 +2569,8 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--snip") && more) {
             snipMode(atoi(argv[++j]));
             exit(0);
+        } else if (!strcmp(argv[j],"--quiet")) {
+            Modes.quiet = 1;
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
