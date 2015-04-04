@@ -1910,6 +1910,9 @@ void modesInitNet(void) {
     Modes.maxfd = -1;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if(modesNetServices[j].port == 0) {
+			continue;
+		}
         int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
@@ -1934,6 +1937,9 @@ void modesAcceptClients(void) {
     struct client *c;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if(modesNetServices[j].port == 0) {
+			continue;
+		}
         fd = anetTcpAccept(Modes.aneterr, *modesNetServices[j].socket,
                            NULL, &port);
         if (fd == -1) {
@@ -2385,6 +2391,9 @@ void modesWaitReadableClients(int timeout_ms) {
 
     /* Set listening sockets to accept new clients ASAP. */
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if(modesNetServices[j].port == 0) {
+			continue;
+		}
         int s = *modesNetServices[j].socket;
         FD_SET(s,&fds);
         if (s > maxfd) maxfd = s;
@@ -2429,10 +2438,10 @@ void showHelp(void) {
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
-"--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
-"--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
-"--net-http-port <port>   HTTP server port (default: 8080).\n"
-"--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003).\n"
+"--net-ro-port <port>     TCP listening port for raw output (default: 30002, 0 to disable).\n"
+"--net-ri-port <port>     TCP listening port for raw input (default: 30001, 0 to disable).\n"
+"--net-http-port <port>   HTTP server port (default: 8080, 0 to disable).\n"
+"--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003, 0 to disable).\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...).\n"
