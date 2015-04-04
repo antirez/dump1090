@@ -331,10 +331,9 @@ void modesInit(void) {
 
 /* =============================== RTLSDR handling ========================== */
 
-void modesInitRTLSDR(void) {
+void listDevices(void) {
     int j;
     int device_count;
-    int ppm_error = 0;
     char vendor[256], product[256], serial[256];
 
     device_count = rtlsdr_get_device_count();
@@ -349,6 +348,12 @@ void modesInitRTLSDR(void) {
         fprintf(stderr, "%d: %s, %s, SN: %s %s\n", j, vendor, product, serial,
             (j == Modes.dev_index) ? "(currently selected)" : "");
     }
+}
+
+void modesInitRTLSDR(void) {
+    int ppm_error = 0;
+
+    listDevices();
 
     if (rtlsdr_open(&Modes.dev, Modes.dev_index) < 0) {
         fprintf(stderr, "Error opening the RTLSDR device: %s\n",
@@ -2450,6 +2455,7 @@ void showHelp(void) {
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
+"--list-devices           Lists available devices and then exit.\n"
 "--help                   Show this help.\n"
 "\n"
 "Debug mode flags: d = Log frames decoded with errors\n"
@@ -2495,7 +2501,10 @@ int main(int argc, char **argv) {
 
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = atoi(argv[++j]);
-        } else if (!strcmp(argv[j],"--gain") && more) {
+        } else if(!strcmp(argv[j],"--list-devices")) {
+			listDevices();
+			return 0;
+		} else if (!strcmp(argv[j],"--gain") && more) {
             Modes.gain = atof(argv[++j])*10; /* Gain is in tens of DBs */
         } else if (!strcmp(argv[j],"--enable-agc")) {
             Modes.enable_agc++;
