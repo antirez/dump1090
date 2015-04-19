@@ -179,10 +179,12 @@ This can be used to feed data to various sharing sites without the need to use a
 MQTT
 ---
 For basic operation, just specify the URI to send the data to with (no need for the --net flag):
-./dump1090 --mqtt-uri "your-uri"
+
+    ./dump1090 --mqtt-uri "your-uri"
 
 You could also specify username and password if needed by using:
-./dump1090 --mqtt-uri "your-uri" --mqtt-username "username" --mqtt-password "password"
+
+    ./dump1090 --mqtt-uri "your-uri" --mqtt-username "username" --mqtt-password "password"
 
 Antenna
 ---
@@ -208,20 +210,9 @@ resources:
 Aggressive mode
 ---
 
-With --aggressive it is possible to activate the *aggressive mode* that is a
-modified version of the Mode S packet detection and decoding.
-THe aggresive mode uses more CPU usually (especially if there are many planes
-sending DF17 packets), but can detect a few more messages.
-
-The algorithm in aggressive mode is modified in the following ways:
-
-* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
-  vector with the same eight). Normally only messages without errors are
-  checked.
-* It tries to fix DF17 messages trying every two bits combination.
-
-The use of aggressive mdoe is only advised in places where there is low traffic
-in order to have a chance to capture some more messages.
+This release always has aggressive mode active. I did some performance 
+measurements on an Raspberry PI and when receiving around 50 ADSB messages
+per second the CPU-load just increased 3-4%.
 
 Debug mode
 ---
