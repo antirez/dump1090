@@ -21,6 +21,7 @@ The main features are:
 * CPR coordinates decoding and track calculation from velocity.
 * TCP server streaming and receiving raw data to/from connected clients
   (using --net).
+* MQTT support.
 
 While from time to time I still add / fix stuff in my fork, I target
 minimalism of the implementation. However there is a
@@ -30,7 +31,13 @@ available, developed by MalcolmRobb.
 Installation
 ---
 
+Make sure that you have librtlsdr, libusb, libssl-dev and Paho MQTT lib
+to be able to make this project. Google for them to find them. This has
+been tested on Ubuntu and Raspberry Pi.
+
 Type "make".
+
+
 
 Normal usage
 ---
@@ -168,6 +175,14 @@ similar to:
     MSG,3,,,738065,,,,,,,35000,,,34.81609,34.07810,,,0,0,0,0
 
 This can be used to feed data to various sharing sites without the need to use another decoder.
+
+MQTT
+---
+For basic operation, just specify the URI to send the data to with (no need for the --net flag):
+./dump1090 --mqtt-uri "your-uri"
+
+You could also specify username and password if needed by using:
+./dump1090 --mqtt-uri "your-uri" --mqtt-username "username" --mqtt-password "password"
 
 Antenna
 ---

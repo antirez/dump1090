@@ -124,6 +124,11 @@ void initiateConnection() {
 	conn_opts.keepAliveInterval = 20;
 	conn_opts.cleansession = 1;
 
+	if(Mqtt.username) {
+		conn_opts.username = Mqtt.username;
+		conn_opts.password = Mqtt.password;
+	}
+
 	if ((rc = MQTTClient_connect(Mqtt.client, &conn_opts)) != MQTTCLIENT_SUCCESS)
 	{
 		printf("Failed to connect, return code %d\n", rc);
