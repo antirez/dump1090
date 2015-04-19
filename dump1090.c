@@ -45,6 +45,7 @@
 #include <sys/select.h>
 #include "rtl-sdr.h"
 #include "anet.h"
+#include "mqtt.h"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -167,8 +168,12 @@ struct {
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
-    int aggressive;                 /* Aggressive detection algorithm. */
     int quiet;                      /* Quiet mode, not printing any human readable messages */
+
+    /* Mqtt configuration */
+    char* mqtt_uri;
+    char* mqtt_username;
+    char* mqtt_password;
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -273,7 +278,6 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
-    Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
     Modes.quiet = 0;
 }
@@ -960,7 +964,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         if ((mm->errorbit = fixSingleBitErrors(msg,mm->msgbits)) != -1) {
             mm->crc = modesChecksum(msg,mm->msgbits);
             mm->crcok = 1;
-        } else if (Modes.aggressive && mm->msgtype == 17 &&
+        } else if (mm->msgtype == 17 &&
                    (mm->errorbit = fixTwoBitsErrors(msg,mm->msgbits)) != -1)
         {
             mm->crc = modesChecksum(msg,mm->msgbits);
@@ -1475,7 +1479,7 @@ good_preamble:
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
          * and CRC may not be correct. This is handled by the next layer. */
-        if (errors == 0 || (Modes.aggressive && errors < 3)) {
+        if (errors == 0 || (errors < 3)) {
             struct modesMessage mm;
 
             /* Decode the received message and update statistics */
@@ -1560,7 +1564,7 @@ void useModesMessage(struct modesMessage *mm) {
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
         /* Send data to connected clients. */
-        if (Modes.net) {
+        if (Modes.net || Modes.mqtt_uri) {
             modesSendRawOutput(mm);  /* Feed raw output clients. */
         }
     }
@@ -2023,17 +2027,21 @@ void modesSendAllClients(int service, void *msg, int len) {
 
 /* Write raw output to TCP clients. */
 void modesSendRawOutput(struct modesMessage *mm) {
-    char msg[128], *p = msg;
-    int j;
-
-    *p++ = '*';
-    for (j = 0; j < mm->msgbits/8; j++) {
-        sprintf(p, "%02X", mm->msg[j]);
-        p += 2;
-    }
-    *p++ = ';';
-    *p++ = '\n';
-    modesSendAllClients(Modes.ros, msg, p-msg);
+	char msg[(mm->msgbits/4)+3], *p = msg;
+	int j;
+	*p++ = '*';
+	for (j = 0; j < mm->msgbits/8; j++) {
+		sprintf(p, "%02X", mm->msg[j]);
+		p += 2;
+	}
+	*p++ = ';';
+	*p++ = '\n';
+	if (Modes.mqtt_uri) {
+		addRawMessageToMq(msg, p-msg); // TODO: Check if MQ really should be used, perhaps as a compile flag for both include and sending.
+	}
+	if (Modes.net) {
+		modesSendAllClients(Modes.ros, msg, p-msg);
+	}
 }
 
 
@@ -2451,7 +2459,6 @@ void showHelp(void) {
 "--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003, 0 to disable).\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
-"--aggressive             More CPU for more messages (two bits fixes, ...).\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
@@ -2538,8 +2545,6 @@ int main(int argc, char **argv) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
-        } else if (!strcmp(argv[j],"--aggressive")) {
-            Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
@@ -2571,6 +2576,12 @@ int main(int argc, char **argv) {
             exit(0);
         } else if (!strcmp(argv[j],"--quiet")) {
             Modes.quiet = 1;
+        } else if (!strcmp(argv[j],"--mqtt-uri") && more) {
+            Modes.mqtt_uri = argv[++j];
+        } else if (!strcmp(argv[j],"--mqtt-username") && more) {
+            Modes.mqtt_username = argv[++j];
+        } else if (!strcmp(argv[j],"--mqtt-password") && more) {
+            Modes.mqtt_password = argv[++j];
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
@@ -2588,6 +2599,7 @@ int main(int argc, char **argv) {
 
     /* Initialization */
     modesInit();
+    initMqConnection(Modes.mqtt_uri, Modes.mqtt_username, Modes.mqtt_password);
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
     } else if (Modes.filename == NULL) {
@@ -2653,6 +2665,7 @@ int main(int argc, char **argv) {
     }
 
     rtlsdr_close(Modes.dev);
+    shutdownMqConnection();
     return 0;
 }
 
