@@ -13,3 +13,7 @@ dump1090: dump1090.o anet.o mqtt.o
 
 clean:
 	rm -f *.o dump1090
+
+release:
+	$(CC) -o dump1090 dump1090.o anet.o mqtt.o $(LDFLAGS) $(LDLIBS)
+

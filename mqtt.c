@@ -9,6 +9,7 @@
 #include <pthread.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 #include "mqtt.h"
 #include "MQTTClient.h"
 
@@ -24,7 +25,7 @@ struct {
 	pthread_cond_t thread_signal;
 
 	// Internal message list
-	volatile int message_count;
+//	volatile int message_count;
 	struct queue_message *first_message;
 	struct queue_message *last_message;
 
@@ -48,12 +49,13 @@ void sendMessageToMq(struct queue_message *msg);
 
 /* Initialize things */
 int initMqConnection(char* uri, char* username, char* password) {
+
 	printf("MQ connection settings: %s %s %s\n", uri, username, password);
 	Mqtt.uri = uri;
 	Mqtt.username = username;
 	Mqtt.password = password;
 	Mqtt.first_message = NULL;
-	Mqtt.message_count = 0;
+//	Mqtt.message_count = 0;
 
 
 	pthread_mutex_init(&Mqtt.thread_lock,NULL);
@@ -75,9 +77,26 @@ void addRawMessageToMq(char *data, int length) {
 	}
 	struct queue_message *tail = Mqtt.last_message;
 	struct queue_message *curr = malloc(sizeof(struct queue_message));
+
+struct timeval tv;
+
+gettimeofday(&tv, NULL);
+
+unsigned long long millisecondsSinceEpoch = 
+    (unsigned long long)(tv.tv_sec) * 1000 +
+    (unsigned long long)(tv.tv_usec) / 1000;
+
+        data[length-1] = '\0';
+
+//        sprintf(curr->message, "{ \"timeSinceEpochUTC\":%llu, \"message\":\"%s\" }", millisecondsSinceEpoch, data);
+
+
 	curr->message = malloc(length+1);
 	memcpy(curr->message, data, length);
 	curr->message[length] = '\0';
+
+
+
 	curr->length = length;
 	if(tail) {
 		tail->next = curr;
@@ -85,32 +104,38 @@ void addRawMessageToMq(char *data, int length) {
 		Mqtt.first_message = curr;
 	}
 	Mqtt.last_message = curr;
-	Mqtt.message_count++;
+//	Mqtt.message_count++;
 	pthread_cond_signal(&Mqtt.thread_signal);
+
+//	printf("MessageCount: %d \r", Mqtt.message_count);
 }
 
 struct queue_message *popFirstMessageInQueue() {
 	struct queue_message *msg = Mqtt.first_message;
-	Mqtt.first_message = Mqtt.first_message->next;
+	//if(Mqtt.first_message != 0) {
+		Mqtt.first_message = Mqtt.first_message->next;
+//	}
+/*
 	Mqtt.message_count--;
 	if(Mqtt.message_count == 0) {
 		Mqtt.first_message = 0;
 		Mqtt.last_message = 0;
 	}
+*/
 	return msg;
 }
 
 /* Mqtt */
 void sendMessagesToMq() {
 	while(1) {
-		if (Mqtt.message_count == 0) {
+		if (Mqtt.first_message == 0) { // (Mqtt.message_count == 0) {
 			pthread_cond_wait(&Mqtt.thread_signal,&Mqtt.thread_lock);
 			continue;
 		}
-		else if(Mqtt.message_count > 0) {
+		else { //if(Mqtt.message_count > 0) {
 			struct queue_message *msg = popFirstMessageInQueue();
-			sendMessageToMq(msg);
-			free(msg);
+				sendMessageToMq(msg);
+				free(msg);
 		}
 	}
 }
