@@ -55,8 +55,6 @@ int initMqConnection(char* uri, char* username, char* password) {
 	Mqtt.username = username;
 	Mqtt.password = password;
 	Mqtt.first_message = NULL;
-//	Mqtt.message_count = 0;
-
 
 	pthread_mutex_init(&Mqtt.thread_lock,NULL);
 	pthread_cond_init(&Mqtt.thread_signal,NULL);
@@ -78,24 +76,21 @@ void addRawMessageToMq(char *data, int length) {
 	struct queue_message *tail = Mqtt.last_message;
 	struct queue_message *curr = malloc(sizeof(struct queue_message));
 
-struct timeval tv;
+	struct timeval tv;
 
-gettimeofday(&tv, NULL);
+	gettimeofday(&tv, NULL);
 
-unsigned long long millisecondsSinceEpoch = 
-    (unsigned long long)(tv.tv_sec) * 1000 +
-    (unsigned long long)(tv.tv_usec) / 1000;
+	unsigned long long millisecondsSinceEpoch =
+	    (unsigned long long)(tv.tv_sec) * 1000 +
+	    (unsigned long long)(tv.tv_usec) / 1000;
 
         data[length-1] = '\0';
 
-//        sprintf(curr->message, "{ \"timeSinceEpochUTC\":%llu, \"message\":\"%s\" }", millisecondsSinceEpoch, data);
-
+        printf("{ \"timeSinceEpochUTC\":%llu, \"message\":\"%s\" }\n", millisecondsSinceEpoch, data);
 
 	curr->message = malloc(length+1);
 	memcpy(curr->message, data, length);
 	curr->message[length] = '\0';
-
-
 
 	curr->length = length;
 	if(tail) {
@@ -104,35 +99,23 @@ unsigned long long millisecondsSinceEpoch =
 		Mqtt.first_message = curr;
 	}
 	Mqtt.last_message = curr;
-//	Mqtt.message_count++;
 	pthread_cond_signal(&Mqtt.thread_signal);
-
-//	printf("MessageCount: %d \r", Mqtt.message_count);
 }
 
 struct queue_message *popFirstMessageInQueue() {
 	struct queue_message *msg = Mqtt.first_message;
-	//if(Mqtt.first_message != 0) {
-		Mqtt.first_message = Mqtt.first_message->next;
-//	}
-/*
-	Mqtt.message_count--;
-	if(Mqtt.message_count == 0) {
-		Mqtt.first_message = 0;
-		Mqtt.last_message = 0;
-	}
-*/
+	Mqtt.first_message = Mqtt.first_message->next;
 	return msg;
 }
 
 /* Mqtt */
 void sendMessagesToMq() {
 	while(1) {
-		if (Mqtt.first_message == 0) { // (Mqtt.message_count == 0) {
+		if (Mqtt.first_message == 0) {
 			pthread_cond_wait(&Mqtt.thread_signal,&Mqtt.thread_lock);
 			continue;
 		}
-		else { //if(Mqtt.message_count > 0) {
+		else {
 			struct queue_message *msg = popFirstMessageInQueue();
 				sendMessageToMq(msg);
 				free(msg);
