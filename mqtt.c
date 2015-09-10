@@ -22,10 +22,14 @@ struct {
 	// Threading
 	pthread_t sender_thread;
 	pthread_mutex_t thread_lock;
+	pthread_mutex_t thread_lock2;
 	pthread_cond_t thread_signal;
+	pthread_cond_t thread_new_message;
+
+	int testa;
+	int testb;
 
 	// Internal message list
-//	volatile int message_count;
 	struct queue_message *first_message;
 	struct queue_message *last_message;
 
@@ -57,8 +61,13 @@ int initMqConnection(char* uri, char* username, char* password) {
 	Mqtt.first_message = NULL;
 
 	pthread_mutex_init(&Mqtt.thread_lock,NULL);
+	pthread_mutex_init(&Mqtt.thread_lock2,NULL);
 	pthread_cond_init(&Mqtt.thread_signal,NULL);
+	pthread_cond_init(&Mqtt.thread_new_message,NULL);
 	pthread_create(&Mqtt.sender_thread, NULL, sendMessagesToMq, NULL);
+
+	Mqtt.testa = 0;
+	Mqtt.testb = 0;
 
 	return 0;
 }
@@ -73,13 +82,10 @@ void addRawMessageToMq(char *data, int length) {
 	if(!Mqtt.uri) {
 		return;
 	}
-	struct queue_message *tail = Mqtt.last_message;
 	struct queue_message *curr = malloc(sizeof(struct queue_message));
-
 	struct timeval tv;
 
 	gettimeofday(&tv, NULL);
-
 	unsigned long long millisecondsSinceEpoch =
 	    (unsigned long long)(tv.tv_sec) * 1000 +
 	    (unsigned long long)(tv.tv_usec) / 1000;
@@ -91,35 +97,61 @@ void addRawMessageToMq(char *data, int length) {
 	curr->message = malloc(length+1);
 	memcpy(curr->message, data, length);
 	curr->message[length] = '\0';
-
 	curr->length = length;
-	if(tail) {
-		tail->next = curr;
-	} else {
-		Mqtt.first_message = curr;
-	}
-	Mqtt.last_message = curr;
-	pthread_cond_signal(&Mqtt.thread_signal);
+
+	addMessageToQueue(curr);
 }
 
+void addMessageToQueue(struct queue_message *msg) {
+	pthread_mutex_lock(&Mqtt.thread_lock);
+//	pthread_cond_wait(&Mqtt.thread_signal,&Mqtt.thread_lock);
+        struct queue_message *tail = Mqtt.last_message;
+        if(tail) {
+                tail->next = msg;
+        } else {
+                Mqtt.first_message = msg;
+        }
+        Mqtt.last_message = msg;
+        pthread_mutex_unlock(&Mqtt.thread_lock);
+//        pthread_cond_broadcast(&Mqtt.thread_new_message);
+}
+
+
 struct queue_message *popFirstMessageInQueue() {
+	pthread_mutex_lock(&Mqtt.thread_lock);
+/*	while(Mqtt.first_message == 0) {
+		pthread_cond_wait(&Mqtt.thread_new_message,&Mqtt.thread_lock);
+	}*/
 	struct queue_message *msg = Mqtt.first_message;
-	Mqtt.first_message = Mqtt.first_message->next;
+//	Mqtt.first_message = Mqtt.first_message->next;
+	if(Mqtt.first_message == Mqtt.last_message) {
+		Mqtt.first_message = 0;
+		Mqtt.last_message = 0;
+	} else {
+		Mqtt.first_message = Mqtt.first_message->next;
+	}
+	pthread_mutex_unlock(&Mqtt.thread_lock);
+//	pthread_cond_broadcast(&Mqtt.thread_signal);
 	return msg;
 }
 
 /* Mqtt */
 void sendMessagesToMq() {
 	while(1) {
-		if (Mqtt.first_message == 0) {
-			pthread_cond_wait(&Mqtt.thread_signal,&Mqtt.thread_lock);
-			continue;
-		}
-		else {
+		if (Mqtt.first_message != NULL) {
 			struct queue_message *msg = popFirstMessageInQueue();
+			if(msg != NULL) {
 				sendMessageToMq(msg);
 				free(msg);
+			}
+//			usleep(50);
 		}
+		usleep(50);
+/*		else {
+			printf("Waiting for data\n");
+			sleep(1);
+		}
+*/
 	}
 }
 
@@ -152,6 +184,8 @@ void sendMessageToMq(struct queue_message *msg) {
 	if(!Mqtt.client) {
 		initiateConnection();
 	}
+
+        printf("Sending: %s \n", msg->message);
 
 	MQTTClient_message pubmsg = MQTTClient_message_initializer;
 	pubmsg.payload = msg->message;
