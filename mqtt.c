@@ -22,12 +22,6 @@ struct {
 	// Threading
 	pthread_t sender_thread;
 	pthread_mutex_t thread_lock;
-	pthread_mutex_t thread_lock2;
-	pthread_cond_t thread_signal;
-	pthread_cond_t thread_new_message;
-
-	int testa;
-	int testb;
 
 	// Internal message list
 	struct queue_message *first_message;
@@ -61,13 +55,7 @@ int initMqConnection(char* uri, char* username, char* password) {
 	Mqtt.first_message = NULL;
 
 	pthread_mutex_init(&Mqtt.thread_lock,NULL);
-	pthread_mutex_init(&Mqtt.thread_lock2,NULL);
-	pthread_cond_init(&Mqtt.thread_signal,NULL);
-	pthread_cond_init(&Mqtt.thread_new_message,NULL);
 	pthread_create(&Mqtt.sender_thread, NULL, sendMessagesToMq, NULL);
-
-	Mqtt.testa = 0;
-	Mqtt.testb = 0;
 
 	return 0;
 }
@@ -104,7 +92,6 @@ void addRawMessageToMq(char *data, int length) {
 
 void addMessageToQueue(struct queue_message *msg) {
 	pthread_mutex_lock(&Mqtt.thread_lock);
-//	pthread_cond_wait(&Mqtt.thread_signal,&Mqtt.thread_lock);
         struct queue_message *tail = Mqtt.last_message;
         if(tail) {
                 tail->next = msg;
@@ -113,17 +100,12 @@ void addMessageToQueue(struct queue_message *msg) {
         }
         Mqtt.last_message = msg;
         pthread_mutex_unlock(&Mqtt.thread_lock);
-//        pthread_cond_broadcast(&Mqtt.thread_new_message);
 }
 
 
 struct queue_message *popFirstMessageInQueue() {
 	pthread_mutex_lock(&Mqtt.thread_lock);
-/*	while(Mqtt.first_message == 0) {
-		pthread_cond_wait(&Mqtt.thread_new_message,&Mqtt.thread_lock);
-	}*/
 	struct queue_message *msg = Mqtt.first_message;
-//	Mqtt.first_message = Mqtt.first_message->next;
 	if(Mqtt.first_message == Mqtt.last_message) {
 		Mqtt.first_message = 0;
 		Mqtt.last_message = 0;
@@ -131,27 +113,24 @@ struct queue_message *popFirstMessageInQueue() {
 		Mqtt.first_message = Mqtt.first_message->next;
 	}
 	pthread_mutex_unlock(&Mqtt.thread_lock);
-//	pthread_cond_broadcast(&Mqtt.thread_signal);
 	return msg;
 }
 
 /* Mqtt */
 void sendMessagesToMq() {
 	while(1) {
-		if (Mqtt.first_message != NULL) {
+		if(!Mqtt.client) {
+        	        initiateConnection();
+	        }
+		if (Mqtt.first_message && Mqtt.client) {
 			struct queue_message *msg = popFirstMessageInQueue();
-			if(msg != NULL) {
+			if(msg) {
 				sendMessageToMq(msg);
 				free(msg);
+				continue;
 			}
-//			usleep(50);
 		}
-		usleep(50);
-/*		else {
-			printf("Waiting for data\n");
-			sleep(1);
-		}
-*/
+		usleep(250);
 	}
 }
 
@@ -181,12 +160,6 @@ void destroyConnection() {
 }
 
 void sendMessageToMq(struct queue_message *msg) {
-	if(!Mqtt.client) {
-		initiateConnection();
-	}
-
-        printf("Sending: %s \n", msg->message);
-
 	MQTTClient_message pubmsg = MQTTClient_message_initializer;
 	pubmsg.payload = msg->message;
 	pubmsg.payloadlen = msg->length;
@@ -201,4 +174,5 @@ void sendMessageToMq(struct queue_message *msg) {
 		destroyConnection();
 		return;
 	}
+        printf("Sent: %s \n", msg->message);
 }
