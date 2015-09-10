@@ -79,13 +79,10 @@ void addRawMessageToMq(char *data, int length) {
 	    (unsigned long long)(tv.tv_usec) / 1000;
 
         data[length-1] = '\0';
-
-        printf("{ \"timeSinceEpochUTC\":%llu, \"message\":\"%s\" }\n", millisecondsSinceEpoch, data);
-
-	curr->message = malloc(length+1);
-	memcpy(curr->message, data, length);
-	curr->message[length] = '\0';
-	curr->length = length;
+	char *buf = malloc(100);
+        sprintf(buf, "{ \"timeSinceEpochUTC\":%llu, \"message\":\"%s\" }", millisecondsSinceEpoch, data);
+	curr->message = buf;
+	curr->length = strlen(curr->message);
 
 	addMessageToQueue(curr);
 }
@@ -126,6 +123,7 @@ void sendMessagesToMq() {
 			struct queue_message *msg = popFirstMessageInQueue();
 			if(msg) {
 				sendMessageToMq(msg);
+				free(msg->message);
 				free(msg);
 				continue;
 			}
@@ -150,7 +148,7 @@ void initiateConnection() {
 
 	if ((rc = MQTTClient_connect(Mqtt.client, &conn_opts)) != MQTTCLIENT_SUCCESS)
 	{
-		printf("Failed to connect, return code %d\n", rc);
+		//printf("Failed to connect, return code %d\n", rc);
 	}
 }
 
@@ -174,5 +172,4 @@ void sendMessageToMq(struct queue_message *msg) {
 		destroyConnection();
 		return;
 	}
-        printf("Sent: %s \n", msg->message);
 }
