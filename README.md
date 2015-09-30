@@ -195,7 +195,7 @@ Aggressive mode
 
 With --aggressive it is possible to activate the *aggressive mode* that is a
 modified version of the Mode S packet detection and decoding.
-THe aggresive mode uses more CPU usually (especially if there are many planes
+THe aggressive mode uses more CPU usually (especially if there are many planes
 sending DF17 packets), but can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
