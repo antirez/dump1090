@@ -2155,8 +2155,8 @@ char *aircraftsToJson(int *len) {
                 "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
                 "\"speed\":%d},\n",
-                a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
-                a->speed);
+                a->hexaddr, a->flight, a->lat, a->lon, altitude, a->track,
+                speed);
             p += l; buflen -= l;
             /* Resize if needed. */
             if (buflen < 256) {
