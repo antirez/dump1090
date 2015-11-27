@@ -2175,13 +2175,18 @@ char *aircraftsToJson(int *len) {
                 a->reg?a->reg->code:"",
                 a->flight, a->lat, a->lon, a->altitude, a->track,
                 a->speed);
-            p += l; buflen -= l;
+
             /* Resize if needed. */
-            if (buflen < 256) {
-                int used = p-buf;
-                buflen += 1024; /* Our increment. */
-                buf = realloc(buf,used+buflen);
-                p = buf+used;
+	    if (l >= buflen) {
+		int used = p-buf;
+		buflen += (2*l); /* Our increment. */
+		buf = realloc(buf,used+buflen);
+		if (buf == NULL) exit(1);
+		p = buf+used;
+		/* try to add the current airplane again */
+		continue;
+	    } else {
+		p += l; buflen -= l;
             }
         }
         a = a->next;
