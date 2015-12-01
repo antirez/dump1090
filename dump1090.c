@@ -43,6 +43,7 @@
 #include <sys/stat.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+#include <time.h>
 #include "rtl-sdr.h"
 #include "anet.h"
 
@@ -119,6 +120,7 @@ struct aircraft {
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     long long odd_cprtime, even_cprtime;
+    int updated;        /* 1 if data was changed with the last packet, 0 otherwise */
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
 
@@ -164,6 +166,7 @@ struct {
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows. */
     int interactive_ttl;            /* Interactive mode: TTL before deletion. */
+    int machine_readable;           /* Non-interactive mode with machine readable data*/
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
@@ -1222,6 +1225,44 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 }
 
+void displayModesMessageMachineReadable(struct aircraft *a)
+{
+    if(!a->updated)  // No new information
+        return;
+    // Format the flight number
+    char flight[9];
+    memcpy(flight, a->flight, 9);
+    int i;
+    for(i=0; i<9; i++) {
+        if(flight[i] == ' ')
+            flight[i] = 0;
+    }
+    // Get current time
+    time_t ztime;
+    struct tm *ltime;
+    char tbuffer[100];
+    time(&ztime);
+    ltime = localtime(&ztime);
+    strftime(tbuffer, 100, "%d.%m.%C%y,%H:%M:%S", ltime);
+    
+    // The first variable which will be printed indicates of all other
+    // variables are available as not all of the information is available
+    // in each ADS-B packet
+    int allvalid = flight[0]!=0 && a->lon!=0.0 && a->lat!=0.0 && 
+                   a->altitude!=0.0 && a->speed!=0.0 && a->track!=0;
+    
+    // Convert and print all information
+    double altitude = a->altitude;
+    double speed = a->speed;
+    if(Modes.metric) {
+        altitude /= 3.2828;
+        speed *= 1.852;
+    }
+    printf("%d,%.3f,%s,%s,%s,%f,%f,%f,%f,%d\n", allvalid, ((double)mstime())/1000.0, tbuffer, 
+        a->hexaddr, flight, a->lon, a->lat, altitude, speed, 
+        a->track);
+}
+
 /* Turn I/Q samples pointed by Modes.data into the magnitude vector
  * pointed by Modes.magnitude. */
 void computeMagnitudeVector(void) {
@@ -1548,9 +1589,14 @@ void useModesMessage(struct modesMessage *mm) {
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
         }
         /* In non-interactive way, display messages on standard output. */
-        if (!Modes.interactive) {
+        else if (!Modes.interactive && !Modes.machine_readable) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
+        }
+        else if(!Modes.interactive && Modes.machine_readable) {
+            // Use the interactive mode to keep track of all flights
+            struct aircraft *a = interactiveReceiveData(mm);
+            displayModesMessageMachineReadable(a);
         }
         /* Send data to connected clients. */
         if (Modes.net) {
@@ -1741,6 +1787,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         a = interactiveCreateAircraft(addr);
         a->next = Modes.aircrafts;
         Modes.aircrafts = a;
+        a->updated = 1;
     } else {
         /* If it is an already known aircraft, move it on head
          * so we keep aircrafts ordered by received message time.
@@ -1758,23 +1805,34 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             a->next = Modes.aircrafts;
             Modes.aircrafts = a;
         }
+        a->updated = 0;
     }
 
     a->seen = time(NULL);
     a->messages++;
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
+        if(a->altitude != mm->altitude)
+            a->updated = 1;
         a->altitude = mm->altitude;
     } else if (mm->msgtype == 17) {
         if (mm->metype >= 1 && mm->metype <= 4) {
+            if(memcmp(a->flight, mm->flight, sizeof(a->flight)) != 0)
+                a->updated = 1;
             memcpy(a->flight, mm->flight, sizeof(a->flight));
         } else if (mm->metype >= 9 && mm->metype <= 18) {
+            if(a->altitude != mm->altitude)
+                a->updated = 1;
             a->altitude = mm->altitude;
             if (mm->fflag) {
+                if(a->odd_cprlat != mm->raw_latitude || a->odd_cprlon != mm->raw_longitude)
+                    a->updated = 1;
                 a->odd_cprlat = mm->raw_latitude;
                 a->odd_cprlon = mm->raw_longitude;
                 a->odd_cprtime = mstime();
             } else {
+                if(a->even_cprlat != mm->raw_latitude || a->even_cprlon != mm->raw_longitude)
+                    a->updated = 1;
                 a->even_cprlat = mm->raw_latitude;
                 a->even_cprlon = mm->raw_longitude;
                 a->even_cprtime = mstime();
@@ -1786,6 +1844,8 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             }
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
+                if(a->speed != mm->velocity || a->track != mm->heading)
+                    a->updated = 1;
                 a->speed = mm->velocity;
                 a->track = mm->heading;
             }
@@ -2463,6 +2523,11 @@ void backgroundTasks(void) {
         interactiveRemoveStaleAircrafts();
     }
 
+    /* Remove old aircrafts when in machine readable mode */
+    if(Modes.machine_readable) {
+        interactiveRemoveStaleAircrafts();
+    }
+
     /* Refresh screen when in interactive mode. */
     if (Modes.interactive &&
         (mstime() - Modes.interactive_last_update) >
@@ -2525,6 +2590,8 @@ int main(int argc, char **argv) {
             Modes.interactive_rows = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
             Modes.interactive_ttl = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--machine-readable")) {
+            Modes.machine_readable = 1;
         } else if (!strcmp(argv[j],"--debug") && more) {
             char *f = argv[++j];
             while(*f) {
@@ -2589,6 +2656,9 @@ int main(int argc, char **argv) {
     /* Create the thread that will read the data from the device. */
     pthread_create(&Modes.reader_thread, NULL, readerThreadEntryPoint, NULL);
 
+    if(Modes.machine_readable) {
+        printf("#All fields valid,UNIX Timestamp,Date,Time,ICAO,Flight,Longitude,Latitude,Height,Speed,Heading\n");
+    }
     pthread_mutex_lock(&Modes.data_mutex);
     while(1) {
         if (!Modes.data_ready) {
