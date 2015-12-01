@@ -2486,6 +2486,7 @@ void showHelp(void) {
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
+"--machine-readable       Plot only new data in CSV like style.\n"
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
