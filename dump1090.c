@@ -336,7 +336,7 @@ void modesInit(void) {
 void modesInitRTLSDR(void) {
     int j;
     int device_count;
-        char vendor[256], product[256], serial[256];
+    char vendor[256], product[256], serial[256];
 
     device_count = rtlsdr_get_device_count();
     if (!device_count) {
@@ -2423,7 +2423,7 @@ void showHelp(void) {
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
 "--enable-agc             Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
-"--ppm <ppm>		  Set ppm error (default: 0).\n"
+"--ppm <ppm>              Set ppm error (default: 0).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
