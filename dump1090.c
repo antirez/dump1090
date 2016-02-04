@@ -45,7 +45,7 @@
 #include <sys/select.h>
 #include "rtl-sdr.h"
 #include "anet.h"
-#include "mqtt.h"
+#include "rest.h"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -170,10 +170,8 @@ struct {
     int metric;                     /* Use metric units. */
     int quiet;                      /* Quiet mode, not printing any human readable messages */
 
-    /* Mqtt configuration */
-    char* mqtt_uri;
-    char* mqtt_username;
-    char* mqtt_password;
+    /* REST configuration */
+    char* rest_uri;
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -1564,7 +1562,7 @@ void useModesMessage(struct modesMessage *mm) {
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
         /* Send data to connected clients. */
-        if (Modes.net || Modes.mqtt_uri) {
+        if (Modes.net || Modes.rest_uri) {
             modesSendRawOutput(mm);  /* Feed raw output clients. */
         }
     }
@@ -2036,8 +2034,8 @@ void modesSendRawOutput(struct modesMessage *mm) {
 	}
 	*p++ = ';';
 	*p++ = '\n';
-	if (Modes.mqtt_uri) {
-		addRawMessageToMq(msg, p-msg); // TODO: Check if MQ really should be used, perhaps as a compile flag for both include and sending.
+	if (Modes.rest_uri) {
+		addRawMessageToRestQueue(msg, p-msg);
 	}
 	if (Modes.net) {
 		modesSendAllClients(Modes.ros, msg, p-msg);
@@ -2576,12 +2574,8 @@ int main(int argc, char **argv) {
             exit(0);
         } else if (!strcmp(argv[j],"--quiet")) {
             Modes.quiet = 1;
-        } else if (!strcmp(argv[j],"--mqtt-uri") && more) {
-            Modes.mqtt_uri = argv[++j];
-        } else if (!strcmp(argv[j],"--mqtt-username") && more) {
-            Modes.mqtt_username = argv[++j];
-        } else if (!strcmp(argv[j],"--mqtt-password") && more) {
-            Modes.mqtt_password = argv[++j];
+        } else if (!strcmp(argv[j],"--rest-uri") && more) {
+            Modes.rest_uri = argv[++j];
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
@@ -2599,7 +2593,7 @@ int main(int argc, char **argv) {
 
     /* Initialization */
     modesInit();
-    initMqConnection(Modes.mqtt_uri, Modes.mqtt_username, Modes.mqtt_password);
+    initRestConnection(Modes.rest_uri);
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
     } else if (Modes.filename == NULL) {
@@ -2665,7 +2659,6 @@ int main(int argc, char **argv) {
     }
 
     rtlsdr_close(Modes.dev);
-    shutdownMqConnection();
     return 0;
 }
 
