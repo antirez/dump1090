@@ -16,7 +16,7 @@ The main features are:
   where the checksum is xored with the ICAO address by brute forcing the
   checksum field using recently seen ICAO addresses.
 * Decode raw IQ samples from file (using --ifile command line switch).
-* Interactive command-line-interfae mode where aircrafts currently detected
+* Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
 * TCP server streaming and receiving raw data to/from connected clients
