@@ -237,7 +237,7 @@ For the diligent programmer with a Mode S specification on his hands it
 should be trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
-as displayed using a trow-away SDL program, and trying to model the algorithm
+as displayed using a throw-away SDL program, and trying to model the algorithm
 based on how the messages look graphically.
 
 How to test the program?
