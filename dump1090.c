@@ -2199,8 +2199,36 @@ char *aircraftsToJson(int *len) {
     return buf;
 }
 
+/* Return contents of a file */
+char *getFileContents(const char *filename, int *clen)
+{
+    struct stat sbuf;
+    int fd = -1;
+    char *content;
+
+    if (stat(filename,&sbuf) != -1 &&
+        (fd = open(filename,O_RDONLY)) != -1)
+    {
+        content = malloc(sbuf.st_size);
+        if (read(fd,content,sbuf.st_size) == -1) {
+            snprintf(content,sbuf.st_size,"Error reading from file: %s",
+                strerror(errno));
+        }
+        *clen = sbuf.st_size;
+    } else {
+        char buf[128];
+
+        *clen = snprintf(buf,sizeof(buf),"Error opening file: %s",
+                         strerror(errno));
+        content = strdup(buf);
+    }
+    if (fd != -1) close(fd);
+    return (content);
+}
+
 #define MODES_CONTENT_TYPE_HTML "text/html;charset=utf-8"
 #define MODES_CONTENT_TYPE_JSON "application/json;charset=utf-8"
+#define MODES_CONTENT_TYPE_PNG  "image/png"
 
 /* Get an HTTP request header and write the response to the client.
  * Again here we assume that the socket buffer is enough without doing
@@ -2212,7 +2240,7 @@ int handleHTTPRequest(struct client *c) {
     char hdr[512];
     int clen, hdrlen;
     int httpver, keepalive;
-    char *p, *url, *content;
+    char *p, *url, *flag, *content;
     char *ctype;
 
     if (Modes.debug & MODES_DEBUG_NET)
@@ -2236,38 +2264,34 @@ int handleHTTPRequest(struct client *c) {
     if (!p) return 1; /* There should be a space before HTTP/... */
     *p = '\0';
 
+    /* Check for /flags/xx.png, where xx is the two character ICAO code */
+    flag = strstr(url, "/flags/");
+    if (flag) {
+        /* Ensure string is 13 characters long and ends in .png */
+        if ((13 != strlen(flag) ||
+            (strstr(flag, ".png") != (flag+9)))) {
+            flag = NULL;
+        }
+    }
+
     if (Modes.debug & MODES_DEBUG_NET) {
         printf("\nHTTP keep alive: %d\n", keepalive);
         printf("HTTP requested URL: %s\n\n", url);
     }
 
-    /* Select the content to send, we have just two so far:
+    /* Select the content to send, we have three so far:
      * "/" -> Our google map application.
-     * "/data.json" -> Our ajax request to update planes. */
+     * "/data.json" -> Our ajax request to update planes.
+     * "/flags/xx.png" -> Flag for each ICAO two character code. */
     if (strstr(url, "/data.json")) {
         content = aircraftsToJson(&clen);
         ctype = MODES_CONTENT_TYPE_JSON;
+    } else if(flag) {
+        /* Add 1 to strip off leading /, images are in flags subdirectory. */
+        content = getFileContents(flag+1, &clen);
+        ctype = MODES_CONTENT_TYPE_PNG;
     } else {
-        struct stat sbuf;
-        int fd = -1;
-
-        if (stat("gmap.html",&sbuf) != -1 &&
-            (fd = open("gmap.html",O_RDONLY)) != -1)
-        {
-            content = malloc(sbuf.st_size);
-            if (read(fd,content,sbuf.st_size) == -1) {
-                snprintf(content,sbuf.st_size,"Error reading from file: %s",
-                    strerror(errno));
-            }
-            clen = sbuf.st_size;
-        } else {
-            char buf[128];
-
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s",
-                strerror(errno));
-            content = strdup(buf);
-        }
-        if (fd != -1) close(fd);
+        content = getFileContents("gmap.html", &clen);
         ctype = MODES_CONTENT_TYPE_HTML;
     }
 
