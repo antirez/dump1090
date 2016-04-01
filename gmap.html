@@ -94,8 +94,10 @@
         html += 'Altitude: '+p.altitude+' feet<br>';
         html += 'Speed: '+p.speed+' knots<br>';
         html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
-        html += 'Registration: '+p.reg+
-                ' <img src="flags/'+p.reg.toLowerCase()+'.png"/><br>';
+        html += 'Registration: '+p.reg;
+        if (p.reg != "00") {
+            html += ' <img src="flags/'+p.reg.toLowerCase()+'.png"/><br>';
+        }
         i.innerHTML = html;
     }
 
