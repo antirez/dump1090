@@ -30,7 +30,11 @@ available, developed by MalcolmRobb.
 Installation
 ---
 
-Type "make".
+Type the following commands into your terminal:
+
+```
+$ make
+```
 
 Normal usage
 ---
