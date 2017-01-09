@@ -4,3 +4,4 @@ testfiles/*.bin
 misc
 frames.js
 .*.swp
+start.sh

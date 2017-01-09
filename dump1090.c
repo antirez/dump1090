@@ -45,6 +45,7 @@
 #include <sys/select.h>
 #include "rtl-sdr.h"
 #include "anet.h"
+#include "rest.h"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -167,7 +168,10 @@ struct {
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
-    int aggressive;                 /* Aggressive detection algorithm. */
+    int quiet;                      /* Quiet mode, not printing any human readable messages */
+
+    /* REST configuration */
+    char* rest_uri;
 
     /* Interactive mode */
     struct aircraft *aircrafts;
@@ -272,8 +276,8 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
-    Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
+    Modes.quiet = 0;
 }
 
 void modesInit(void) {
@@ -331,10 +335,9 @@ void modesInit(void) {
 
 /* =============================== RTLSDR handling ========================== */
 
-void modesInitRTLSDR(void) {
+void listDevices(void) {
     int j;
     int device_count;
-    int ppm_error = 0;
     char vendor[256], product[256], serial[256];
 
     device_count = rtlsdr_get_device_count();
@@ -349,6 +352,12 @@ void modesInitRTLSDR(void) {
         fprintf(stderr, "%d: %s, %s, SN: %s %s\n", j, vendor, product, serial,
             (j == Modes.dev_index) ? "(currently selected)" : "");
     }
+}
+
+void modesInitRTLSDR(void) {
+    int ppm_error = 0;
+
+    listDevices();
 
     if (rtlsdr_open(&Modes.dev, Modes.dev_index) < 0) {
         fprintf(stderr, "Error opening the RTLSDR device: %s\n",
@@ -953,7 +962,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         if ((mm->errorbit = fixSingleBitErrors(msg,mm->msgbits)) != -1) {
             mm->crc = modesChecksum(msg,mm->msgbits);
             mm->crcok = 1;
-        } else if (Modes.aggressive && mm->msgtype == 17 &&
+        } else if (mm->msgtype == 17 &&
                    (mm->errorbit = fixTwoBitsErrors(msg,mm->msgbits)) != -1)
         {
             mm->crc = modesChecksum(msg,mm->msgbits);
@@ -1468,7 +1477,7 @@ good_preamble:
         /* If we reached this point, and error is zero, we are very likely
          * with a Mode S message in our hands, but it may still be broken
          * and CRC may not be correct. This is handled by the next layer. */
-        if (errors == 0 || (Modes.aggressive && errors < 3)) {
+        if (errors == 0 || (errors < 3)) {
             struct modesMessage mm;
 
             /* Decode the received message and update statistics */
@@ -1548,12 +1557,12 @@ void useModesMessage(struct modesMessage *mm) {
             if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
         }
         /* In non-interactive way, display messages on standard output. */
-        if (!Modes.interactive) {
+        if (!Modes.interactive && !Modes.quiet) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
         /* Send data to connected clients. */
-        if (Modes.net) {
+        if (Modes.net || Modes.rest_uri) {
             modesSendRawOutput(mm);  /* Feed raw output clients. */
         }
     }
@@ -1910,6 +1919,9 @@ void modesInitNet(void) {
     Modes.maxfd = -1;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if(modesNetServices[j].port == 0) {
+			continue;
+		}
         int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
@@ -1934,6 +1946,9 @@ void modesAcceptClients(void) {
     struct client *c;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if(modesNetServices[j].port == 0) {
+			continue;
+		}
         fd = anetTcpAccept(Modes.aneterr, *modesNetServices[j].socket,
                            NULL, &port);
         if (fd == -1) {
@@ -2010,17 +2025,21 @@ void modesSendAllClients(int service, void *msg, int len) {
 
 /* Write raw output to TCP clients. */
 void modesSendRawOutput(struct modesMessage *mm) {
-    char msg[128], *p = msg;
-    int j;
-
-    *p++ = '*';
-    for (j = 0; j < mm->msgbits/8; j++) {
-        sprintf(p, "%02X", mm->msg[j]);
-        p += 2;
-    }
-    *p++ = ';';
-    *p++ = '\n';
-    modesSendAllClients(Modes.ros, msg, p-msg);
+	char msg[(mm->msgbits/4)+3], *p = msg;
+	int j;
+	*p++ = '*';
+	for (j = 0; j < mm->msgbits/8; j++) {
+		sprintf(p, "%02X", mm->msg[j]);
+		p += 2;
+	}
+	*p++ = ';';
+	*p++ = '\n';
+	if (Modes.rest_uri) {
+		addRawMessageToRestQueue(msg, p-msg);
+	}
+	if (Modes.net) {
+		modesSendAllClients(Modes.ros, msg, p-msg);
+	}
 }
 
 
@@ -2385,6 +2404,9 @@ void modesWaitReadableClients(int timeout_ms) {
 
     /* Set listening sockets to accept new clients ASAP. */
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
+		if(modesNetServices[j].port == 0) {
+			continue;
+		}
         int s = *modesNetServices[j].socket;
         FD_SET(s,&fds);
         if (s > maxfd) maxfd = s;
@@ -2429,18 +2451,19 @@ void showHelp(void) {
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
-"--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
-"--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
-"--net-http-port <port>   HTTP server port (default: 8080).\n"
-"--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003).\n"
+"--net-ro-port <port>     TCP listening port for raw output (default: 30002, 0 to disable).\n"
+"--net-ri-port <port>     TCP listening port for raw input (default: 30001, 0 to disable).\n"
+"--net-http-port <port>   HTTP server port (default: 8080, 0 to disable).\n"
+"--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003, 0 to disable).\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
-"--aggressive             More CPU for more messages (two bits fixes, ...).\n"
 "--stats                  With --ifile print stats at exit. No other output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
 "--debug <flags>          Debug mode (verbose), see README for details.\n"
+"--list-devices           Lists available devices and then exit.\n"
+"--quiet                  Makes the console quiet, for use with the --net flag.\n"
 "--help                   Show this help.\n"
 "\n"
 "Debug mode flags: d = Log frames decoded with errors\n"
@@ -2486,7 +2509,10 @@ int main(int argc, char **argv) {
 
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = atoi(argv[++j]);
-        } else if (!strcmp(argv[j],"--gain") && more) {
+        } else if(!strcmp(argv[j],"--list-devices")) {
+			listDevices();
+			return 0;
+		} else if (!strcmp(argv[j],"--gain") && more) {
             Modes.gain = atof(argv[++j])*10; /* Gain is in tens of DBs */
         } else if (!strcmp(argv[j],"--enable-agc")) {
             Modes.enable_agc++;
@@ -2517,8 +2543,6 @@ int main(int argc, char **argv) {
             Modes.onlyaddr = 1;
         } else if (!strcmp(argv[j],"--metric")) {
             Modes.metric = 1;
-        } else if (!strcmp(argv[j],"--aggressive")) {
-            Modes.aggressive++;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
@@ -2548,6 +2572,10 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--snip") && more) {
             snipMode(atoi(argv[++j]));
             exit(0);
+        } else if (!strcmp(argv[j],"--quiet")) {
+            Modes.quiet = 1;
+        } else if (!strcmp(argv[j],"--rest-uri") && more) {
+            Modes.rest_uri = argv[++j];
         } else if (!strcmp(argv[j],"--help")) {
             showHelp();
             exit(0);
@@ -2565,6 +2593,7 @@ int main(int argc, char **argv) {
 
     /* Initialization */
     modesInit();
+    initRestConnection(Modes.rest_uri);
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
     } else if (Modes.filename == NULL) {
