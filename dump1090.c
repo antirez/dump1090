@@ -87,6 +87,7 @@
 #define MODES_NET_OUTPUT_SBS_PORT 30003
 #define MODES_NET_OUTPUT_RAW_PORT 30002
 #define MODES_NET_INPUT_RAW_PORT 30001
+#define MODES_NET_BIND_ADDRESS "127.0.0.1"
 #define MODES_NET_HTTP_PORT 8080
 #define MODES_CLIENT_BUF_SIZE 1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
@@ -155,6 +156,7 @@ struct {
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
+    char *net_bind_address;         /* Configure bind address. */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
     int raw;                        /* Raw output format. */
@@ -267,6 +269,7 @@ void modesInitConfig(void) {
     Modes.raw = 0;
     Modes.net = 0;
     Modes.net_only = 0;
+    Modes.net_bind_address = MODES_NET_BIND_ADDRESS;
     Modes.onlyaddr = 0;
     Modes.debug = 0;
     Modes.interactive = 0;
@@ -1910,7 +1913,7 @@ void modesInitNet(void) {
     Modes.maxfd = -1;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
-        int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, NULL);
+        int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, Modes.net_bind_address);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
                 modesNetServices[j].port,
@@ -2429,6 +2432,7 @@ void showHelp(void) {
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
+"--net-bind-address <ip>  IP address to bind to (default: 127.0.0.1)\n"
 "--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
 "--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
 "--net-http-port <port>   HTTP server port (default: 8080).\n"
@@ -2509,6 +2513,8 @@ int main(int argc, char **argv) {
             modesNetServices[MODES_NET_SERVICE_RAWO].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
             modesNetServices[MODES_NET_SERVICE_RAWI].port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-bind-address") && more) {
+            Modes.net_bind_address = argv[++j];
         } else if (!strcmp(argv[j],"--net-http-port") && more) {
             modesNetServices[MODES_NET_SERVICE_HTTP].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
