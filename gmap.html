@@ -38,6 +38,7 @@
       src="https://maps.googleapis.com/maps/api/js?sensor=true">
     </script>
     <script type="text/javascript">
+    FirstPlane = true;
     Map=null;
     CenterLat=45.0;
     CenterLon=9.0;
@@ -93,6 +94,10 @@
         html += 'Altitude: '+p.altitude+' feet<br>';
         html += 'Speed: '+p.speed+' knots<br>';
         html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
+        html += 'Registration: '+p.reg;
+        if (p.reg != "00") {
+            html += ' <img src="flags/'+p.reg.toLowerCase()+'.png"/><br>';
+        }
         i.innerHTML = html;
     }
 
@@ -121,8 +126,15 @@
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
                 } else {
+                    var latLong = new google.maps.LatLng(plane.lat, plane.lon);
+
+                    if (FirstPlane) {
+                        FirstPlane = false;
+                        Map.setCenter(latLong);
+                    }
+
                     marker = new google.maps.Marker({
-                        position: new google.maps.LatLng(plane.lat, plane.lon),
+                        position: latLong,
                         map: Map,
                         icon: getIconForPlane(plane)
                     });
