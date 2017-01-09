@@ -53,7 +53,7 @@ with your browser to http://localhost:8080 to see live traffic:
 
     ./dump1090 --interactive --net
 
-In iteractive mode it is possible to have a less information dense but more
+In interactive mode it is possible to have a less information dense but more
 "arcade style" output, where the screen is refreshed every second displaying
 all the recently seen aircrafts with some additional information such as
 altitude and flight number, extracted from the received Mode S packets.
@@ -186,7 +186,7 @@ away from me.
 If you are interested in a more serious antenna check the following
 resources:
 
-* http://gnuradio.org/redmine/attachments/download/246/06-foster-adsb.pdf
+* http://gnuradio.org/data/grcon11/06-foster-adsb.pdf
 * http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html
 * http://modesbeast.com/pix/adsb-ant-drawing.gif
 
