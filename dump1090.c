@@ -82,6 +82,8 @@
 #define MODES_INTERACTIVE_REFRESH_TIME 250      /* Milliseconds */
 #define MODES_INTERACTIVE_ROWS 15               /* Rows on screen */
 #define MODES_INTERACTIVE_TTL 60                /* TTL before being removed */
+#define MODES_TRAIL_BUFFSZ 512               /* how many floats can be stored inthe trail buffer (power of 2).  */
+#define MODES_TRAIL_ITEMS 2             /* How many floats per position */
 
 #define MODES_NET_MAX_FD 1024
 #define MODES_NET_OUTPUT_SBS_PORT 30003
@@ -90,6 +92,7 @@
 #define MODES_NET_HTTP_PORT 8080
 #define MODES_CLIENT_BUF_SIZE 1024
 #define MODES_NET_SNDBUF_SIZE (1024*64)
+
 
 #define MODES_NOTUSED(V) ((void) V)
 
@@ -119,6 +122,8 @@ struct aircraft {
     int even_cprlon;
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     long long odd_cprtime, even_cprtime;
+    float *trail; /* Rolling buffer for trail. */
+    uint16_t trailofs; /* offset into trail buffer of buffer start */
     struct aircraft *next; /* Next aircraft in our linked list. */
 };
 
@@ -172,6 +177,8 @@ struct {
     /* Interactive mode */
     struct aircraft *aircrafts;
     long long interactive_last_update;  /* Last screen update in milliseconds */
+    uint16_t trail_buffsz;
+    uint16_t trail_mask;
 
     /* Statistics */
     long long stat_valid_preamble;
@@ -272,6 +279,8 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
+    Modes.trail_buffsz=MODES_TRAIL_BUFFSZ;
+    Modes.trail_mask=MODES_TRAIL_BUFFSZ-1;
     Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
 }
@@ -1565,6 +1574,9 @@ void useModesMessage(struct modesMessage *mm) {
  * of aircrafts. */
 struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     struct aircraft *a = malloc(sizeof(*a));
+    if (a==NULL) { /*don't assume success */
+        return(NULL);
+    }
 
     a->addr = addr;
     snprintf(a->hexaddr,sizeof(a->hexaddr),"%06x",(int)addr);
@@ -1583,6 +1595,12 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->seen = time(NULL);
     a->messages = 0;
     a->next = NULL;
+    a->trail=malloc(sizeof(float)*Modes.trail_buffsz); /* test for valid pointer is done on access, so that we can continue even when memory is low. */
+    if (a->trail) {
+        a->trail[0]=9999;
+        a->trail[MODES_TRAIL_ITEMS]=9999;
+    }
+    a->trailofs=0;
     return a;
 }
 
@@ -1708,6 +1726,16 @@ void decodeCPR(struct aircraft *a) {
     /* Check that both are in the same latitude zone, or abort. */
     if (cprNLFunction(rlat0) != cprNLFunction(rlat1)) return;
 
+    /* Put the old position into the trail, if it's a real position. */
+    if (a->trail && !(a->lat==0.0 && a->lon==0.0) ) {
+        /* printf("%d -> ",a->trailofs); */
+        /* printf("%d\n",a->trailofs); */
+        a->trailofs=(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask;
+        a->trail[a->trailofs]=a->lat;
+        a->trail[a->trailofs+1]=a->lon;
+        a->trail[(a->trailofs-MODES_TRAIL_ITEMS) & Modes.trail_mask]=9999;
+    }
+        
     /* Compute ni and the longitude index m */
     if (a->even_cprtime > a->odd_cprtime) {
         /* Use even packet. */
@@ -1739,8 +1767,12 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     a = interactiveFindAircraft(addr);
     if (!a) {
         a = interactiveCreateAircraft(addr);
-        a->next = Modes.aircrafts;
-        Modes.aircrafts = a;
+        if (a) { /* don't assume success */
+            a->next = Modes.aircrafts;
+            Modes.aircrafts = a;
+        } else {
+            return(NULL);
+        }
     } else {
         /* If it is an already known aircraft, move it on head
          * so we keep aircrafts ordered by received message time.
@@ -1841,6 +1873,8 @@ void interactiveRemoveStaleAircrafts(void) {
             struct aircraft *next = a->next;
             /* Remove the element from the linked list, with care
              * if we are removing the first element. */
+            if (a->trail)
+                free(a->trail);
             free(a);
             if (!prev)
                 Modes.aircrafts = next;
@@ -2133,7 +2167,8 @@ int decodeHexMessage(struct client *c) {
 }
 
 /* Return a description of planes in json. */
-char *aircraftsToJson(int *len) {
+char *aircraftsToJson(int *len, const char *trailid) {
+    time_t now = time(NULL);
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
     char *buf = malloc(buflen), *p = buf;
@@ -2154,10 +2189,43 @@ char *aircraftsToJson(int *len) {
             l = snprintf(p,buflen,
                 "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
-                "\"speed\":%d},\n",
+                "\"speed\":%d, \"ago\":%d",
                 a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
-                a->speed);
+                a->speed,(int) (now-a->seen));
             p += l; buflen -= l;
+            /* If there's a trail, then check the value of passed trailid. If it's '*' or matches this hexaddr, then print the trail data too. */
+            if (a->trail==NULL || trailid==NULL ||   (trailid[0] != '*' && strcmp(trailid,a->hexaddr)!=0)) {
+                p[0]='}';
+                p[1]=',';
+                p[2]='\n';
+                p+=3;
+                buflen-=3;
+            } else {
+                int idx;
+                int count;
+                count=0;
+                l = snprintf(p,buflen,",\"trail\":[");
+                p += l; buflen -= l;
+                /* End of data signaled by 9999 in the lat/long */
+                for(idx=a->trailofs;a->trail[idx]<181 && a->trail[idx]>-181 ;idx=(idx+MODES_TRAIL_ITEMS)&Modes.trail_mask) {
+                    count=1;
+                    l=snprintf(p,buflen,"[%.5f,%.5f],",a->trail[idx],a->trail[idx+1]);
+                    p += l; buflen -= l;
+                    if (buflen < 256) {
+                        int used = p-buf;
+                        buflen += 1000; /* increment. (not power of 2, in case of malloc-lib housekeeping) */
+                        buf = realloc(buf,used+buflen);
+                        p = buf+used;
+                    }
+                }
+                if (count) { /* Overwrite final comma if its there */
+                    p--;
+                    buflen++;
+                }
+                strncpy(p,"]},\n",buflen);
+                p += 4; buflen -= 4;
+            }
+        
             /* Resize if needed. */
             if (buflen < 256) {
                 int used = p-buf;
@@ -2226,8 +2294,14 @@ int handleHTTPRequest(struct client *c) {
     /* Select the content to send, we have just two so far:
      * "/" -> Our google map application.
      * "/data.json" -> Our ajax request to update planes. */
-    if (strstr(url, "/data.json")) {
-        content = aircraftsToJson(&clen);
+    char  *start;
+    start=strstr(url, "/data.json");
+    if (start) {
+        if (*(start+10) == '?' && *(start+11)!='\0' ) {
+            content = aircraftsToJson(&clen,start+11);
+        } else {
+            content = aircraftsToJson(&clen,NULL);
+        }
         ctype = MODES_CONTENT_TYPE_JSON;
     } else {
         struct stat sbuf;
@@ -2425,6 +2499,7 @@ void showHelp(void) {
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
+"--trail-buffer <num>     Trail buffer length (default: MODES_TRAIL_BUFFSZ,  256 gives 128 trail points, must be power of 2).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
@@ -2523,6 +2598,14 @@ int main(int argc, char **argv) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
             Modes.interactive_rows = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--trail-buffer")) {
+            uint32_t sz=atoi(argv[++j]);
+            if (sz<2 || (sz & (sz-1))) {
+                fprintf(stderr, "Buffer size must be power of 2 (256, 512, 1024, etc)\n");
+                exit(1);
+            }
+            Modes.trail_buffsz = sz;
+            Modes.trail_mask=sz-1;
         } else if (!strcmp(argv[j],"--interactive-ttl")) {
             Modes.interactive_ttl = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--debug") && more) {

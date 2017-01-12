@@ -50,6 +50,8 @@
         var maxalt = 40000; /* Max altitude in the average case */
         var invalt = maxalt-plane.altitude;
         var selected = (Selected == plane.hex);
+	r-=2*plane.ago;
+	g-=2*plane.ago;
 
         if (invalt < 0) invalt = 0;
         b = parseInt(255/maxalt*invalt);
@@ -97,7 +99,7 @@
     }
 
     function fetchData() {
-        $.getJSON('/data.json', function(data) {
+        $.getJSON('/data.json?*', function(data) {
             var stillhere = {}
             for (var j=0; j < data.length; j++) {
                 var plane = data[j];
@@ -120,6 +122,24 @@
                     myplane.flight = plane.flight;
                     if (myplane.hex == Selected)
                         refreshSelectedInfo();
+		    if (plane.trail && plane.trail.length) { 
+			var t=plane.trail; 
+			if (!myplane.flightPath) { /* Previously had no trail */
+			    var flightPlanCoordinates = [];
+			    for (var k=t.length; k>0; k--) { /* reverse as we do this, since newest data is reported first, and the api needs additions pushed */
+				if (t[k]) {
+				    flightPlanCoordinates.push(new google.maps.LatLng(t[k][0],t[k][1])); 
+				}
+			    }
+			    myplane.flightPath = new google.maps.Polyline({ path: flightPlanCoordinates, strokeColor: "#FF0000", strokeOpacity: 1.0, strokeWeight: 1 });
+			    myplane.flightPath.setMap(Map);
+			} else {
+			    var fp=myplane.flightPath.getPath();
+			    if (t[0]) { /* No need to retain the entire path, nor add all details if we're slow updating */
+				fp.push(new google.maps.LatLng(t[0][0],t[0][1]));
+			    } 
+			}
+		    }
                 } else {
                     marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
@@ -143,6 +163,9 @@
             /* Remove idle planes. */
             for (var p in Planes) {
                 if (!stillhere[p]) {
+		    if (Planes[p].flightPath) {
+			    Planes[p].flightPath.setMap(null);
+		    }
                     Planes[p].marker.setMap(null);
                     delete Planes[p];
                 }
