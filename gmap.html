@@ -37,6 +37,22 @@
     <script type="text/javascript"
       src="https://maps.googleapis.com/maps/api/js?sensor=true">
     </script>
+    <!-- If you are going to make your radar data public and got the error
+         " Oops! Something went wrong. This page didn’t load Google Maps
+           correctly. See the JavaScript console for technical details. ", do:
+
+         1. Get a Google Maps API Key. Read the great instructions at
+            https://churchthemes.com/page-didnt-load-google-maps-correctly/#MissingKeyMapError
+
+         2. Comment the 'script type="text/javascript"' above block. DON'T
+            FORGET to comment the WHOLE block, INCLUDING the closing '</script>' clause
+
+	 3. Uncomment the below block and add the key that you have obtained in
+            Step 1 in the <INSERT KEY HERE> stub text below.
+    <script type="text/javascript"
+      src="https://maps.googleapis.com/maps/api/js?sensor=false&amp;libraries=geometry&amp;key=<INSERT KEY HERE>&amp;callback=initMap">
+    </script>
+    -->
     <script type="text/javascript">
     Map=null;
     CenterLat=45.0;
