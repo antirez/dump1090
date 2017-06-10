@@ -26,6 +26,7 @@
  * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
  * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ *Test
  */
 
 #include <stdio.h>
@@ -339,6 +340,7 @@ void modesInitRTLSDR(void) {
 
     device_count = rtlsdr_get_device_count();
     if (!device_count) {
+        }
         fprintf(stderr, "No supported RTLSDR devices found.\n");
         exit(1);
     }
@@ -398,10 +400,10 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
      * on the start of the new buffer. */
     memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
     /* Read the new data. */
-    memcpy(Modes.data+(MODES_FULL_LEN-1)*4, buf, len);
+    memcpy(Modes.data+(MODES_FULL_LEN-1)*4, buf, len);//memcpy（*dest，*src,LEN）
     Modes.data_ready = 1;
     /* Signal to the other thread that new data is ready */
-    pthread_cond_signal(&Modes.data_cond);
+    pthread_cond_signal(&Modes.data_cond); //pthread_cond_signal函数的作用是发送一个信号给另外一个处于阻塞状态的线程，使其脱离阻塞状态继续执行。
     pthread_mutex_unlock(&Modes.data_mutex);
 }
 
