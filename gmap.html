@@ -153,10 +153,28 @@
     function initialize() {
         var mapOptions = {
             center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 5,
+            zoom: 8,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
         Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+
+        infoWindow = new google.maps.InfoWindow;
+        // Try HTML5 geolocation.
+        if (navigator.geolocation) {
+          navigator.geolocation.getCurrentPosition(function(position) {
+            var pos = {
+              lat: position.coords.latitude,
+              lng: position.coords.longitude
+            };
+
+            Map.setCenter(pos);
+            }, function() {
+             handleLocationError(true, infoWindow, Map.getCenter());
+            });
+        } else {
+          // Browser doesn't support Geolocation
+          handleLocationError(false, infoWindow, Map.getCenter());
+        }
 
         /* Setup our timer to poll from the server. */
         window.setInterval(function() {
