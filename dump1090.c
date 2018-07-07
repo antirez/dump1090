@@ -34,15 +34,47 @@
 #include <pthread.h>
 #include <stdint.h>
 #include <errno.h>
-#include <unistd.h>
 #include <math.h>
-#include <sys/time.h>
 #include <signal.h>
 #include <fcntl.h>
 #include <ctype.h>
 #include <sys/stat.h>
+
+#ifndef _MSC_VER
+
+#include <unistd.h>
+#include <sys/time.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
+#include <sys/socket.h>
+
+#define OPEN_FILE_MODE O_RDONLY
+
+#define CONCAT(A, B) A ## B
+
+#define sockError() errno
+#define sockErrorIs(A) (errno == CONCAT(E, A))
+
+#else
+
+#include <io.h>
+#include <winsock2.h>
+
+typedef intptr_t ssize_t;
+
+#define M_PI 3.14159265358979323846264338327950288
+#define STDIN_FILENO 0
+#define OPEN_FILE_MODE (O_RDONLY | O_BINARY)
+
+#define CONCAT(A, B) A ## B
+
+#define sockError() WSAGetLastError()
+#define sockErrorIs(A) (WSAGetLastError() == CONCAT(WSAE, A))
+
+#define WSAEAGAIN WSAEWOULDBLOCK
+
+#endif
+
 #include "rtl-sdr.h"
 #include "anet.h"
 
@@ -245,6 +277,7 @@ int getTermRows();
 /* ============================= Utility functions ========================== */
 
 static long long mstime(void) {
+#ifndef _MSC_VER
     struct timeval tv;
     long long mst;
 
@@ -252,6 +285,12 @@ static long long mstime(void) {
     mst = ((long long)tv.tv_sec)*1000;
     mst += tv.tv_usec/1000;
     return mst;
+#else
+    FILETIME ft;
+
+    GetSystemTimeAsFileTime(&ft);
+    return (ft.dwHighDateTime * 0x100000000LL + ft.dwLowDateTime) / 10000 - 11644473600000LL;
+#endif
 }
 
 /* =============================== Initialization =========================== */
@@ -422,7 +461,11 @@ void readDataFromFile(void) {
             /* When --ifile and --interactive are used together, slow down
              * playing at the natural rate of the RTLSDR received. */
             pthread_mutex_unlock(&Modes.data_mutex);
+#ifndef _MSC_VER
             usleep(5000);
+#else
+            Sleep(5);
+#endif
             pthread_mutex_lock(&Modes.data_mutex);
         }
 
@@ -887,10 +930,6 @@ char *fs_str[8] = {
     /* 5 */ "Special Position Identification. Airborne or Ground",
     /* 6 */ "Value 6 is not assigned",
     /* 7 */ "Value 7 is not assigned"
-};
-
-/* ME message type to description table. */
-char *me_str[] = {
 };
 
 char *getMEDescription(int metype, int mesub) {
@@ -1805,7 +1844,12 @@ void interactiveShowData(void) {
     progress[time(NULL)%3] = '.';
     progress[3] = '\0';
 
+#ifdef _MSC_VER
+    system("cls");
+#else
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
+#endif
+
     printf(
 "Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
 "--------------------------------------------------------------------------------\n",
@@ -1909,20 +1953,29 @@ void modesInitNet(void) {
     memset(Modes.clients,0,sizeof(Modes.clients));
     Modes.maxfd = -1;
 
+    if (anetInit(Modes.aneterr) != ANET_OK)
+    {
+        fprintf(stderr, "Error starting anet: %s\n",
+            Modes.aneterr);
+        exit(1);
+    }
+
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
         int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, NULL);
         if (s == -1) {
             fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
                 modesNetServices[j].port,
                 modesNetServices[j].descr,
-                strerror(errno));
+                Modes.aneterr);
             exit(1);
         }
         anetNonBlock(Modes.aneterr, s);
         *modesNetServices[j].socket = s;
     }
 
+#ifndef _MSC_VER
     signal(SIGPIPE, SIG_IGN);
+#endif
 }
 
 /* This function gets called from time to time when the decoding thread is
@@ -1937,9 +1990,9 @@ void modesAcceptClients(void) {
         fd = anetTcpAccept(Modes.aneterr, *modesNetServices[j].socket,
                            NULL, &port);
         if (fd == -1) {
-            if (Modes.debug & MODES_DEBUG_NET && errno != EAGAIN)
+            if (Modes.debug & MODES_DEBUG_NET && !sockErrorIs(AGAIN) && !sockErrorIs(WOULDBLOCK))
                 printf("Accept %d: %s\n", *modesNetServices[j].socket,
-                       strerror(errno));
+                    Modes.aneterr);
             continue;
         }
 
@@ -1969,7 +2022,13 @@ void modesAcceptClients(void) {
 
 /* On error free the client, collect the structure, adjust maxfd if needed. */
 void modesFreeClient(int fd) {
+#ifdef _MSC_VER
+    shutdown(fd, SD_SEND);
+    closesocket(fd);
+#else
     close(fd);
+#endif
+
     free(Modes.clients[fd]);
     Modes.clients[fd] = NULL;
 
@@ -2000,7 +2059,7 @@ void modesSendAllClients(int service, void *msg, int len) {
     for (j = 0; j <= Modes.maxfd; j++) {
         c = Modes.clients[j];
         if (c && c->service == service) {
-            int nwritten = write(j, msg, len);
+            int nwritten = send(j, msg, len, 0);
             if (nwritten != len) {
                 modesFreeClient(j);
             }
@@ -2234,7 +2293,7 @@ int handleHTTPRequest(struct client *c) {
         int fd = -1;
 
         if (stat("gmap.html",&sbuf) != -1 &&
-            (fd = open("gmap.html",O_RDONLY)) != -1)
+            (fd = open("gmap.html", OPEN_FILE_MODE)) != -1)
         {
             content = malloc(sbuf.st_size);
             if (read(fd,content,sbuf.st_size) == -1) {
@@ -2270,8 +2329,8 @@ int handleHTTPRequest(struct client *c) {
         printf("HTTP Reply header:\n%s", hdr);
 
     /* Send header and content. */
-    if (write(c->fd, hdr, hdrlen) != hdrlen ||
-        write(c->fd, content, clen) != clen)
+    if (send(c->fd, hdr, hdrlen, 0) != hdrlen ||
+        send(c->fd, content, clen, 0) != clen)
     {
         free(content);
         return 1;
@@ -2298,13 +2357,13 @@ void modesReadFromClient(struct client *c, char *sep,
 {
     while(1) {
         int left = MODES_CLIENT_BUF_SIZE - c->buflen;
-        int nread = read(c->fd, c->buf+c->buflen, left);
+        int nread = recv(c->fd, c->buf+c->buflen, left, 0);
         int fullmsg = 0;
         int i;
         char *p;
 
         if (nread <= 0) {
-            if (nread == 0 || errno != EAGAIN) {
+            if (nread == 0 || (!sockErrorIs(AGAIN) && !sockErrorIs(WOULDBLOCK))) {
                 /* Error, or end of file. */
                 modesFreeClient(c->fd);
             }
@@ -2399,6 +2458,7 @@ void modesWaitReadableClients(int timeout_ms) {
 
 /* ============================ Terminal handling  ========================== */
 
+#ifndef _MSC_VER
 /* Handle resizing terminal. */
 void sigWinchCallback() {
     signal(SIGWINCH, SIG_IGN);
@@ -2406,12 +2466,20 @@ void sigWinchCallback() {
     interactiveShowData();
     signal(SIGWINCH, sigWinchCallback);
 }
+#endif
 
 /* Get the number of rows after the terminal changes size. */
 int getTermRows() {
+#ifndef _MSC_VER
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
     return w.ws_row;
+#else
+    CONSOLE_SCREEN_BUFFER_INFO w;
+    HANDLE hStdout = GetStdHandle(STD_OUTPUT_HANDLE);
+    GetConsoleScreenBufferInfo(hStdout, &w);
+    return (int)w.dwSize.Y;
+#endif
 }
 
 /* ================================ Main ==================================== */
@@ -2560,8 +2628,10 @@ int main(int argc, char **argv) {
         }
     }
 
+#ifndef _MSC_VER
     /* Setup for SIGWINCH for handling lines */
     if (Modes.interactive == 1) signal(SIGWINCH, sigWinchCallback);
+#endif
 
     /* Initialization */
     modesInit();
@@ -2572,7 +2642,7 @@ int main(int argc, char **argv) {
     } else {
         if (Modes.filename[0] == '-' && Modes.filename[1] == '\0') {
             Modes.fd = STDIN_FILENO;
-        } else if ((Modes.fd = open(Modes.filename,O_RDONLY)) == -1) {
+        } else if ((Modes.fd = open(Modes.filename, OPEN_FILE_MODE)) == -1) {
             perror("Opening data file");
             exit(1);
         }
@@ -2632,5 +2702,3 @@ int main(int argc, char **argv) {
     rtlsdr_close(Modes.dev);
     return 0;
 }
-
-
