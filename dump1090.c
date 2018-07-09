@@ -46,6 +46,9 @@
 #include "rtl-sdr.h"
 #include "anet.h"
 
+extern const unsigned char gmap_html[];
+extern const unsigned      gmap_html_len;
+
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
 #define MODES_DEFAULT_WIDTH        1000
@@ -2230,26 +2233,8 @@ int handleHTTPRequest(struct client *c) {
         content = aircraftsToJson(&clen);
         ctype = MODES_CONTENT_TYPE_JSON;
     } else {
-        struct stat sbuf;
-        int fd = -1;
-
-        if (stat("gmap.html",&sbuf) != -1 &&
-            (fd = open("gmap.html",O_RDONLY)) != -1)
-        {
-            content = malloc(sbuf.st_size);
-            if (read(fd,content,sbuf.st_size) == -1) {
-                snprintf(content,sbuf.st_size,"Error reading from file: %s",
-                    strerror(errno));
-            }
-            clen = sbuf.st_size;
-        } else {
-            char buf[128];
-
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s",
-                strerror(errno));
-            content = strdup(buf);
-        }
-        if (fd != -1) close(fd);
+        content = (char*) gmap_html;
+        clen = gmap_html_len;
         ctype = MODES_CONTENT_TYPE_HTML;
     }
 
@@ -2269,16 +2254,21 @@ int handleHTTPRequest(struct client *c) {
     if (Modes.debug & MODES_DEBUG_NET)
         printf("HTTP Reply header:\n%s", hdr);
 
+    int ret;
     /* Send header and content. */
     if (write(c->fd, hdr, hdrlen) != hdrlen ||
         write(c->fd, content, clen) != clen)
     {
-        free(content);
-        return 1;
+        ret = 1;
+    } else {
+        Modes.stat_http_requests++;
+        ret = !keepalive;
     }
-    free(content);
-    Modes.stat_http_requests++;
-    return !keepalive;
+
+    if (content != (char*)gmap_html)
+       free(content);
+
+    return ret;
 }
 
 /* This function polls the clients using read() in order to receive new
