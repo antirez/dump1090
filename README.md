@@ -24,7 +24,7 @@ The main features are:
 
 While from time to time I still add / fix stuff in my fork, I target
 minimalism of the implementation. However there is a
-[much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
+[much more feature complete fork]   (https://github.com/MalcolmRobb/dump1090)
 available, developed by MalcolmRobb.
 
 Installation
