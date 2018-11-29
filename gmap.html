@@ -32,13 +32,13 @@
         color:#333;
       }
     </style>
-    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js">
+    <script src="https://code.jquery.com/jquery-3.3.1.min.js">
     </script>
     <script type="text/javascript"
-      src="https://maps.googleapis.com/maps/api/js?sensor=true">
+      src="https://maps.googleapis.com/maps/api/js?key={YOUR_API_KEY}&sensor=true">
     </script>
     <script type="text/javascript">
-    Map=null;
+    _Map=null;
     CenterLat=45.0;
     CenterLon=9.0;
     Planes={};
@@ -123,7 +123,7 @@
                 } else {
                     marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
-                        map: Map,
+                        map: _Map,
                         icon: getIconForPlane(plane)
                     });
                     plane.marker = marker;
@@ -156,7 +156,7 @@
             zoom: 5,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
-        Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+        _Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
 
         /* Setup our timer to poll from the server. */
         window.setInterval(function() {
