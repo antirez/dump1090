@@ -49,7 +49,10 @@ To run the program in interactive mode:
     ./dump1090 --interactive
 
 To run the program in interactive mode, with networking support, and connect
-with your browser to http://localhost:8080 to see live traffic:
+with your browser to http://localhost:8080 to see live traffic, first get a
+[google maps javascript API key](https://developers.google.com/maps/documentation/javascript/get-api-key)
+and replace `GOOGLE_MAPS_JAVASCRIPT_API_KEY` in gmap.html with your key.
+Then run:
 
     ./dump1090 --interactive --net
 
