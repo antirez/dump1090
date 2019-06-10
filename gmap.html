@@ -38,7 +38,7 @@
       src="https://maps.googleapis.com/maps/api/js?sensor=true">
     </script>
     <script type="text/javascript">
-    Map=null;
+    map=null;
     CenterLat=45.0;
     CenterLon=9.0;
     Planes={};
@@ -123,7 +123,7 @@
                 } else {
                     marker = new google.maps.Marker({
                         position: new google.maps.LatLng(plane.lat, plane.lon),
-                        map: Map,
+                        map: map,
                         icon: getIconForPlane(plane)
                     });
                     plane.marker = marker;
@@ -156,7 +156,7 @@
             zoom: 5,
             mapTypeId: google.maps.MapTypeId.ROADMAP
         };
-        Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
+        map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
 
         /* Setup our timer to poll from the server. */
         window.setInterval(function() {
