@@ -4,170 +4,220 @@
   <head>
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
     <style type="text/css">
-      html { height: 100% }
-      body { height: 100%; margin: 0; padding: 0 }
-      #map_canvas { height: 100% }
+      html {
+        height: 100%;
+      }
+      body {
+        height: 100%;
+        margin: 0;
+        padding: 0;
+      }
+      #map_canvas {
+        height: 100%;
+      }
       #info {
         position: absolute;
-        width:20%;
-        height:100%;
-        bottom:0px;
-        right:0px;
-        top:0px;
+        width: 20%;
+        height: 100%;
+        bottom: 0px;
+        right: 0px;
+        top: 0px;
         background-color: white;
-        border-left:1px #666 solid;
-        font-family:Helvetica;
+        border-left: 1px #666 solid;
+        font-family: Helvetica;
       }
       #info div {
-        padding:0px;
-        padding-left:10px;
-        margin:0px;
+        padding: 0px;
+        padding-left: 10px;
+        margin: 0px;
       }
       #info div h1 {
-        margin-top:10px;
-        font-size:16px;
+        margin-top: 10px;
+        font-size: 16px;
       }
       #info div p {
-        font-size:14px;
-        color:#333;
+        font-size: 14px;
+        color: #333;
       }
     </style>
-    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js">
-    </script>
-    <script type="text/javascript"
-      src="https://maps.googleapis.com/maps/api/js?sensor=true">
-    </script>
-    <script type="text/javascript">
-    Map=null;
-    CenterLat=45.0;
-    CenterLon=9.0;
-    Planes={};
-    NumPlanes = 0;
-    Selected=null
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
 
-    function getIconForPlane(plane) {
-        var r = 255, g = 255, b = 0;
+    <script type="text/javascript">
+
+
+if (!String.prototype.padStart) {
+    String.prototype.padStart = function padStart(targetLength, padString) {
+        targetLength = targetLength >> 0; //truncate if number, or convert non-number to 0;
+        padString = String(padString !== undefined ? padString : ' ');
+        if (this.length >= targetLength) {
+            return String(this);
+        } else {
+            targetLength = targetLength - this.length;
+            if (targetLength > padString.length) {
+                padString += padString.repeat(targetLength / padString.length); //append to original to ensure we are longer than needed
+            }
+            return padString.slice(0, targetLength) + String(this);
+        }
+    };
+}
+
+      localMap = null;
+      CenterLat = 28.28;
+      CenterLon = -16.37;
+      Planes = {};
+      NumPlanes = 0;
+      Selected = null;
+      timer = new Date();
+
+      function getIconForPlane(plane) {
+        var r = 255,
+          g = 255,
+          b = 0;
         var maxalt = 40000; /* Max altitude in the average case */
-        var invalt = maxalt-plane.altitude;
-        var selected = (Selected == plane.hex);
+        var invalt = maxalt - plane.altitude;
+        var selected = Selected == plane.hex;
 
         if (invalt < 0) invalt = 0;
-        b = parseInt(255/maxalt*invalt);
+        b = parseInt((255 / maxalt) * invalt);
         return {
-            strokeWeight: (selected ? 2 : 1),
-            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-            scale: 5,
-            fillColor: 'rgb('+r+','+g+','+b+')',
-            fillOpacity: 0.9,
-            rotation: plane.track
+          strokeWeight: selected ? 2 : 1,
+          path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
+          scale: 5,
+          fillColor: "rgb(" + r + "," + g + "," + b + ")",
+          fillOpacity: 0.9,
+          rotation: plane.track
         };
-    }
+      }
 
-    function selectPlane() {
+      function selectPlane() {
         if (!Planes[this.planehex]) return;
         var old = Selected;
         Selected = this.planehex;
         if (Planes[old]) {
-            /* Remove the highlight in the previously selected plane. */
-            Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
+          /* Remove the highlight in the previously selected plane. */
+          Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
         }
         Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
         refreshSelectedInfo();
-    }
-    
-    function refreshGeneralInfo() {
-        var i = document.getElementById('geninfo');
+      }
 
-        i.innerHTML = NumPlanes+' planes on screen.';
-    }
+      function refreshGeneralInfo() {
+        var i = document.getElementById("geninfo");
 
-    function refreshSelectedInfo() {
-        var i = document.getElementById('selinfo');
+        i.innerHTML = NumPlanes + " planes on screen.";
+      }
+
+      function refreshSelectedInfo() {
+        var i = document.getElementById("selinfo");
         var p = Planes[Selected];
 
         if (!p) return;
-        var html = 'ICAO: '+p.hex+'<br>';
+        var html = "ICAO: " + p.hex + "<br>";
         if (p.flight.length) {
-            html += '<b>'+p.flight+'</b><br>';
+          html += "<b>" + p.flight + "</b><br>";
         }
-        html += 'Altitude: '+p.altitude+' feet<br>';
-        html += 'Speed: '+p.speed+' knots<br>';
-        html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
+        html += `Altitude: ${p.altitude} feet (${parseInt(
+          p.altitude * 0.3048
+        )} meters)<br>`;
+        html += `Speed: ${p.speed} knots (${parseInt(
+          p.speed * 1.852
+        )} km/h)<br>`;
+        html += "Coordinates: " + p.lat + ", " + p.lon + "<br>";
         i.innerHTML = html;
-    }
+      }
+      mapCreated = false;
+      function fetchData() {
+        $.getJSON("http://localhost:8080/data.json", function(data) {
+          var stillhere = {};
+          for (var j = 0; j < data.length; j++) {
 
-    function fetchData() {
-        $.getJSON('/data.json', function(data) {
-            var stillhere = {}
-            for (var j=0; j < data.length; j++) {
-                var plane = data[j];
-                var marker = null;
-                stillhere[plane.hex] = true;
-                plane.flight = $.trim(plane.flight);
+            var plane = data[j];
 
-                if (Planes[plane.hex]) {
-                    var myplane = Planes[plane.hex];
-                    marker = myplane.marker;
-                    var icon = marker.getIcon();
-                    var newpos = new google.maps.LatLng(plane.lat, plane.lon);
-                    marker.setPosition(newpos);
-                    marker.setIcon(getIconForPlane(plane));
-                    myplane.altitude = plane.altitude;
-                    myplane.speed = plane.speed;
-                    myplane.lat = plane.lat;
-                    myplane.lon = plane.lon;
-                    myplane.track = plane.track;
-                    myplane.flight = plane.flight;
-                    if (myplane.hex == Selected)
-                        refreshSelectedInfo();
-                } else {
-                    marker = new google.maps.Marker({
-                        position: new google.maps.LatLng(plane.lat, plane.lon),
-                        map: Map,
-                        icon: getIconForPlane(plane)
-                    });
-                    plane.marker = marker;
-                    marker.planehex = plane.hex;
-                    Planes[plane.hex] = plane;
-
-                    /* Trap clicks for this marker. */
-                    google.maps.event.addListener(marker, 'click', selectPlane);
-                }
-                if (plane.flight.length == 0)
-                    marker.setTitle(plane.hex)
-                else
-                    marker.setTitle(plane.flight+' ('+plane.hex+')')
+            if (!mapCreated) {
+              var mapOptions = {
+                center: new google.maps.LatLng(plane.lat, plane.lon),
+                zoom: 8,
+                mapTypeId: google.maps.MapTypeId.ROADMAP
+              };
+              localMap = new google.maps.Map(
+                document.getElementById("map_canvas"),
+                mapOptions
+              );
+              mapCreated = true;
             }
-            NumPlanes = data.length;
 
-            /* Remove idle planes. */
-            for (var p in Planes) {
-                if (!stillhere[p]) {
-                    Planes[p].marker.setMap(null);
-                    delete Planes[p];
-                }
+            var marker = null;
+            stillhere[plane.hex] = true;
+            plane.flight = $.trim(plane.flight);
+
+            value = parseInt((plane.altitude > 20000 ? 20000 : plane.altitude) / 20000 * 255)
+
+            var color = (value).toString('16').padStart(2, '0')
+            var color2 = (255 - value).toString('16').padStart(2, '0')
+
+            new google.maps.Circle({
+              strokeColor: `#${color}${color2}00`,
+              strokeOpacity: 0.8,
+              strokeWeight: 2,
+              fillColor: `#${color}${color2}00`,
+              fillOpacity: 0.35,
+              map: localMap,
+              center: { lat: plane.lat, lng: plane.lon },
+              radius: 100
+            });
+
+            if (Planes[plane.hex]) {
+              var myplane = Planes[plane.hex];
+              marker = myplane.marker;
+              var icon = marker.getIcon();
+              var newpos = new google.maps.LatLng(plane.lat, plane.lon);
+              marker.setPosition(newpos);
+              marker.setIcon(getIconForPlane(plane));
+              myplane.altitude = plane.altitude;
+              myplane.speed = plane.speed;
+              myplane.lat = plane.lat;
+              myplane.lon = plane.lon;
+              myplane.track = plane.track;
+              myplane.flight = plane.flight;
+              if (myplane.hex == Selected) refreshSelectedInfo();
+            } else {
+              marker = new google.maps.Marker({
+                position: new google.maps.LatLng(plane.lat, plane.lon),
+                map: localMap,
+                icon: getIconForPlane(plane)
+              });
+              plane.marker = marker;
+              marker.planehex = plane.hex;
+              Planes[plane.hex] = plane;
+
+              /* Trap clicks for this marker. */
+              google.maps.event.addListener(marker, "click", selectPlane);
             }
+            if (plane.flight.length == 0) marker.setTitle(plane.hex);
+            else marker.setTitle(plane.flight + " (" + plane.hex + ")");
+          }
+          NumPlanes = data.length;
+
+          /* Remove idle planes. */
+          for (var p in Planes) {
+            if (!stillhere[p]) {
+              Planes[p].marker.setMap(null);
+              delete Planes[p];
+            }
+          }
         });
-    }
+      }
 
-    function initialize() {
-        var mapOptions = {
-            center: new google.maps.LatLng(CenterLat, CenterLon),
-            zoom: 5,
-            mapTypeId: google.maps.MapTypeId.ROADMAP
-        };
-        Map = new google.maps.Map(document.getElementById("map_canvas"), mapOptions);
-
+      function initialize() {
         /* Setup our timer to poll from the server. */
         window.setInterval(function() {
-            fetchData();
-            refreshGeneralInfo();
+          fetchData();
+          refreshGeneralInfo();
         }, 1000);
-    }
-
+      }
     </script>
   </head>
-  <body onload="initialize()">
+  <body>
     <div id="map_canvas" style="width:80%; height:100%"></div>
     <div id="info">
       <div>
@@ -177,4 +227,8 @@
       </div>
     </div>
   </body>
+  <script
+    type="text/javascript"
+    src="https://maps.googleapis.com/maps/api/js?key=YOURAPIKEY&callback=initialize"
+  ></script>
 </html>
