@@ -43,6 +43,24 @@
     <script src="//ajax.googleapis.com/ajax/libs/jquery/1.8.3/jquery.min.js"></script>
 
     <script type="text/javascript">
+
+
+if (!String.prototype.padStart) {
+    String.prototype.padStart = function padStart(targetLength, padString) {
+        targetLength = targetLength >> 0; //truncate if number, or convert non-number to 0;
+        padString = String(padString !== undefined ? padString : ' ');
+        if (this.length >= targetLength) {
+            return String(this);
+        } else {
+            targetLength = targetLength - this.length;
+            if (targetLength > padString.length) {
+                padString += padString.repeat(targetLength / padString.length); //append to original to ensure we are longer than needed
+            }
+            return padString.slice(0, targetLength) + String(this);
+        }
+    };
+}
+
       localMap = null;
       CenterLat = 28.28;
       CenterLon = -16.37;
@@ -132,11 +150,16 @@
             stillhere[plane.hex] = true;
             plane.flight = $.trim(plane.flight);
 
+            value = parseInt((plane.altitude > 20000 ? 20000 : plane.altitude) / 20000 * 255)
+
+            var color = (value).toString('16').padStart(2, '0')
+            var color2 = (255 - value).toString('16').padStart(2, '0')
+
             new google.maps.Circle({
-              strokeColor: "#FF0000",
+              strokeColor: `#${color}${color2}00`,
               strokeOpacity: 0.8,
               strokeWeight: 2,
-              fillColor: "#FF0000",
+              fillColor: `#${color}${color2}00`,
               fillOpacity: 0.35,
               map: localMap,
               center: { lat: plane.lat, lng: plane.lon },
