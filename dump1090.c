@@ -2268,6 +2268,7 @@ int handleHTTPRequest(struct client *c) {
         "Content-Type: %s\r\n"
         "Connection: %s\r\n"
         "Content-Length: %d\r\n"
+        "Access-Control-Allow-Origin: *\r\n"
         "\r\n",
         ctype,
         keepalive ? "keep-alive" : "close",
