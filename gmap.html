@@ -58,7 +58,7 @@
 
         var he = document.createElement("P");
         he.innerHTML = '>';
-        var rotation = plane.track+90;
+        var rotation = 45+360-plane.track;
         he = '<div style="transform: rotate(-'+rotation+'deg);">✈️</div>';
         var icon = L.divIcon({html: he, className: 'plane-icon'});
         return icon;
