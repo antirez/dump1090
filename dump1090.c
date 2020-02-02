@@ -433,6 +433,15 @@ void readDataFromFile(void) {
         p = Modes.data+(MODES_FULL_LEN-1)*4;
         while(toread) {
             nread = read(Modes.fd, p, toread);
+            /* In --file mode, seek the file again from the start
+             * and re-play it. */
+            if (nread == 0 &&
+                Modes.filename != NULL &&
+                Modes.fd != STDIN_FILENO)
+            {
+                if (lseek(Modes.fd,0,SEEK_SET) != -1) continue;
+            }
+
             if (nread <= 0) {
                 Modes.exit = 1; /* Signal the other thread to exit. */
                 break;
