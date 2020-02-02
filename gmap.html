@@ -62,20 +62,12 @@
         he = '<div style="transform: rotate(-'+rotation+'deg);">✈️</div>';
         var icon = L.divIcon({html: he, className: 'plane-icon'});
         return icon;
-//        return {
-//            strokeWeight: (selected ? 2 : 1),
-//            path: google.maps.SymbolPath.FORWARD_CLOSED_ARROW,
-//            scale: 5,
-//            fillColor: 'rgb('+r+','+g+','+b+')',
-//            fillOpacity: 0.9,
-//            rotation: plane.track
-//        };
     }
 
-    function selectPlane() {
-        if (!Planes[this.planehex]) return;
+    function selectPlane(planehex) {
+        if (!Planes[planehex]) return;
         var old = Selected;
-        Selected = this.planehex;
+        Selected = planehex;
         if (Planes[old]) {
             /* Remove the highlight in the previously selected plane. */
             Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
@@ -130,12 +122,11 @@
                 } else {
                     var icon = getIconForPlane(plane);
                     var marker = L.marker([plane.lat, plane.lon], {icon: icon}).addTo(Map);
+                    var hex = plane.hex;
+                    marker.on('click',function () {selectPlane(hex)});
                     plane.marker = marker;
                     marker.planehex = plane.hex;
                     Planes[plane.hex] = plane;
-
-                    /* Trap clicks for this marker. */
-                    // FIXME: google.maps.event.addListener(marker, 'click', selectPlane);
                 }
 
                 // FIXME: Set the title
