@@ -56,10 +56,16 @@
         if (invalt < 0) invalt = 0;
         b = parseInt(255/maxalt*invalt);
 
+        /* As Icon we use the plane emoji, this is a simple solution but
+           is definitely a compromise: we expect the icon to be rotated
+           45 degrees facing north-east by default, this is true in most
+           systems but not all. */
         var he = document.createElement("P");
         he.innerHTML = '>';
         var rotation = 45+360-plane.track;
         var selhtml = '';
+
+        /* Give a border to the selected plane. */
         if (Selected == plane.hex) {
             selhtml = 'border:1px dotted #0000aa; border-radius:10px;';
         } else {
@@ -82,6 +88,8 @@
         refreshSelectedInfo();
     }
 
+    /* Return a closure to caputure the 'hex' argument. This way we don't
+       have to care about how Leaflet passes the object to the callback. */
     function selectPlaneCallback(hex) {
         return function() {
             return selectPlane(hex);
