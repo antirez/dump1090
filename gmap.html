@@ -59,7 +59,13 @@
         var he = document.createElement("P");
         he.innerHTML = '>';
         var rotation = 45+360-plane.track;
-        he = '<div style="transform: rotate(-'+rotation+'deg);">✈️</div>';
+        var selhtml = '';
+        if (Selected == plane.hex) {
+            selhtml = 'border:1px dotted #0000aa; border-radius:10px;';
+        } else {
+            selhtml = '';
+        }
+        he = '<div style="transform: rotate(-'+rotation+'deg); '+selhtml+'">✈️</div>';
         var icon = L.divIcon({html: he, className: 'plane-icon'});
         return icon;
     }
@@ -74,6 +80,12 @@
         }
         Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
         refreshSelectedInfo();
+    }
+
+    function selectPlaneCallback(hex) {
+        return function() {
+            return selectPlane(hex);
+        }
     }
     
     function refreshGeneralInfo() {
@@ -123,7 +135,7 @@
                     var icon = getIconForPlane(plane);
                     var marker = L.marker([plane.lat, plane.lon], {icon: icon}).addTo(Map);
                     var hex = plane.hex;
-                    marker.on('click',function () {selectPlane(hex)});
+                    marker.on('click',selectPlaneCallback(plane.hex));
                     plane.marker = marker;
                     marker.planehex = plane.hex;
                     Planes[plane.hex] = plane;
