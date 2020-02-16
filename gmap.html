@@ -40,6 +40,7 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
     <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew==" crossorigin=""></script>
     <script type="text/javascript">
+    hrefFlightawareLookup = "http://uk.flightaware.com/live/flight/";
     Map=null;
     CenterLat=45.0;
     CenterLon=9.0;
@@ -109,7 +110,7 @@
         if (!p) return;
         var html = 'ICAO: '+p.hex+'<br>';
         if (p.flight.length) {
-            html += '<b>'+p.flight+'</b><br>';
+            html += '<b><a href="' +hrefFlightawareLookup + p.flight + '" target="_blank">'+p.flight+'</a></b><br>';
         }
         html += 'Altitude: '+p.altitude+' feet<br>';
         html += 'Speed: '+p.speed+' knots<br>';
