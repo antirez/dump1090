@@ -176,7 +176,7 @@ Mode S messages are transmitted in the 1090 Mhz frequency. If you have a decent
 antenna you'll be able to pick up signals from aircrafts pretty far from your
 position, especially if you are outdoor and in a position with a good sky view.
 
-You can easily build a very cheap antenna following the istructions at:
+You can easily build a very cheap antenna following the instructions at:
 
     http://antirez.com/news/46
 
