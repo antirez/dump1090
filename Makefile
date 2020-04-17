@@ -1,5 +1,5 @@
 CFLAGS?=-O2 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
-LDLIBS+=$(shell pkg-config --libs librtlsdr) -lpthread -lm
+LDLIBS+=$(shell pkg-config --libs librtlsdr) -lpthread -lm $(shell pkg-config --libs libusb-1.0)
 CC?=gcc
 PROGNAME=dump1090
 
