@@ -45,6 +45,7 @@
 #include <sys/select.h>
 #include "rtl-sdr.h"
 #include "anet.h"
+#include "country_list.h"
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -120,6 +121,7 @@ struct aircraft {
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     long long odd_cprtime, even_cprtime;
     struct aircraft *next; /* Next aircraft in our linked list. */
+    struct countryCodes * reg; /* aircraft registretion country */
 };
 
 /* Program global state. */
@@ -1127,6 +1129,17 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->phase_corrected = 0; /* Set to 1 by the caller if needed. */
 }
 
+/* Extract the country code from the ICAO adress. */
+struct countryCodes * icaoToCountyCode(uint32_t addr)
+{
+    unsigned int i;
+    for (i=0; i < CTALEN(); i++) {
+        if((addr & countryList[i].icao_mask) == countryList[i].icao_addr)
+            return &countryList[i];
+    }
+    return NULL;
+}
+
 /* This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format. */
 void displayModesMessage(struct modesMessage *mm) {
@@ -1602,6 +1615,7 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     a->lon = 0;
     a->seen = time(NULL);
     a->messages = 0;
+    a->reg = icaoToCountyCode(addr);
     a->next = NULL;
     return a;
 }
@@ -1827,8 +1841,8 @@ void interactiveShowData(void) {
 
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
-"Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
-"--------------------------------------------------------------------------------\n",
+"Hex    Reg Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
+"-----------------------------------------------------------------------------------\n",
         progress);
 
     while(a && count < Modes.interactive_rows) {
@@ -1840,8 +1854,10 @@ void interactiveShowData(void) {
             speed *= 1.852;
         }
 
-        printf("%-6s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
-            a->hexaddr, a->flight, altitude, speed,
+        printf("%-6s %-3s %-8s %-9d %-7d %-7.03f   %-7.03f   %-3d   %-9ld %d sec\n",
+            a->hexaddr,
+            a->reg?a->reg->code:"  ",
+            a->flight, altitude, speed,
             a->lat, a->lon, a->track, a->messages,
             (int)(now - a->seen));
         a = a->next;
@@ -2172,18 +2188,25 @@ char *aircraftsToJson(int *len) {
 
         if (a->lat != 0 && a->lon != 0) {
             l = snprintf(p,buflen,
-                "{\"hex\":\"%s\", \"flight\":\"%s\", \"lat\":%f, "
+                "{\"hex\":\"%s\", \"reg\":\"%s\",\"flight\":\"%s\", \"lat\":%f, "
                 "\"lon\":%f, \"altitude\":%d, \"track\":%d, "
                 "\"speed\":%d},\n",
-                a->hexaddr, a->flight, a->lat, a->lon, a->altitude, a->track,
+                a->hexaddr,
+                a->reg?a->reg->code:"",
+                a->flight, a->lat, a->lon, a->altitude, a->track,
                 a->speed);
-            p += l; buflen -= l;
+
             /* Resize if needed. */
-            if (buflen < 256) {
-                int used = p-buf;
-                buflen += 1024; /* Our increment. */
-                buf = realloc(buf,used+buflen);
-                p = buf+used;
+	    if (l >= buflen) {
+		int used = p-buf;
+		buflen += (2*l); /* Our increment. */
+		buf = realloc(buf,used+buflen);
+		if (buf == NULL) exit(1);
+		p = buf+used;
+		/* try to add the current airplane again */
+		continue;
+	    } else {
+		p += l; buflen -= l;
             }
         }
         a = a->next;
