@@ -29,19 +29,52 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+#include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
+
+#ifndef _MSC_VER
+
+#include <sys/socket.h>
 #include <sys/un.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <arpa/inet.h>
 #include <unistd.h>
-#include <fcntl.h>
-#include <string.h>
 #include <netdb.h>
-#include <errno.h>
-#include <stdarg.h>
-#include <stdio.h>
+
+#define CONCAT(A, B) A ## B
+
+#define anetError() errno
+#define anetErrorIs(A) (errno == CONCAT(E, A))
+
+#define ERROR_DATA_FORMAT "%s"
+#define anetErrorData() strerror(errno)
+
+#else
+
+#include <io.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+#define CONCAT(A, B) A ## B
+
+#define close(S) do { shutdown(S, SD_SEND); closesocket(S); } while (0)
+#define inet_aton(A, B) inet_pton(AF_INET, A, B)
+#define setsockopt(A, B, C, D, E) setsockopt(A, B, C, (const char *)(D), E)
+
+#define anetError() WSAGetLastError()
+#define anetErrorIs(A) (WSAGetLastError() == CONCAT(WSAE, A))
+
+#define ERROR_DATA_FORMAT "%i"
+#define anetErrorData() WSAGetLastError()
+
+typedef int socklen_t;
+
+#endif
 
 #include "anet.h"
 
@@ -55,21 +88,46 @@ static void anetSetError(char *err, const char *fmt, ...)
     va_end(ap);
 }
 
+int anetInit(char *err)
+{
+#ifdef _MSC_VER
+    // Initialize Winsock
+    WSADATA data;
+
+    if (WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+        anetSetError(err, "WSAStartup failed: " ERROR_DATA_FORMAT, anetErrorData());
+        return ANET_ERR;
+    }
+#endif
+
+    return ANET_OK;
+}
+
 int anetNonBlock(char *err, int fd)
 {
+#ifndef _MSC_VER
     int flags;
 
     /* Set the socket nonblocking.
      * Note that fcntl(2) for F_GETFL and F_SETFL can't be
      * interrupted by a signal. */
     if ((flags = fcntl(fd, F_GETFL)) == -1) {
-        anetSetError(err, "fcntl(F_GETFL): %s", strerror(errno));
+        anetSetError(err, "fcntl(F_GETFL): " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
     if (fcntl(fd, F_SETFL, flags | O_NONBLOCK) == -1) {
-        anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): %s", strerror(errno));
+        anetSetError(err, "fcntl(F_SETFL,O_NONBLOCK): " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
+#else
+    u_long iMode = 1;
+
+    if (ioctlsocket(fd, FIONBIO, &iMode) != 0) {
+        anetSetError(err, "ioctlsocket(FIONBIO, 0): " ERROR_DATA_FORMAT, anetErrorData());
+        return ANET_ERR;
+    }
+#endif
+
     return ANET_OK;
 }
 
@@ -78,7 +136,7 @@ int anetTcpNoDelay(char *err, int fd)
     int yes = 1;
     if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &yes, sizeof(yes)) == -1)
     {
-        anetSetError(err, "setsockopt TCP_NODELAY: %s", strerror(errno));
+        anetSetError(err, "setsockopt TCP_NODELAY: " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
     return ANET_OK;
@@ -88,7 +146,7 @@ int anetSetSendBuffer(char *err, int fd, int buffsize)
 {
     if (setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &buffsize, sizeof(buffsize)) == -1)
     {
-        anetSetError(err, "setsockopt SO_SNDBUF: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_SNDBUF: " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
     return ANET_OK;
@@ -98,7 +156,7 @@ int anetTcpKeepAlive(char *err, int fd)
 {
     int yes = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_KEEPALIVE, &yes, sizeof(yes)) == -1) {
-        anetSetError(err, "setsockopt SO_KEEPALIVE: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_KEEPALIVE: " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
     return ANET_OK;
@@ -126,14 +184,14 @@ int anetResolve(char *err, char *host, char *ipbuf)
 static int anetCreateSocket(char *err, int domain) {
     int s, on = 1;
     if ((s = socket(domain, SOCK_STREAM, 0)) == -1) {
-        anetSetError(err, "creating socket: %s", strerror(errno));
+        anetSetError(err, "creating socket: " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
 
     /* Make sure connection-intensive things like the redis benckmark
      * will be able to close/open sockets a zillion of times */
     if (setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) == -1) {
-        anetSetError(err, "setsockopt SO_REUSEADDR: %s", strerror(errno));
+        anetSetError(err, "setsockopt SO_REUSEADDR: " ERROR_DATA_FORMAT, anetErrorData());
         return ANET_ERR;
     }
     return s;
@@ -167,11 +225,11 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
             return ANET_ERR;
     }
     if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
-        if (errno == EINPROGRESS &&
+        if ((anetErrorIs(INPROGRESS) || anetErrorIs(WOULDBLOCK)) &&
             flags & ANET_CONNECT_NONBLOCK)
             return s;
 
-        anetSetError(err, "connect: %s", strerror(errno));
+        anetSetError(err, "connect: " ERROR_DATA_FORMAT, anetErrorData());
         close(s);
         return ANET_ERR;
     }
@@ -186,42 +244,6 @@ int anetTcpConnect(char *err, char *addr, int port)
 int anetTcpNonBlockConnect(char *err, char *addr, int port)
 {
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK);
-}
-
-int anetUnixGenericConnect(char *err, char *path, int flags)
-{
-    int s;
-    struct sockaddr_un sa;
-
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
-        return ANET_ERR;
-
-    sa.sun_family = AF_LOCAL;
-    strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
-    if (flags & ANET_CONNECT_NONBLOCK) {
-        if (anetNonBlock(err,s) != ANET_OK)
-            return ANET_ERR;
-    }
-    if (connect(s,(struct sockaddr*)&sa,sizeof(sa)) == -1) {
-        if (errno == EINPROGRESS &&
-            flags & ANET_CONNECT_NONBLOCK)
-            return s;
-
-        anetSetError(err, "connect: %s", strerror(errno));
-        close(s);
-        return ANET_ERR;
-    }
-    return s;
-}
-
-int anetUnixConnect(char *err, char *path)
-{
-    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONE);
-}
-
-int anetUnixNonBlockConnect(char *err, char *path)
-{
-    return anetUnixGenericConnect(err,path,ANET_CONNECT_NONBLOCK);
 }
 
 /* Like read(2) but make sure 'count' is read before to return
@@ -256,7 +278,7 @@ int anetWrite(int fd, char *buf, int count)
 
 static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
     if (bind(s,sa,len) == -1) {
-        anetSetError(err, "bind: %s", strerror(errno));
+        anetSetError(err, "bind: " ERROR_DATA_FORMAT, anetErrorData());
         close(s);
         return ANET_ERR;
     }
@@ -265,7 +287,7 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
      * the kernel does: backlogsize = roundup_pow_of_two(backlogsize + 1);
      * which will thus give us a backlog of 512 entries */
     if (listen(s, 511) == -1) {
-        anetSetError(err, "listen: %s", strerror(errno));
+        anetSetError(err, "listen: " ERROR_DATA_FORMAT, anetErrorData());
         close(s);
         return ANET_ERR;
     }
@@ -294,33 +316,15 @@ int anetTcpServer(char *err, int port, char *bindaddr)
     return s;
 }
 
-int anetUnixServer(char *err, char *path, mode_t perm)
-{
-    int s;
-    struct sockaddr_un sa;
-
-    if ((s = anetCreateSocket(err,AF_LOCAL)) == ANET_ERR)
-        return ANET_ERR;
-
-    memset(&sa,0,sizeof(sa));
-    sa.sun_family = AF_LOCAL;
-    strncpy(sa.sun_path,path,sizeof(sa.sun_path)-1);
-    if (anetListen(err,s,(struct sockaddr*)&sa,sizeof(sa)) == ANET_ERR)
-        return ANET_ERR;
-    if (perm)
-        chmod(sa.sun_path, perm);
-    return s;
-}
-
 static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *len) {
     int fd;
     while(1) {
         fd = accept(s,sa,len);
         if (fd == -1) {
-            if (errno == EINTR)
+            if (anetErrorIs(INTR))
                 continue;
             else {
-                anetSetError(err, "accept: %s", strerror(errno));
+                anetSetError(err, "accept: " ERROR_DATA_FORMAT, anetErrorData());
                 return ANET_ERR;
             }
         }
@@ -341,6 +345,61 @@ int anetTcpAccept(char *err, int s, char *ip, int *port) {
     return fd;
 }
 
+#ifndef _MSC_VER
+int anetUnixGenericConnect(char *err, char *path, int flags)
+{
+    int s;
+    struct sockaddr_un sa;
+
+    if ((s = anetCreateSocket(err, AF_LOCAL)) == ANET_ERR)
+        return ANET_ERR;
+
+    sa.sun_family = AF_LOCAL;
+    strncpy(sa.sun_path, path, sizeof(sa.sun_path) - 1);
+    if (flags & ANET_CONNECT_NONBLOCK) {
+        if (anetNonBlock(err, s) != ANET_OK)
+            return ANET_ERR;
+    }
+    if (connect(s, (struct sockaddr*)&sa, sizeof(sa)) == -1) {
+        if (anetErrorIs(INPROGRESS) &&
+            flags & ANET_CONNECT_NONBLOCK)
+            return s;
+
+        anetSetError(err, "connect: " ERROR_DATA_FORMAT, anetErrorData());
+        close(s);
+        return ANET_ERR;
+    }
+    return s;
+}
+
+int anetUnixConnect(char *err, char *path)
+{
+    return anetUnixGenericConnect(err, path, ANET_CONNECT_NONE);
+}
+
+int anetUnixNonBlockConnect(char *err, char *path)
+{
+    return anetUnixGenericConnect(err, path, ANET_CONNECT_NONBLOCK);
+}
+
+int anetUnixServer(char *err, char *path, mode_t perm)
+{
+    int s;
+    struct sockaddr_un sa;
+
+    if ((s = anetCreateSocket(err, AF_LOCAL)) == ANET_ERR)
+        return ANET_ERR;
+
+    memset(&sa, 0, sizeof(sa));
+    sa.sun_family = AF_LOCAL;
+    strncpy(sa.sun_path, path, sizeof(sa.sun_path) - 1);
+    if (anetListen(err, s, (struct sockaddr*)&sa, sizeof(sa)) == ANET_ERR)
+        return ANET_ERR;
+    if (perm)
+        chmod(sa.sun_path, perm);
+    return s;
+}
+
 int anetUnixAccept(char *err, int s) {
     int fd;
     struct sockaddr_un sa;
@@ -350,6 +409,7 @@ int anetUnixAccept(char *err, int s) {
 
     return fd;
 }
+#endif
 
 int anetPeerToString(int fd, char *ip, int *port) {
     struct sockaddr_in sa;
