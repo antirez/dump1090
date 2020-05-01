@@ -71,7 +71,7 @@ program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
     rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin
 
 In the example `rtl_sdr` a gain of 50 is used, simply you should use the highest
-gain availabe for your tuner. This is not needed when calling Dump1090 itself
+gain available for your tuner. This is not needed when calling Dump1090 itself
 as it is able to select the highest gain supported automatically.
 
 It is possible to feed the program with data via standard input using
