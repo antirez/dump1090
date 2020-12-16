@@ -13,3 +13,10 @@ dump1090: dump1090.o anet.o
 
 clean:
 	rm -f *.o dump1090
+
+install:
+	cp ./dump1090 /usr/bin/
+
+uninstall:
+	rm -f /usr/bin/dump1090
+
