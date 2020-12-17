@@ -92,9 +92,9 @@
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
-
-#define P_FILE_GMAP "gmap.html" /* Used in networking. Define used to permit installing binary*/
-
+#ifndef P_FILE_GMAP // check to avoid redefinining if define passed from makefile.
+    #define P_FILE_GMAP "gmap.html" /* Used in networking. Define used to permit installing binary*/
+#endif
 /* Structure used to describe a networking client. */
 struct client {
     int fd;         /* File descriptor. */
