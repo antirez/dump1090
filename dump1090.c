@@ -93,6 +93,8 @@
 
 #define MODES_NOTUSED(V) ((void) V)
 
+#define P_FILE_GMAP "gmap.html" /* Used in networking. Define used to permit installing binary*/
+
 /* Structure used to describe a networking client. */
 struct client {
     int fd;         /* File descriptor. */
@@ -2253,8 +2255,8 @@ int handleHTTPRequest(struct client *c) {
         struct stat sbuf;
         int fd = -1;
 
-        if (stat("gmap.html",&sbuf) != -1 &&
-            (fd = open("gmap.html",O_RDONLY)) != -1)
+        if (stat(P_FILE_GMAP,&sbuf) != -1 &&
+            (fd = open(P_FILE_GMAP,O_RDONLY)) != -1)
         {
             content = malloc(sbuf.st_size);
             if (read(fd,content,sbuf.st_size) == -1) {
