@@ -2266,14 +2266,13 @@ int handleHTTPRequest(struct client *c) {
                     strerror(errno));
             }
             clen = sbuf.st_size;
-        } else { // Print error and check if its in working directory
+        } else { /*Print error and check if FILE_GMAP in working directory */
             char buf[128];
 
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s",
+            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s.",
                 strerror(errno));
-            content = strdup(buf);
 
-            // Attempt to open FILE_GMAP in working directory. This is here for legacy reasons so we dont break e.g. embedded devices
+            /*Attempt to open FILE_GMAP in working directory. This is here for legacy reasons so we dont break e.g. embedded devices*/
             if (fd != -1) close(fd);
 
             if (stat(FILE_GMAP,&sbuf) != -1 &&
@@ -2285,9 +2284,13 @@ int handleHTTPRequest(struct client *c) {
                              strerror(errno));
                 }
                 clen = sbuf.st_size;
+            } else{ /*This one failed too, report error*/
+                char buf2[128];
+                int bytes_read = snprintf(buf2, sizeof(buf2), "<br>Couldnt read HTML file from working directory either: %s", strerror(errno));
+                clen += bytes_read;
+                strncat(buf,buf2, bytes_read); /* merge the two error messages */
+                content = strdup(buf);
             }
-
-
         }
         if (fd != -1) close(fd);
         ctype = MODES_CONTENT_TYPE_HTML;
