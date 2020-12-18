@@ -92,10 +92,7 @@
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
-#ifndef P_FILE_GMAP // check to avoid redefinining if define passed from makefile.
-    #define P_FILE_GMAP "gmap.html" /* Used in networking. Define used to permit installing binary*/
-#endif
-#define FILE_GMAP "gmap.html" /* Helpful if we ever change the name of gmap.html */
+#define P_FILE_GMAP "gmap.html" /* Used in networking*/
 
 /* Structure used to describe a networking client. */
 struct client {
@@ -159,6 +156,7 @@ struct {
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
+    char* html_file;                /* HTML file to load, --html_file, defaults to P_FILE_GMAP"*/
     int loop;                       /* Read input file again and again. */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
@@ -280,6 +278,7 @@ void modesInitConfig(void) {
     Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
     Modes.loop = 0;
+    Modes.html_file = strdup(P_FILE_GMAP);
 }
 
 void modesInit(void) {
@@ -306,7 +305,6 @@ void modesInit(void) {
         exit(1);
     }
     memset(Modes.data,127,Modes.data_len);
-
     /* Populate the I/Q -> Magnitude lookup table. It is used because
      * sqrt or round may be expensive and may vary a lot depending on
      * the libc used.
@@ -2257,8 +2255,8 @@ int handleHTTPRequest(struct client *c) {
         struct stat sbuf;
         int fd = -1;
 
-        if (stat(P_FILE_GMAP,&sbuf) != -1 &&
-            (fd = open(P_FILE_GMAP,O_RDONLY)) != -1)
+        if (stat(Modes.html_file,&sbuf) != -1 &&
+            (fd = open(Modes.html_file,O_RDONLY)) != -1)
         {
             content = malloc(sbuf.st_size);
             if (read(fd,content,sbuf.st_size) == -1) {
@@ -2266,31 +2264,12 @@ int handleHTTPRequest(struct client *c) {
                     strerror(errno));
             }
             clen = sbuf.st_size;
-        } else { /*Print error and check if FILE_GMAP in working directory */
+        } else {
             char buf[128];
 
-            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s.",
+            clen = snprintf(buf,sizeof(buf),"Error opening HTML file: %s",
                 strerror(errno));
-
-            /*Attempt to open FILE_GMAP in working directory. This is here for legacy reasons so we dont break e.g. embedded devices*/
-            if (fd != -1) close(fd);
-
-            if (stat(FILE_GMAP,&sbuf) != -1 &&
-                (fd = open(FILE_GMAP,O_RDONLY)) != -1)
-            {
-                content = malloc(sbuf.st_size);
-                if (read(fd,content,sbuf.st_size) == -1) {
-                    snprintf(content,sbuf.st_size,"Error reading from file: %s",
-                             strerror(errno));
-                }
-                clen = sbuf.st_size;
-            } else{ /*This one failed too, report error*/
-                char buf2[128];
-                int bytes_read = snprintf(buf2, sizeof(buf2), "<br>Couldnt read HTML file from working directory either: %s", strerror(errno));
-                clen += bytes_read;
-                strncat(buf,buf2, bytes_read); /* merge the two error messages */
-                content = strdup(buf);
-            }
+            content = strdup(buf);
         }
         if (fd != -1) close(fd);
         ctype = MODES_CONTENT_TYPE_HTML;
@@ -2477,6 +2456,7 @@ void showHelp(void) {
 "--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
 "--net-http-port <port>   HTTP server port (default: 8080).\n"
 "--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003).\n"
+"--html_file              With --net, sets path to HTML file we serve clients with\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...).\n"
@@ -2591,6 +2571,12 @@ int main(int argc, char **argv) {
             }
         } else if (!strcmp(argv[j],"--stats")) {
             Modes.stats = 1;
+        } else if (!strcmp(argv[j], "--html_file") && more) {
+            /* Comment: We could avoid allocating, deallocating and then allocating again by storing argv[++j] in a NULL initialized pointer
+             * and then checking if its NULL or not after interpreting parameters.
+             * I'm letting it be initialized inside modesInitConfig however for readability*/
+            free(Modes.html_file); // remove default value
+            Modes.html_file = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--snip") && more) {
             snipMode(atoi(argv[++j]));
             exit(0);
@@ -2675,6 +2661,8 @@ int main(int argc, char **argv) {
             Modes.stat_goodcrc + Modes.stat_fixed);
     }
 
+    if (Modes.filename != NULL) {free(Modes.filename);}
+    free(Modes.html_file);
     rtlsdr_close(Modes.dev);
     return 0;
 }
