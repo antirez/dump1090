@@ -92,7 +92,7 @@
 #define MODES_NET_SNDBUF_SIZE (1024*64)
 
 #define MODES_NOTUSED(V) ((void) V)
-#define P_FILE_GMAP "gmap.html" /* Used in networking*/
+#define P_FILE_GMAP "/srv/gmap.html" /* Used in networking*/
 
 /* Structure used to describe a networking client. */
 struct client {
