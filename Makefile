@@ -1,6 +1,6 @@
 CFLAGS?=-O2 -g -Wall -W $(shell pkg-config --cflags librtlsdr)
 LDLIBS+=$(shell pkg-config --libs librtlsdr) -lpthread -lm
-DEFINES=-DP_FILE_GMAP='"'$(shell pwd)'/gmap.html"'
+DEFINES=-DP_FILE_GMAP='"'/srv/gmap.html'"'
 CC?=gcc
 PROGNAME=dump1090
 
@@ -17,7 +17,9 @@ clean:
 
 install: dump1090
 	cp ./dump1090 /usr/bin/
+	cp ./gmap.html /srv/
 
 uninstall:
 	rm -f /usr/bin/dump1090
+	rm -f /srv/gmap.html
 
