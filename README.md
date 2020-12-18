@@ -30,28 +30,29 @@ available, developed by MalcolmRobb.
 Installation
 ---
 
-Type "make".
+Type "make && make install".
 
 Normal usage
 ---
+If you'd like to run the binary without installing, add "--html_file ./gmap.html" as a parameter.
 
 To capture traffic directly from your RTL device and show the captured traffic
-on standard output, just run the program without options at all:
+on standard output, just run the program without options at all after installing:
 
-    ./dump1090
+    dump1090
 
 To just output hexadecimal messages:
 
-    ./dump1090 --raw
+    dump1090 --raw
 
 To run the program in interactive mode:
 
-    ./dump1090 --interactive
+    dump1090 --interactive
 
 To run the program in interactive mode, with networking support, and connect
 with your browser to http://localhost:8080 to see live traffic:
 
-    ./dump1090 --interactive --net
+    dump1090 --interactive --net
 
 In interactive mode it is possible to have a less information dense but more
 "arcade style" output, where the screen is refreshed every second displaying
@@ -63,7 +64,7 @@ Using files as source of data
 
 To decode data from file, use:
 
-    ./dump1090 --ifile /path/to/binfile
+    dump1090 --ifile /path/to/binfile
 
 The binary file should be created using `rtl_sdr` like this (or with any other
 program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
@@ -83,7 +84,7 @@ Additional options
 Dump1090 can be called with other command line options to set a different
 gain, frequency, and so forth. For a list of options use:
 
-    ./dump1090 --help
+    dump1090 --help
 
 Everything is not documented here should be obvious, and for most users calling
 it without arguments at all is the best thing to do.
@@ -150,11 +151,11 @@ normal traffic from RTL devices or from file when --ifile is used.
 It is possible to use Dump1090 just as an hub using --ifile with /dev/zero
 as argument as in the following example:
 
-    ./dump1090 --net-only
+    dump1090 --net-only
 
 Or alternatively to see what's happening on the screen:
 
-    ./dump1090 --net-only --interactive
+    dump1090 --net-only --interactive
 
 Then you can feed it from different data sources from the internet.
 
@@ -252,7 +253,7 @@ with the Dump1090 distribution under the "testfiles" directory.
 
 Just run it like this:
 
-    ./dump1090 --ifile testfiles/modes1.bin
+    dump1090 --ifile testfiles/modes1.bin
 
 What is --strip mode?
 ---
@@ -263,7 +264,7 @@ are lower than the specified <level> for more than 32 samples.
 
 Use it like this:
 
-    cat big.bin | ./dump1090 --snip 25 > small.bin
+    cat big.bin | dump1090 --snip 25 > small.bin
 
 I used it in order to create a small test file to include inside this
 program source code distribution.
