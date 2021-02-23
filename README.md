@@ -27,6 +27,15 @@ minimalism of the implementation. However there is a
 [much more feature complete fork](https://github.com/MalcolmRobb/dump1090)
 available, developed by MalcolmRobb.
 
+Compilation
+---
+Prerequisites (Ubuntu 20.04):
+  * make
+  * librtlsdr-dev
+  * gcc/g++
+
+For OpenCL support, install a relevant OpenCL runtime.
+
 Installation
 ---
 
