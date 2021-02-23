@@ -1,8 +1,8 @@
-CFLAGS?= -O2 -g -Wall -W $(shell pkg-config --cflags librtlsdr)  -I/opt/intel/system_studio_2019/opencl/SDK/include
+CFLAGS?= -O0 -g3 -Wall -W $(shell pkg-config --cflags librtlsdr)  -I/opt/intel/system_studio_2019/opencl/SDK/include
 LDLIBS+=$(shell pkg-config --libs librtlsdr) -lpthread -lm
-CC?=g++
+CC?=gcc
 PROGNAME=dump1090
-OPENCL_FLAGS=
+OPENCL_FLAGS=-DOPENCL -lOpenCL -L/opt/intel/system_studio_2019/opencl/SDK/lib64
 all: dump1090
 
 %.o: %.c

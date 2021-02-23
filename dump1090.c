@@ -413,7 +413,7 @@ cl_int Populate_Devices(){
                            "        for (int i = 0; i < (*bits)/8; i++){\n"
                            "            msg[i] = aux[i];\n"
                            "        }\n"
-                           "        *returnval = j;\n"
+                           "        returnval[j] = j;\n"
                            "    }\n"
                            "    // if we couldn't fix it, dont touch returnval.\n"
                            "}\n"
@@ -1155,11 +1155,10 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
     // Let's queue this.
     size_t global = bits;
     cl_int err; // TODO: Error checking
-    cl_int returnval = -1;
-    if (msg == NULL){ // Appears to happen sometimes.
-        return -3;
-    }
-    cl_mem msg_input = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE |  CL_MEM_COPY_HOST_PTR , sizeof(unsigned char)*bits/8, &msg, &err);
+    cl_int *returnval = malloc(sizeof(cl_int)*bits); // It appears a GPU cannot return a single value. We need to feed it an array.
+    memset(returnval, -1, sizeof(cl_int)*bits); // So we can identify if we found any solution.
+
+    cl_mem msg_input = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE |  CL_MEM_COPY_HOST_PTR , sizeof(unsigned char)*bits/8, msg, &err);
     if (err != CL_SUCCESS){
         checkCreateArgBuf(err);
         perror("1\n");
@@ -1183,7 +1182,8 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
         checkSetArg(err);
         return -2;
     }
-    cl_mem return_input = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE |  CL_MEM_COPY_HOST_PTR , sizeof(int), &returnval, &err);
+
+    cl_mem return_input = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_WRITE_ONLY | CL_MEM_COPY_HOST_PTR , sizeof(cl_int)*bits, returnval, &err);
     if (err != CL_SUCCESS){
         checkCreateArgBuf(err);
         return -2;
@@ -1195,20 +1195,24 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
     }
     clEnqueueNDRangeKernel(g_OpenCL_Dat.queue, g_OpenCL_Dat.k_singleBit, 1, NULL, &global, NULL, 0, NULL, NULL);
     // TODO: Error checking
-    err = clEnqueueReadBuffer(g_OpenCL_Dat.queue, return_input, CL_TRUE, 0, sizeof(int), &returnval,  0, NULL, NULL);
+    clFinish(g_OpenCL_Dat.queue);
+    err = clEnqueueReadBuffer(g_OpenCL_Dat.queue, return_input, CL_TRUE, 0, sizeof(cl_int)*bits, returnval,  0, NULL, NULL);
     // TODO: Error checking
 
-    err = clEnqueueReadBuffer(g_OpenCL_Dat.queue, msg_input, CL_TRUE, 0, bits/8, &msg, 0, NULL, NULL );
-
-
+    err = clEnqueueReadBuffer(g_OpenCL_Dat.queue, msg_input, CL_TRUE, 0, bits/8, msg, 0, NULL, NULL );
 
     clReleaseMemObject(bits_input);
     clReleaseMemObject(return_input);
     clReleaseMemObject(msg_input);
-    if (returnval != -1){
-        printf("Fixed something!");
+    int toreturn = -1;
+    for (int i = 0; i < bits; i++){
+        if (returnval[i] != -1){
+            toreturn = returnval[i];
+            break;
+        }
     }
-    return returnval;
+    free(returnval);
+    return toreturn;
 }
 #endif
 #ifndef OPENCL
