@@ -198,6 +198,10 @@ struct Devices{ // Used for keeping track of things used in OpenCL
     // TODO: Remember to free this when we are finished running our program
     cl_context context;
     cl_command_queue queue;
+    cl_program singleBit;
+    cl_program doublebit;
+    cl_kernel k_singleBit;
+    cl_kernel k_doubleBit;
     /*
      *  cleanup - release OpenCL resources100
      *  clReleaseMemObject(input);101
@@ -212,6 +216,9 @@ struct Devices{ // Used for keeping track of things used in OpenCL
 struct Devices g_OpenCL_Dat;
 
 cl_int Populate_Devices(){
+    /*
+     * Created with help from http://developer.amd.com/wordpress/media/2013/01/Introduction_to_OpenCL_Programming-Training_Guide-201005.pdf
+     * */
     /* Used to populate the global struct Devices with required data*/
     cl_platform_id platform;
     cl_uint num_platforms;
@@ -239,6 +246,9 @@ cl_int Populate_Devices(){
             case CL_DEVICE_NOT_FOUND:
                 fprintf(stderr, "No OpenCL capable GPUs found\n");
                 break;
+            default:
+                fprintf(stderr, "Something went wrong when attempting to find a GPU\n");
+                break;
         }
         return err;
     }
@@ -251,6 +261,9 @@ cl_int Populate_Devices(){
                 break;
             case CL_OUT_OF_HOST_MEMORY: // Host refers to the pc running this program. not the GPU
                 fprintf(stderr, "Host is unable to allocate OpenCL resources\n");
+                break;
+            default:
+                fprintf(stderr, "Something went wrong when creating a device context\n");
                 break;
         }
         return err;
@@ -274,7 +287,10 @@ cl_int Populate_Devices(){
        return err;
     }
 
-    // Success! We have a valid context and a commandqueue to feed it instructions!
+    // Success! We have a valid context and a commandqueue to feed it instructions! Creating and compiling the programs...
+
+
+
     return err;
 }
 #endif
