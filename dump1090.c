@@ -45,6 +45,10 @@
 #include <sys/select.h>
 #include "rtl-sdr.h"
 #include "anet.h"
+#ifdef OPENCL
+#define CL_TARGET_OPENCL_VERSION 220
+#include <CL/cl.h>
+#endif
 
 #define MODES_DEFAULT_RATE         2000000
 #define MODES_DEFAULT_FREQ         1090000000
@@ -188,6 +192,92 @@ struct {
     long long stat_sbs_connections;
     long long stat_out_of_phase;
 } Modes;
+
+#ifdef OPENCL
+struct Devices{ // Used for keeping track of things used in OpenCL
+    // TODO: Remember to free this when we are finished running our program
+    cl_context context;
+    cl_command_queue queue;
+    /*
+     *  cleanup - release OpenCL resources100
+     *  clReleaseMemObject(input);101
+     *  clReleaseMemObject(output);102
+     *  clReleaseProgram(program);103
+     *  clReleaseKernel(kernel);104
+     *  clReleaseCommandQueue(command_queue);105
+     *  clReleaseContext(context);
+     * */
+};
+
+struct Devices g_OpenCL_Dat;
+
+int Populate_Devices(){
+    /* Used to populate the global struct Devices with required data*/
+    cl_platform_id platform;
+    cl_uint num_platforms;
+    cl_int err = clGetPlatformIDs(1, &platform, &num_platforms);
+    if (err != CL_SUCCESS){
+        fprintf(stderr, "No OpenCL capable platform found\n");
+        return err;
+    }
+
+    /* Find the ID of a OpenCL capable GPU*/
+    cl_device_id device_id;
+    cl_uint num_devices;
+    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device_id, &num_devices);
+    if (err != CL_SUCCESS){
+        switch (err){ // There appears to be no strerror()-like utility for this.
+            case CL_INVALID_PLATFORM:
+                fprintf(stderr, "Invalid platform\n");
+                break;
+            case CL_INVALID_DEVICE_TYPE:
+                fprintf(stderr, "Invalid device type\n");
+                break;
+            case CL_INVALID_VALUE:
+                fprintf(stderr, "device_id and num_devices have an invalid value\n");
+                break;
+            case CL_DEVICE_NOT_FOUND:
+                fprintf(stderr, "No OpenCL capable GPUs found\n");
+                break;
+        }
+        return err;
+    }
+    cl_context_properties properties[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0};
+    g_OpenCL_Dat.context = clCreateContext(properties,1, &device_id, NULL, NULL, &err);
+    if (err != CL_SUCCESS){
+        switch (err){
+            case CL_DEVICE_NOT_AVAILABLE:
+                fprintf(stderr, "GPU is currently unavailable\n");
+                break;
+            case CL_OUT_OF_HOST_MEMORY: // Host refers to the pc running this program. not the GPU
+                fprintf(stderr, "Host is unable to allocate OpenCL resources\n");
+                break;
+        }
+        return err;
+    }
+    // consider setting CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE
+    // Using this version will limit us to devices supporting OpenCl 2.0 and newer, use deprecated clCreateCommandQueue() to support older devices.
+    g_OpenCL_Dat.queue = clCreateCommandQueueWithProperties(g_OpenCL_Dat.context, device_id, 0, &err);
+    if (err != CL_SUCCESS){
+        switch (err){
+            case CL_INVALID_QUEUE_PROPERTIES:
+                fprintf(stderr, "Device does not support set properties\n");
+                break;
+            case CL_OUT_OF_HOST_MEMORY:
+                fprintf(stderr, "Host unable to allocate OpenCL resources\n");
+                break;
+            default:
+                fprintf(stderr, "Something went wrong when creating the commandqueue\n");
+                break;
+        }
+       clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
+       return err;
+    }
+
+    // Success! We have a valid context and a commandqueue to feed it instructions!
+    return err;
+}
+#endif
 
 /* The struct we use to store information about a decoded message. */
 struct modesMessage {
@@ -587,6 +677,7 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
 void dumpRawMessage(char *descr, unsigned char *msg,
                     uint16_t *m, uint32_t offset)
 {
+
     int j;
     int msgtype = msg[0]>>3;
     int fixable = -1;
@@ -686,9 +777,9 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
     int j;
     unsigned char aux[MODES_LONG_MSG_BITS/8];
 
-    for (j = 0; j < bits; j++) {
+    for (j = 0; j < bits; j++) { // For each bit
         int byte = j/8;
-        int bitmask = 1 << (7-(j%8));
+        int bitmask = 1 << (7-(j%8)); // Grab the bit
         uint32_t crc1, crc2;
 
         memcpy(aux,msg,bits/8);
