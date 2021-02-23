@@ -211,7 +211,7 @@ struct Devices{ // Used for keeping track of things used in OpenCL
 
 struct Devices g_OpenCL_Dat;
 
-int Populate_Devices(){
+cl_int Populate_Devices(){
     /* Used to populate the global struct Devices with required data*/
     cl_platform_id platform;
     cl_uint num_platforms;
