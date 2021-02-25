@@ -21,15 +21,18 @@ __constant int modes_checksum_table[112] = {
         0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
 };
 
+__constant bitmasks[] = {
+        0b10000000, 0b1000000, 0b100000, 0b10000, 0b1000, 0b100, 0b10, 0b1
+};
 int modesChecksum(unsigned char *msg, int bits) {
+    // Take string, j = get_global_id(0)
     int crc = 0;
     int offset = (bits == 112) ? 0 : (112-56);
     int j;
-    // TODO: Consider running this in separate workgroups aswell?
     for(j = 0; j < bits; j++) {
         int byte = j/8;
         int bit = j%8;
-        int bitmask = 1 << (7-bit);
+        int bitmask = bitmasks[bit];
 
         /* If bit is set, xor with corresponding table entry. */
         if (msg[byte] & bitmask)
@@ -50,8 +53,9 @@ __kernel void fixSingleBitErrors(__global unsigned char* msg, __global int* bits
     int bitmask = 1 << (7 - (j % 8));
     int crc1, crc2;
 
-    for (int i = 0; i < (*bits)/8; i++){
+    for (int i = 0; i < (*bits)/8; i+=2){
         aux[i] = msg[i];
+        aux[i+1] = msg[i+1];
     }
 
     aux[byte] ^= bitmask; /* Flip the J-th bit*/
@@ -59,16 +63,18 @@ __kernel void fixSingleBitErrors(__global unsigned char* msg, __global int* bits
     crc1 = ((uint)aux[(*bits/8)-3] << 16) |
            ((uint)aux[(*bits/8)-2] << 8) |
            (uint)aux[(*bits/8)-1];
+    // Return string
     crc2 = modesChecksum(aux,*bits);
-
-    if (crc1 == crc2){
-    /* The error is fixed. Overwrite the original buffer with
-         * the corrected sequence, and returns the error bit
-         * position.
-         * This should only happen in one work-unit if the number of errors in the message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.
-         * */
-        for (int i = 0; i < (*bits)/8; i++){
+    barrier(CLK_LOCAL_MEM_FENCE);
+    if (crc1 == crc2){ // check in CPU
+        /* The error is fixed. Overwrite the original buffer with
+             * the corrected sequence, and returns the error bit
+             * position.
+             * This should only happen in one work-unit if the number of errors in the message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.
+             * */
+        for (int i = 0; i < (*bits)/8; i+=2){
             msg[i] = aux[i];
+            msg[i+1] = aux[i+1];
         }
         returnval[j] = j;
     }

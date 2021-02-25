@@ -52,6 +52,7 @@
 #define MAX_SRC_FILE_SIZE 4096
 #define DOUBLE_BIT_SRC "DoubleBitError.cpp"
 #define SINGLE_BIT_SRC "SingleBitError.cpp"
+#define OPENCL_BUILD_FLAGS ""
 
 #endif
 
@@ -207,18 +208,35 @@ struct Devices{ // Used for keeping track of things used in OpenCL
     cl_program doublebit;
     cl_kernel k_singleBit;
     cl_kernel k_doubleBit;
-    /*
-     *  cleanup - release OpenCL resources100
-     *  clReleaseMemObject(input);101
-     *  clReleaseMemObject(output);102
-     *  clReleaseProgram(program);103
-     *  clReleaseKernel(kernel);104
-     *  clReleaseCommandQueue(command_queue);105
-     *  clReleaseContext(context);
-     * */
+    cl_mem output;
+    cl_mem message;
+    cl_mem bits;
+    cl_int* output_array; // Used when reading GPU output, placed here to avoid multiple calls to malloc
+    cl_device_id device;
 };
 
 struct Devices g_OpenCL_Dat;
+
+void checkCreateArgBuf(cl_int error){
+    switch(error){
+        case CL_INVALID_CONTEXT:
+            perror("Invalid context for argument\n");
+            break;
+        case CL_INVALID_VALUE:
+            perror("Invalid flag\n");
+            break;
+        case CL_INVALID_BUFFER_SIZE:
+            perror("Buffer size is 0 or too large for compute device in context\n");
+            break;
+        case CL_INVALID_HOST_PTR:
+            perror(" Either: The host_ptr is NULL, butCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are set; or host_ptr is not NULL, but theCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are not set\n");
+            break;
+        case CL_OUT_OF_HOST_MEMORY:
+            perror("Host is out of memory. unable to allocate OpenCL resources");
+            break;
+    }
+}
+
 
 void Error_Kernel(cl_int error){
     // TODO: Do error checking.
@@ -271,20 +289,21 @@ cl_int Populate_Devices(){
      * Created with help from http://developer.amd.com/wordpress/media/2013/01/Introduction_to_OpenCL_Programming-Training_Guide-201005.pdf
      * */
     /* Used to populate the global struct Devices with required data*/
+    g_OpenCL_Dat.output_array = malloc(sizeof(cl_int)*MODES_LONG_MSG_BITS);
     cl_platform_id platform;
     cl_uint num_platforms;
-    cl_int err = clGetPlatformIDs(1, &platform, &num_platforms);
-    if (err != CL_SUCCESS){
+    cl_int err[3];
+    err[0] = clGetPlatformIDs(1, &platform, &num_platforms);
+    if (err[0] != CL_SUCCESS){
         fprintf(stderr, "No OpenCL capable platform found\n");
-        return err;
+        return err[0];
     }
 
     /* Find the ID of a OpenCL capable GPU*/
-    cl_device_id device_id;
     cl_uint num_devices;
-    err = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &device_id, &num_devices);
-    if (err != CL_SUCCESS){
-        switch (err){ // There appears to be no strerror()-like utility for this.
+    err[0] = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &(g_OpenCL_Dat.device), &num_devices);
+    if (err[0] != CL_SUCCESS){
+        switch (err[0]){ // There appears to be no strerror()-like utility for this.
             case CL_INVALID_PLATFORM:
                 fprintf(stderr, "Invalid platform\n");
                 break;
@@ -301,13 +320,13 @@ cl_int Populate_Devices(){
                 fprintf(stderr, "Something went wrong when attempting to find a GPU\n");
                 break;
         }
-        return err;
+        return err[0];
     }
 
     cl_context_properties properties[] = {CL_CONTEXT_PLATFORM, (cl_context_properties) platform, 0};
-    g_OpenCL_Dat.context = clCreateContext(properties,1, &device_id, NULL, NULL, &err);
-    if (err != CL_SUCCESS){
-        switch (err){
+    g_OpenCL_Dat.context = clCreateContext(properties,1, &(g_OpenCL_Dat.device), NULL, NULL, err);
+    if (err[0] != CL_SUCCESS){
+        switch (err[0]){
             case CL_DEVICE_NOT_AVAILABLE:
                 fprintf(stderr, "GPU is currently unavailable\n");
                 break;
@@ -318,14 +337,14 @@ cl_int Populate_Devices(){
                 fprintf(stderr, "Something went wrong when creating a device context\n");
                 break;
         }
-        return err;
+        return err[0];
     }
 
     // consider setting CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE
     // Using this version will limit us to devices supporting OpenCl 2.0 and newer, use deprecated clCreateCommandQueue() to support older devices.
-    g_OpenCL_Dat.queue = clCreateCommandQueueWithProperties(g_OpenCL_Dat.context, device_id, 0, &err);
-    if (err != CL_SUCCESS){
-        switch (err){
+    g_OpenCL_Dat.queue = clCreateCommandQueueWithProperties(g_OpenCL_Dat.context, g_OpenCL_Dat.device, 0, err);
+    if (err[0] != CL_SUCCESS){
+        switch (err[0]){
             case CL_INVALID_QUEUE_PROPERTIES:
                 fprintf(stderr, "Device does not support set properties\n");
                 break;
@@ -337,89 +356,94 @@ cl_int Populate_Devices(){
                 break;
         }
        clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-       return err;
+       return err[0];
     }
 
     // Success! We have a valid context and a commandqueue to feed it instructions! Creating and compiling the programs...
-    const char *prg1_buf = "//\n"
-                           "// Created by timmy on 2021-02-23.\n"
-                           "//\n"
-                           "\n"
-                           "\n"
-                           "\n"
-                           "__constant int modes_checksum_table[112] = {\n"
-                           "        0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,\n"
-                           "        0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,\n"
-                           "        0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,\n"
-                           "        0x939020, 0x49c810, 0x24e408, 0x127204, 0x093902, 0x049c81, 0xfdb444, 0x7eda22,\n"
-                           "        0x3f6d11, 0xe04c8c, 0x702646, 0x381323, 0xe3f395, 0x8e03ce, 0x4701e7, 0xdc7af7,\n"
-                           "        0x91c77f, 0xb719bb, 0xa476d9, 0xadc168, 0x56e0b4, 0x2b705a, 0x15b82d, 0xf52612,\n"
-                           "        0x7a9309, 0xc2b380, 0x6159c0, 0x30ace0, 0x185670, 0x0c2b38, 0x06159c, 0x030ace,\n"
-                           "        0x018567, 0xff38b7, 0x80665f, 0xbfc92b, 0xa01e91, 0xaff54c, 0x57faa6, 0x2bfd53,\n"
-                           "        0xea04ad, 0x8af852, 0x457c29, 0xdd4410, 0x6ea208, 0x375104, 0x1ba882, 0x0dd441,\n"
-                           "        0xf91024, 0x7c8812, 0x3e4409, 0xe0d800, 0x706c00, 0x383600, 0x1c1b00, 0x0e0d80,\n"
-                           "        0x0706c0, 0x038360, 0x01c1b0, 0x00e0d8, 0x00706c, 0x003836, 0x001c1b, 0xfff409,\n"
-                           "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,\n"
-                           "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,\n"
-                           "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000\n"
-                           "};\n"
-                           "\n"
-                           "int modesChecksum(unsigned char *msg, int bits) {\n"
-                           "    int crc = 0;\n"
-                           "    int offset = (bits == 112) ? 0 : (112-56);\n"
-                           "    int j;\n"
-                           "    // TODO: Consider running this in separate workgroups aswell?\n"
-                           "    for(j = 0; j < bits; j++) {\n"
-                           "        int byte = j/8;\n"
-                           "        int bit = j%8;\n"
-                           "        int bitmask = 1 << (7-bit);\n"
-                           "\n"
-                           "        /* If bit is set, xor with corresponding table entry. */\n"
-                           "        if (msg[byte] & bitmask)\n"
-                           "            crc ^= modes_checksum_table[j+offset];\n"
-                           "    }\n"
-                           "    return crc; /* 24 bit checksum. */\n"
-                           "}\n"
-                           "\n"
-                           "__constant int MODES_LONG_MSG_BITS = 112;\n"
-                           "\n"
-                           "/* Try to fix single bit errors using the checksum. On success modifies\n"
-                           " * the original buffer with the fixed version, and saves the position\n"
-                           " * of the error bit. Otherwise if fixing failed nothing is saved leaving returnval as-is. */\n"
-                           "__kernel void fixSingleBitErrors(__global unsigned char* msg, __global int* bits,  __global  int* returnval){\n"
-                           "    size_t j = get_global_id(0);\n"
-                           "    unsigned char aux[MODES_LONG_MSG_BITS/8]; // NOTE: Might have to allocate in main memory and give to pointer.\n"
-                           "    size_t byte = j/8;\n"
-                           "    int bitmask = 1 << (7 - (j % 8));\n"
-                           "    int crc1, crc2;\n"
-                           "\n"
-                           "    for (int i = 0; i < (*bits)/8; i++){\n"
-                           "        aux[i] = msg[i];\n"
-                           "    }\n"
-                           "\n"
-                           "    aux[byte] ^= bitmask; /* Flip the J-th bit*/\n"
-                           "\n"
-                           "    crc1 = ((uint)aux[(*bits/8)-3] << 16) |\n"
-                           "           ((uint)aux[(*bits/8)-2] << 8) |\n"
-                           "           (uint)aux[(*bits/8)-1];\n"
-                           "    crc2 = modesChecksum(aux,*bits);\n"
-                           "\n"
-                           "    if (crc1 == crc2){\n"
-                           "    /* The error is fixed. Overwrite the original buffer with\n"
-                           "         * the corrected sequence, and returns the error bit\n"
-                           "         * position.\n"
-                           "         * This should only happen in one work-unit if the number of errors in the message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.\n"
-                           "         * */\n"
-                           "        for (int i = 0; i < (*bits)/8; i++){\n"
-                           "            msg[i] = aux[i];\n"
-                           "        }\n"
-                           "        returnval[j] = j;\n"
-                           "    }\n"
-                           "    // if we couldn't fix it, dont touch returnval.\n"
-                           "}\n"
-                           "";
+    const char *SingleBitErrorCode = "//\n"
+                                     "// Created by timmy on 2021-02-23.\n"
+                                     "//\n"
+                                     "\n"
+                                     "\n"
+                                     "\n"
+                                     "__constant int modes_checksum_table[112] = {\n"
+                                     "        0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,\n"
+                                     "        0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,\n"
+                                     "        0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,\n"
+                                     "        0x939020, 0x49c810, 0x24e408, 0x127204, 0x093902, 0x049c81, 0xfdb444, 0x7eda22,\n"
+                                     "        0x3f6d11, 0xe04c8c, 0x702646, 0x381323, 0xe3f395, 0x8e03ce, 0x4701e7, 0xdc7af7,\n"
+                                     "        0x91c77f, 0xb719bb, 0xa476d9, 0xadc168, 0x56e0b4, 0x2b705a, 0x15b82d, 0xf52612,\n"
+                                     "        0x7a9309, 0xc2b380, 0x6159c0, 0x30ace0, 0x185670, 0x0c2b38, 0x06159c, 0x030ace,\n"
+                                     "        0x018567, 0xff38b7, 0x80665f, 0xbfc92b, 0xa01e91, 0xaff54c, 0x57faa6, 0x2bfd53,\n"
+                                     "        0xea04ad, 0x8af852, 0x457c29, 0xdd4410, 0x6ea208, 0x375104, 0x1ba882, 0x0dd441,\n"
+                                     "        0xf91024, 0x7c8812, 0x3e4409, 0xe0d800, 0x706c00, 0x383600, 0x1c1b00, 0x0e0d80,\n"
+                                     "        0x0706c0, 0x038360, 0x01c1b0, 0x00e0d8, 0x00706c, 0x003836, 0x001c1b, 0xfff409,\n"
+                                     "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,\n"
+                                     "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,\n"
+                                     "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000\n"
+                                     "};\n"
+                                     "\n"
+                                     "__constant bitmasks[] = {\n"
+                                     "        0b10000000, 0b1000000, 0b100000, 0b10000, 0b1000, 0b100, 0b10, 0b1\n"
+                                     "};\n"
+                                     "int modesChecksum(unsigned char *msg, int bits) {\n"
+                                     "    int crc = 0;\n"
+                                     "    int offset = (bits == 112) ? 0 : (112-56);\n"
+                                     "    int j;\n"
+                                     "    // TODO: Consider running this in separate workgroups aswell?\n"
+                                     "    for(j = 0; j < bits; j++) {\n"
+                                     "        int byte = j/8;\n"
+                                     "//        int bit = j%8;\n"
+                                     "        int bitmask = bitmasks[j%8];\n"
+                                     "\n"
+                                     "        /* If bit is set, xor with corresponding table entry. */\n"
+                                     "        if (msg[byte] & bitmask)\n"
+                                     "            crc ^= modes_checksum_table[j+offset];\n"
+                                     "    }\n"
+                                     "    return crc; /* 24 bit checksum. */\n"
+                                     "}\n"
+                                     "\n"
+                                     "__constant int MODES_LONG_MSG_BITS = 112;\n"
+                                     "\n"
+                                     "/* Try to fix single bit errors using the checksum. On success modifies\n"
+                                     " * the original buffer with the fixed version, and saves the position\n"
+                                     " * of the error bit. Otherwise if fixing failed nothing is saved leaving returnval as-is. */\n"
+                                     "__kernel void fixSingleBitErrors(__global unsigned char* msg, __global int* bits,  __global  int* returnval){\n"
+                                     "    size_t j = get_global_id(0);\n"
+                                     "    unsigned char aux[MODES_LONG_MSG_BITS/8]; // NOTE: Might have to allocate in main memory and give to pointer.\n"
+                                     "    size_t byte = j/8;\n"
+                                     "    int bitmask = 1 << (7 - (j % 8));\n"
+                                     "    int crc1, crc2;\n"
+                                     "\n"
+                                     "    for (int i = 0; i < (*bits)/8; i+=2){\n"
+                                     "        aux[i] = msg[i];\n"
+                                     "        aux[i+1] = msg[i+1];\n"
+                                     "    }\n"
+                                     "\n"
+                                     "    aux[byte] ^= bitmask; /* Flip the J-th bit*/\n"
+                                     "\n"
+                                     "    crc1 = ((uint)aux[(*bits/8)-3] << 16) |\n"
+                                     "           ((uint)aux[(*bits/8)-2] << 8) |\n"
+                                     "           (uint)aux[(*bits/8)-1];\n"
+                                     "    crc2 = modesChecksum(aux,*bits);\n"
+                                     "    //barrier(CLK_LOCAL_MEM_FENCE);\n"
+                                     "    if (crc1 == crc2){\n"
+                                     "        /* The error is fixed. Overwrite the original buffer with\n"
+                                     "             * the corrected sequence, and returns the error bit\n"
+                                     "             * position.\n"
+                                     "             * This should only happen in one work-unit if the number of errors in the message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.\n"
+                                     "             * */\n"
+                                     "        for (int i = 0; i < (*bits)/8; i+=2){\n"
+                                     "            msg[i] = aux[i];\n"
+                                     "            msg[i+1] = aux[i+1];\n"
+                                     "        }\n"
+                                     "        returnval[j] = j;\n"
+                                     "    }\n"
+                                     "    // if we couldn't fix it, dont touch returnval.\n"
+                                     "}\n"
+                                     "";
 
-    const char *prg2_buf = "//\n"
+    const char *TwoBitErrorCode = "//\n"
                            "// Created by timmy on 2021-02-22.\n"
                            "// Functions we want to \"OpenCL-alize\"\n"
                            "\n"
@@ -533,80 +557,92 @@ cl_int Populate_Devices(){
                            "}\n"
                            "";
 
-    g_OpenCL_Dat.singleBit = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char **) &prg1_buf, NULL, &err);
+    g_OpenCL_Dat.singleBit = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char **) &SingleBitErrorCode, NULL, err);
 
-    if (err != CL_SUCCESS){
-
+    if (err[0] != CL_SUCCESS){ // I'd really like to merge this and the check below, but I do not know if releasing unallocated memory is defined.
 
         // TODO: Error checking
         clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
         clReleaseCommandQueue(g_OpenCL_Dat.queue);
-        return err;
+        return err[0];
     }
 
-    g_OpenCL_Dat.doublebit = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char**) &prg2_buf, NULL, &err);
+    g_OpenCL_Dat.doublebit = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char**) &TwoBitErrorCode, NULL, err);
 
-    if (err != CL_SUCCESS){
+    if (err[0] != CL_SUCCESS){
         // TODO: Error checking
         clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
         clReleaseCommandQueue(g_OpenCL_Dat.queue);
         clReleaseProgram(g_OpenCL_Dat.singleBit);
-        return err;
+        return err[0];
     }
 
 
 
-    char buildoptions[] = "";
-    err = clBuildProgram(g_OpenCL_Dat.singleBit, 0, NULL, buildoptions, NULL, NULL);
+    char buildoptions[] = OPENCL_BUILD_FLAGS;
+    err[0] = clBuildProgram(g_OpenCL_Dat.singleBit, 0, NULL, buildoptions, NULL, NULL);
 
-    if (err != CL_SUCCESS){ // Print the error code
+    if (err[0] != CL_SUCCESS){ // Print the error code
         fprintf(stderr, "Error building program\n");
         char buffer[4096];
         size_t length;
-        clGetProgramBuildInfo( g_OpenCL_Dat.singleBit, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
+        clGetProgramBuildInfo( g_OpenCL_Dat.singleBit, g_OpenCL_Dat.device, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
 
         fprintf(stderr, "%s\n", buffer);
         clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
         clReleaseCommandQueue(g_OpenCL_Dat.queue);
         clReleaseProgram(g_OpenCL_Dat.singleBit);
         clReleaseProgram(g_OpenCL_Dat.doublebit);
-        return err;
+        return err[0];
 
     }
 
-    err = clBuildProgram(g_OpenCL_Dat.doublebit, 0, NULL, buildoptions, NULL, NULL);
+    err[0] = clBuildProgram(g_OpenCL_Dat.doublebit, 0, NULL, buildoptions, NULL, NULL);
 
-    if (err != CL_SUCCESS){ // Print the error code
+    if (err[0] != CL_SUCCESS){ // Print the error code
         fprintf(stderr, "Error building program\n");
         char buffer[4096];
         size_t length;
-        clGetProgramBuildInfo( g_OpenCL_Dat.doublebit, device_id, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
+        clGetProgramBuildInfo( g_OpenCL_Dat.doublebit, g_OpenCL_Dat.device, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
 
         fprintf(stderr, "%s\n", buffer);
         clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
         clReleaseCommandQueue(g_OpenCL_Dat.queue);
         clReleaseProgram(g_OpenCL_Dat.singleBit);
         clReleaseProgram(g_OpenCL_Dat.doublebit);
-        return err;
+        return err[0];
     }
 
     // Creating the kernels
 
-    g_OpenCL_Dat.k_singleBit = clCreateKernel(g_OpenCL_Dat.singleBit, "fixSingleBitErrors", &err);
-    if (err != CL_SUCCESS){
-        Error_Kernel(err);
-        return err;
+    g_OpenCL_Dat.k_singleBit = clCreateKernel(g_OpenCL_Dat.singleBit, "fixSingleBitErrors", err);
+    if (err[0] != CL_SUCCESS){
+        Error_Kernel(err[0]);
+        return err[0];
     }
 
-    g_OpenCL_Dat.k_doubleBit = clCreateKernel(g_OpenCL_Dat.doublebit, "fixTwoBitsErrors", &err);
-    if (err != CL_SUCCESS){
-        Error_Kernel(err);
+    g_OpenCL_Dat.k_doubleBit = clCreateKernel(g_OpenCL_Dat.doublebit, "fixTwoBitsErrors", err);
+    if (err[0] != CL_SUCCESS){
+        Error_Kernel(err[0]);
         clReleaseKernel(g_OpenCL_Dat.k_singleBit);
-        return err;
+        return err[0];
     }
+
+    // Creating arguments
+
+    g_OpenCL_Dat.output = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_WRITE_ONLY, sizeof(cl_int) * MODES_LONG_MSG_BITS, NULL, err);
+    g_OpenCL_Dat.bits = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(int), NULL, err+1); // int, not cl_int because thats what is input into our errorfix functions for now
+    g_OpenCL_Dat.message = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(unsigned char)*MODES_LONG_MSG_BYTES, NULL, err+2);
+    for (int i = 0; i < 3; i++){
+        if (err[i] != CL_SUCCESS){
+            checkCreateArgBuf(err[i]);
+            return -2;
+        }
+    }
+
 
     // We are finished!
-    return err;
+    return 0;
 }
 
 
@@ -1127,91 +1163,89 @@ void checkSetArg(cl_int err){
 
 }
 
-void checkCreateArgBuf(cl_int error){
-    switch(error){
-        case CL_INVALID_CONTEXT:
-            perror("Invalid context for argument\n");
-            break;
-        case CL_INVALID_VALUE:
-            perror("Invalid flag\n");
-            break;
-        case CL_INVALID_BUFFER_SIZE:
-            perror("Buffer size is 0 or too large for compute device in context\n");
-            break;
-        case CL_INVALID_HOST_PTR:
-            perror(" Either: The host_ptr is NULL, butCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are set; or host_ptr is not NULL, but theCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are not set\n");
-            break;
-        case CL_OUT_OF_HOST_MEMORY:
-            perror("Host is out of memory. unable to allocate OpenCL resources");
-            break;
-    }
-}
 #endif
 /* Try to fix single bit errors using the checksum. On success modifies
  * the original buffer with the fixed version, and returns the position
  * of the error bit. Otherwise if fixing failed -1 is returned. */
 #ifdef OPENCL
 int fixSingleBitErrors(unsigned char *msg, int bits) {
-    // Let's queue this.
     size_t global = bits;
-    cl_int err; // TODO: Error checking
-    cl_int *output_array = malloc(sizeof(cl_int) * bits); // It appears a GPU cannot return a single value. We need to feed it an array.
-    memset(output_array, -1, sizeof(cl_int) * bits); // So we can identify if we found any solution.
+    cl_int err[3];
+    memset(g_OpenCL_Dat.output_array, -1, sizeof(cl_int) * bits); // So we can identify if we found any solution.
 
-    cl_mem msg_input = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE |  CL_MEM_COPY_HOST_PTR , sizeof(unsigned char)*bits/8, msg, &err);
-    if (err != CL_SUCCESS){
-        checkCreateArgBuf(err);
-        perror("1\n");
-        return -2;
-    }
-    err = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 0, sizeof(cl_mem), &msg_input);
-    if (err != CL_SUCCESS){
-        checkSetArg(err);
-        perror("2\n");
-        return -2;
-    }
-    cl_mem bits_input = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE | CL_MEM_COPY_HOST_PTR, sizeof(int), &bits, &err);
-    if (err != CL_SUCCESS){
-        checkCreateArgBuf(err);
-        perror("3\n");
-        return -2;
+    // Load buffers
+    err[0] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.message, CL_TRUE, 0, bits/8, msg, 0, NULL, 0);
+    err[1] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bits, CL_TRUE, 0, sizeof(cl_int)*bits, &bits, 0, NULL, 0);
+    err[2] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.output, CL_TRUE, 0, sizeof(cl_int)*bits, g_OpenCL_Dat.output_array, 0, NULL, 0);
+    //clFinish(g_OpenCL_Dat.queue); // Wait until they're all loaded into memory
+
+    for (int i = 0; i < 3; i++){
+        if (err[i] != CL_SUCCESS){
+            fprintf(stderr, "Error writing to buffer %d\n", i);
+            //TODO: Error checking
+            switch(err[i]){
+                case CL_INVALID_COMMAND_QUEUE:
+                    perror("Invalid command queue\n");
+                    break;
+                case CL_INVALID_CONTEXT:
+                    perror("Invalid context\n");
+                    break;
+                case CL_INVALID_MEM_OBJECT:
+                    perror("Buffer is not a valid buffer object\n");
+                    break;
+                case CL_INVALID_VALUE:
+                    perror("PTR is NULL or region written to is out of bounds\n");
+                    break;
+                case CL_INVALID_EVENT_WAIT_LIST:
+                    perror("Problems with event list\n");
+                    break;
+                case CL_MEM_OBJECT_ALLOCATION_FAILURE:
+                    perror("Failure allocating memory for data associated with buffer\n");
+                    break;
+                case CL_OUT_OF_HOST_MEMORY:
+                    perror("Failure allocating resources required for OpenCL implementation on host\n");
+                    break;
+                default:
+                    perror("Unknown error\n");
+                    break;
+
+            }
+            return -2;
+        }
     }
 
-    err = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 1, sizeof(cl_mem), &bits_input);
-    if (err != CL_SUCCESS){
-        checkSetArg(err);
-        return -2;
+    err[0] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 0, sizeof(cl_mem), &(g_OpenCL_Dat.message));
+    err[1] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 1, sizeof(cl_mem), &(g_OpenCL_Dat.bits));
+    err[2] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 2, sizeof(cl_mem), &(g_OpenCL_Dat.output));
+    for (int i = 0; i < 3; i++){
+        if (err[i] != CL_SUCCESS){
+            fprintf(stderr, "Error setting argument %d\n", err[i]);
+            checkSetArg(err[i]);
+            return -2;
+        }
     }
 
-    cl_mem output = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_WRITE_ONLY | CL_MEM_COPY_HOST_PTR , sizeof(cl_int) * bits, output_array, &err);
-    if (err != CL_SUCCESS){
-        checkCreateArgBuf(err);
-        return -2;
-    }
-    err = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 2, sizeof(cl_mem), &output);
-    if (err != CL_SUCCESS){
-        checkSetArg(err);
-        return -2;
-    }
     clEnqueueNDRangeKernel(g_OpenCL_Dat.queue, g_OpenCL_Dat.k_singleBit, 1, NULL, &global, NULL, 0, NULL, NULL);
     // TODO: Error checking
+    //clFinish(g_OpenCL_Dat.queue);
+    err[0] = clEnqueueReadBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.output, CL_TRUE, 0, sizeof(cl_int) * bits, g_OpenCL_Dat.output_array, 0, NULL, NULL);
+    err[1] = clEnqueueReadBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.message, CL_TRUE, 0, bits/8, msg, 0, NULL, NULL );
+    for (int i = 0; i < 2; i++){
+        if (err[i] != CL_SUCCESS){
+            fprintf(stderr, "Failed reading arg %d\n", i);
+            // stub TODO: Error checking
+            return -2;
+        }
+    }
     clFinish(g_OpenCL_Dat.queue);
-    err = clEnqueueReadBuffer(g_OpenCL_Dat.queue, output, CL_TRUE, 0, sizeof(cl_int) * bits, output_array, 0, NULL, NULL);
-    // TODO: Error checking
 
-    err = clEnqueueReadBuffer(g_OpenCL_Dat.queue, msg_input, CL_TRUE, 0, bits/8, msg, 0, NULL, NULL );
-
-    clReleaseMemObject(bits_input); // TODO: This is unnecessary and NEEDS to be optimized. This is currently making the OpenCl version of fixSingleBitErrors SLOWER than non-OpenCL.
-    clReleaseMemObject(output);
-    clReleaseMemObject(msg_input);
     int toreturn = -1;
     for (int i = 0; i < bits; i++){
-        if (output_array[i] != -1){
-            toreturn = output_array[i];
+        if (g_OpenCL_Dat.output_array[i] != -1){
+            toreturn = g_OpenCL_Dat.output_array[i];
             i = bits;
         }
     }
-    free(output_array);
     return toreturn;
 }
 #endif
@@ -3213,6 +3247,20 @@ int main(int argc, char **argv) {
 
     if (Modes.filename != NULL) {free(Modes.filename);}
     free(Modes.html_file);
+#ifdef OPENCL
+    free(g_OpenCL_Dat.output_array);
+    clReleaseMemObject(g_OpenCL_Dat.message);
+    clReleaseMemObject(g_OpenCL_Dat.output);
+    clReleaseMemObject(g_OpenCL_Dat.bits);
+    clReleaseKernel(g_OpenCL_Dat.k_singleBit);
+    clReleaseKernel(g_OpenCL_Dat.k_doubleBit);
+    clReleaseProgram(g_OpenCL_Dat.singleBit);
+    clReleaseProgram(g_OpenCL_Dat.doublebit);
+    clReleaseCommandQueue(g_OpenCL_Dat.queue);
+    clReleaseContext(g_OpenCL_Dat.context);
+    clReleaseDevice(g_OpenCL_Dat.device);
+
+#endif
     rtlsdr_close(Modes.dev);
     return 0;
 }
