@@ -46,11 +46,11 @@ Normal usage
 If you'd like to run the binary without installing, add "--html_file ./gmap.html" as a parameter.
 
 To capture traffic directly from your RTL device and show the captured traffic
-on standard output, just run the program without options at all after installing:
+on standard bitf_output, just run the program without options at all after installing:
 
     dump1090
 
-To just output hexadecimal messages:
+To just bitf_output hexadecimal messages:
 
     dump1090 --raw
 
@@ -64,7 +64,7 @@ with your browser to http://localhost:8080 to see live traffic:
     dump1090 --interactive --net
 
 In interactive mode it is possible to have a less information dense but more
-"arcade style" output, where the screen is refreshed every second displaying
+"arcade style" bitf_output, where the screen is refreshed every second displaying
 all the recently seen aircrafts with some additional information such as
 altitude and flight number, extracted from the received Mode S packets.
 
@@ -76,9 +76,9 @@ To decode data from file, use:
     dump1090 --ifile /path/to/binfile
 
 The binary file should be created using `rtl_sdr` like this (or with any other
-program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
+program that is able to bitf_output 8-bit unsigned IQ samples at 2Mhz sample rate).
 
-    rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin
+    rtl_sdr -f 1090000000 -s 2000000 -g 50 bitf_output.bin
 
 In the example `rtl_sdr` a gain of 50 is used, simply you should use the highest
 gain availabe for your tuner. This is not needed when calling Dump1090 itself
@@ -102,8 +102,8 @@ Reliability
 ---
 
 By default Dump1090 tries to fix single bit errors using the checksum.
-Basically the program will try to flip every bit of the message and check if
-the checksum of the resulting message matches.
+Basically the program will try to flip every bit of the bitf_message and check if
+the checksum of the resulting bitf_message matches.
 
 This is indeed able to fix errors and works reliably in my experience,
 however if you are interested in very reliable data I suggest to use
@@ -126,7 +126,7 @@ Network server features
 
 By enabling the networking support with --net Dump1090 starts listening
 for clients connections on port 30002 and 30001 (you can change both the
-ports if you want, see --help output).
+ports if you want, see --help bitf_output).
 
 Port 30002
 ---
@@ -146,7 +146,7 @@ data in the same format as specified above, with hex messages starting with
 a `*` and ending with a `;` character.
 
 So for instance if there is another remote Dump1090 instance collecting data
-it is possible to sum the output to a local Dump1090 instance doing something
+it is possible to sum the bitf_output to a local Dump1090 instance doing something
 like this:
 
     nc remote-dump1090.example.net 30002 | nc localhost 30001
@@ -235,7 +235,7 @@ before the first peak to provide some context.
 To enable debug mode and check what combinations of packets you can
 log, use `mode1090 --help` to obtain a list of available debug flags.
 
-Debug mode includes an optional javascript output that is used to visualize
+Debug mode includes an optional javascript bitf_output that is used to visualize
 packets using a web browser, you can use the file debug.html under the
 'tools' directory to load the generated frames.js file.
 
@@ -268,7 +268,7 @@ What is --strip mode?
 ---
 
 It is just a simple filter that will get raw IQ 8 bit samples in input
-and will output a file missing all the parts of the file where I and Q
+and will bitf_output a file missing all the parts of the file where I and Q
 are lower than the specified <level> for more than 32 samples.
 
 Use it like this:

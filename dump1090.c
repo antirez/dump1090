@@ -159,8 +159,8 @@ struct {
     char aneterr[ANET_ERR_LEN];
     struct client *clients[MODES_NET_MAX_FD]; /* Our clients. */
     int maxfd;                      /* Greatest fd currently active. */
-    int sbsos;                      /* SBS output listening socket. */
-    int ros;                        /* Raw output listening socket. */
+    int sbsos;                      /* SBS bitf_output listening socket. */
+    int ros;                        /* Raw bitf_output listening socket. */
     int ris;                        /* Raw input listening socket. */
     int https;                      /* HTTP listening socket. */
 
@@ -170,7 +170,7 @@ struct {
     int loop;                       /* Read input file again and again. */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
-    int raw;                        /* Raw output format. */
+    int raw;                        /* Raw bitf_output format. */
     int debug;                      /* Debugging mode. */
     int net;                        /* Enable networking. */
     int net_only;                   /* Enable just networking. */
@@ -201,70 +201,88 @@ struct {
 
 #ifdef OPENCL
 struct Devices{ // Used for keeping track of things used in OpenCL
-    // TODO: Remember to free this when we are finished running our program
+    cl_device_id device;
     cl_context context;
     cl_command_queue queue;
     cl_program singleBit;
     cl_program doublebit;
+    cl_program modesChecksum;
     cl_kernel k_singleBit;
     cl_kernel k_doubleBit;
-    cl_mem output;
-    cl_mem message;
+    cl_kernel k_modesChecksum;
+    cl_mem modes_msgs_buf;
+    cl_mem modes_crcs;
+    cl_mem bitf_output;
+    cl_mem bitf_message;
     cl_mem bits;
-    cl_int* output_array; // Used when reading GPU output, placed here to avoid multiple calls to malloc
-    cl_device_id device;
+    cl_int* bitf_output_array; // Used when reading GPU bitf_output, placed here to avoid multiple calls to malloc
 };
 
 struct Devices g_OpenCL_Dat;
 
+void free_resources(){
+    free(g_OpenCL_Dat.bitf_output_array); // Make sure to never run this when bitf_output_array might not be allocated.
+    clReleaseMemObject(g_OpenCL_Dat.bitf_message);
+    clReleaseMemObject(g_OpenCL_Dat.bitf_output);
+    clReleaseMemObject(g_OpenCL_Dat.bits);
+    clReleaseKernel(g_OpenCL_Dat.k_singleBit);
+    clReleaseKernel(g_OpenCL_Dat.k_doubleBit);
+    clReleaseProgram(g_OpenCL_Dat.singleBit);
+    clReleaseProgram(g_OpenCL_Dat.doublebit);
+    clReleaseCommandQueue(g_OpenCL_Dat.queue);
+    clReleaseContext(g_OpenCL_Dat.context);
+    clReleaseDevice(g_OpenCL_Dat.device);
+}
 void checkCreateArgBuf(cl_int error){
-    switch(error){
-        case CL_INVALID_CONTEXT:
-            perror("Invalid context for argument\n");
-            break;
-        case CL_INVALID_VALUE:
-            perror("Invalid flag\n");
-            break;
-        case CL_INVALID_BUFFER_SIZE:
-            perror("Buffer size is 0 or too large for compute device in context\n");
-            break;
-        case CL_INVALID_HOST_PTR:
-            perror(" Either: The host_ptr is NULL, butCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are set; or host_ptr is not NULL, but theCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are not set\n");
-            break;
-        case CL_OUT_OF_HOST_MEMORY:
-            perror("Host is out of memory. unable to allocate OpenCL resources");
-            break;
+    if (error != CL_SUCCESS){
+        switch(error){
+            case CL_INVALID_CONTEXT:
+                perror("Invalid context for argument\n");
+                break;
+            case CL_INVALID_VALUE:
+                perror("Invalid flag\n");
+                break;
+            case CL_INVALID_BUFFER_SIZE:
+                perror("Buffer size is 0 or too large for compute device in context\n");
+                break;
+            case CL_INVALID_HOST_PTR:
+                perror(" Either: The host_ptr is NULL, butCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are set; or host_ptr is not NULL, but theCL_MEM_USE_HOST_PTR, CL_MEM_COPY_HOST_PTR, andCL_MEM_ALLOC_HOST_PTR are not set\n");
+                break;
+            case CL_OUT_OF_HOST_MEMORY:
+                perror("Host is out of memory. unable to allocate OpenCL resources");
+                break;
+        }
+        free_resources();
     }
 }
 
 
 void Error_Kernel(cl_int error){
-    // TODO: Do error checking.
-    switch (error){
-        case CL_INVALID_PROGRAM:
-            fprintf(stderr, "Did not input valid program object\n");
-            break;
-        case CL_INVALID_PROGRAM_EXECUTABLE:
-            fprintf(stderr, "Program object is not built\n");
-            break;
-        case CL_INVALID_KERNEL_NAME:
-            fprintf(stderr,"Kernel name is not found\n");
-            break;
-        case CL_INVALID_VALUE:
-            fprintf(stderr, "Invalid kernel name\n");
-            break;
-        case CL_OUT_OF_HOST_MEMORY:
-            fprintf(stderr, "Unable to allocate OpenCL resources");
-            break;
-        default:
-            fprintf(stderr, "Unknown error when creating kernel");
-            break;
-    }
+    // TODO: Check for more errors
+    if (error != CL_SUCCESS){
+        switch (error){
+            case CL_INVALID_PROGRAM:
+                fprintf(stderr, "Did not input valid program object\n");
+                break;
+            case CL_INVALID_PROGRAM_EXECUTABLE:
+                fprintf(stderr, "Program object is not built\n");
+                break;
+            case CL_INVALID_KERNEL_NAME:
+                fprintf(stderr,"Kernel name is not found\n");
+                break;
+            case CL_INVALID_VALUE:
+                fprintf(stderr, "Invalid kernel name\n");
+                break;
+            case CL_OUT_OF_HOST_MEMORY:
+                fprintf(stderr, "Unable to allocate OpenCL resources");
+                break;
+            default:
+                fprintf(stderr, "Unknown error when creating kernel");
+                break;
+        }
 
-    clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-    clReleaseCommandQueue(g_OpenCL_Dat.queue);
-    clReleaseProgram(g_OpenCL_Dat.singleBit);
-    clReleaseProgram(g_OpenCL_Dat.doublebit);
+        free_resources();
+    }
 }
 
 // Utility to read a full file into memory. Don't forget to free the returned array!
@@ -285,17 +303,17 @@ char* ReadFile(char* name){
 }
 
 cl_int Populate_Devices(){
-    /* TODO: Several things is just copy + paste code for now while im figuring stuff out. Fix it.
-     * Created with help from http://developer.amd.com/wordpress/media/2013/01/Introduction_to_OpenCL_Programming-Training_Guide-201005.pdf
+     /* Created with help from http://developer.amd.com/wordpress/media/2013/01/Introduction_to_OpenCL_Programming-Training_Guide-201005.pdf
      * */
     /* Used to populate the global struct Devices with required data*/
-    g_OpenCL_Dat.output_array = malloc(sizeof(cl_int)*MODES_LONG_MSG_BITS);
+    g_OpenCL_Dat.bitf_output_array = malloc(sizeof(cl_int) * MODES_LONG_MSG_BITS);
     cl_platform_id platform;
     cl_uint num_platforms;
-    cl_int err[3];
+    cl_int err[5];
     err[0] = clGetPlatformIDs(1, &platform, &num_platforms);
     if (err[0] != CL_SUCCESS){
         fprintf(stderr, "No OpenCL capable platform found\n");
+        free_resources();
         return err[0];
     }
 
@@ -303,7 +321,7 @@ cl_int Populate_Devices(){
     cl_uint num_devices;
     err[0] = clGetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 1, &(g_OpenCL_Dat.device), &num_devices);
     if (err[0] != CL_SUCCESS){
-        switch (err[0]){ // There appears to be no strerror()-like utility for this.
+        switch (err[0]){
             case CL_INVALID_PLATFORM:
                 fprintf(stderr, "Invalid platform\n");
                 break;
@@ -320,6 +338,7 @@ cl_int Populate_Devices(){
                 fprintf(stderr, "Something went wrong when attempting to find a GPU\n");
                 break;
         }
+        free_resources();
         return err[0];
     }
 
@@ -337,6 +356,7 @@ cl_int Populate_Devices(){
                 fprintf(stderr, "Something went wrong when creating a device context\n");
                 break;
         }
+        free_resources();
         return err[0];
     }
 
@@ -355,8 +375,8 @@ cl_int Populate_Devices(){
                 fprintf(stderr, "Something went wrong when creating the commandqueue\n");
                 break;
         }
-       clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-       return err[0];
+        free_resources();
+        return err[0];
     }
 
     // Success! We have a valid context and a commandqueue to feed it instructions! Creating and compiling the programs...
@@ -431,7 +451,7 @@ cl_int Populate_Devices(){
                                      "        /* The error is fixed. Overwrite the original buffer with\n"
                                      "             * the corrected sequence, and returns the error bit\n"
                                      "             * position.\n"
-                                     "             * This should only happen in one work-unit if the number of errors in the message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.\n"
+                                     "             * This should only happen in one work-unit if the number of errors in the bitf_message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.\n"
                                      "             * */\n"
                                      "        for (int i = 0; i < (*bits)/8; i+=2){\n"
                                      "            msg[i] = aux[i];\n"
@@ -443,31 +463,7 @@ cl_int Populate_Devices(){
                                      "}\n"
                                      "";
 
-    const char *TwoBitErrorCode = "//\n"
-                           "// Created by timmy on 2021-02-22.\n"
-                           "// Functions we want to \"OpenCL-alize\"\n"
-                           "\n"
-                           "/* ===================== Mode S detection and decoding  ===================== */\n"
-                           "\n"
-                           "/* Parity table for MODE S Messages.\n"
-                           " * The table contains 112 elements, every element corresponds to a bit set\n"
-                           " * in the message, starting from the first bit of actual data after the\n"
-                           " * preamble.\n"
-                           " *\n"
-                           " * For messages of 112 bit, the whole table is used.\n"
-                           " * For messages of 56 bits only the last 56 elements are used.\n"
-                           " *\n"
-                           " * The algorithm is as simple as xoring all the elements in this table\n"
-                           " * for which the corresponding bit on the message is set to 1.\n"
-                           " *\n"
-                           " * The latest 24 elements in this table are set to 0 as the checksum at the\n"
-                           " * end of the message should not affect the computation.\n"
-                           " *\n"
-                           " * Note: this function can be used with DF11 and DF17, other modes have\n"
-                           " * the CRC xored with the sender address as they are reply to interrogations,\n"
-                           " * but a casual listener can't split the address from the checksum.\n"
-                           " */\n"
-                           "__constant uint modes_checksum_table[112] = {\n"
+    const char *TwoBitErrorCode ="__constant uint modes_checksum_table[112] = {\n"
                            "        0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,\n"
                            "        0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,\n"
                            "        0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,\n"
@@ -551,89 +547,132 @@ cl_int Populate_Devices(){
                            "            /* We return the two bits as a 16 bit integer by shifting\n"
                            "             * 'i' on the left. This is possible since 'i' will always\n"
                            "             * be non-zero because i starts from j+1. */\n"
-                           "            returnValue =  j | (i<<8);\n"
+                           "            *returnValue =  j | (i<<8);\n"
                            "        }\n"
                            "    }\n"
                            "}\n"
                            "";
 
+    const char *modesChecksumCode = "\n"
+                                    "__constant int modes_checksum_table[112] = {\n"
+                                    "        0x3935ea, 0x1c9af5, 0xf1b77e, 0x78dbbf, 0xc397db, 0x9e31e9, 0xb0e2f0, 0x587178,\n"
+                                    "        0x2c38bc, 0x161c5e, 0x0b0e2f, 0xfa7d13, 0x82c48d, 0xbe9842, 0x5f4c21, 0xd05c14,\n"
+                                    "        0x682e0a, 0x341705, 0xe5f186, 0x72f8c3, 0xc68665, 0x9cb936, 0x4e5c9b, 0xd8d449,\n"
+                                    "        0x939020, 0x49c810, 0x24e408, 0x127204, 0x093902, 0x049c81, 0xfdb444, 0x7eda22,\n"
+                                    "        0x3f6d11, 0xe04c8c, 0x702646, 0x381323, 0xe3f395, 0x8e03ce, 0x4701e7, 0xdc7af7,\n"
+                                    "        0x91c77f, 0xb719bb, 0xa476d9, 0xadc168, 0x56e0b4, 0x2b705a, 0x15b82d, 0xf52612,\n"
+                                    "        0x7a9309, 0xc2b380, 0x6159c0, 0x30ace0, 0x185670, 0x0c2b38, 0x06159c, 0x030ace,\n"
+                                    "        0x018567, 0xff38b7, 0x80665f, 0xbfc92b, 0xa01e91, 0xaff54c, 0x57faa6, 0x2bfd53,\n"
+                                    "        0xea04ad, 0x8af852, 0x457c29, 0xdd4410, 0x6ea208, 0x375104, 0x1ba882, 0x0dd441,\n"
+                                    "        0xf91024, 0x7c8812, 0x3e4409, 0xe0d800, 0x706c00, 0x383600, 0x1c1b00, 0x0e0d80,\n"
+                                    "        0x0706c0, 0x038360, 0x01c1b0, 0x00e0d8, 0x00706c, 0x003836, 0x001c1b, 0xfff409,\n"
+                                    "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,\n"
+                                    "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000,\n"
+                                    "        0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000\n"
+                                    "};\n"
+                                    "\n"
+                                    "__constant bitmasks[] = {\n"
+                                    "        0b10000000, 0b1000000, 0b100000, 0b10000, 0b1000, 0b100, 0b10, 0b1\n"
+                                    "};\n"
+                                    "\n"
+                                    "__kernel void modesChecksum(__local unsigned char **msg, __local int* bits, __global int* crc) {\n"
+                                    "    *crc = 0;\n"
+                                    "    int offset = (*bits == 112) ? 0 : (112-56);\n"
+                                    "    int j = get_global_id(0);\n"
+                                    "    int byte = j/8;\n"
+                                    "    int bit = j%8;\n"
+                                    "    int bitmask = bitmasks[bit];\n"
+                                    "\n"
+                                    "    /* If bit is set, xor with corresponding table entry. */\n"
+                                    "    if (msg[j][byte] & bitmask)\n"
+                                    "        *crc ^= modes_checksum_table[j+offset]; /* 24 bit checksum. */\n"
+                                    "}";
+
+
     g_OpenCL_Dat.singleBit = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char **) &SingleBitErrorCode, NULL, err);
-
     if (err[0] != CL_SUCCESS){ // I'd really like to merge this and the check below, but I do not know if releasing unallocated memory is defined.
-
         // TODO: Error checking
-        clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-        clReleaseCommandQueue(g_OpenCL_Dat.queue);
+        free_resources();
         return err[0];
     }
 
     g_OpenCL_Dat.doublebit = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char**) &TwoBitErrorCode, NULL, err);
-
     if (err[0] != CL_SUCCESS){
         // TODO: Error checking
-        clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-        clReleaseCommandQueue(g_OpenCL_Dat.queue);
-        clReleaseProgram(g_OpenCL_Dat.singleBit);
+        free_resources();
         return err[0];
     }
 
-
+    g_OpenCL_Dat.modesChecksum = clCreateProgramWithSource(g_OpenCL_Dat.context, 1, (const char**) &modesChecksumCode, NULL, err);
+    if (err[0] != CL_SUCCESS){
+        // TODO: Error checking
+        free_resources();
+        return err[0];
+    }
 
     char buildoptions[] = OPENCL_BUILD_FLAGS;
     err[0] = clBuildProgram(g_OpenCL_Dat.singleBit, 0, NULL, buildoptions, NULL, NULL);
 
     if (err[0] != CL_SUCCESS){ // Print the error code
-        fprintf(stderr, "Error building program\n");
+        fprintf(stderr, "Error building program\n"); // TODO: Encapsulate this into a function
+        perror("1\n");
         char buffer[4096];
         size_t length;
         clGetProgramBuildInfo( g_OpenCL_Dat.singleBit, g_OpenCL_Dat.device, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
-
         fprintf(stderr, "%s\n", buffer);
-        clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-        clReleaseCommandQueue(g_OpenCL_Dat.queue);
-        clReleaseProgram(g_OpenCL_Dat.singleBit);
-        clReleaseProgram(g_OpenCL_Dat.doublebit);
+        free_resources();
         return err[0];
-
     }
 
     err[0] = clBuildProgram(g_OpenCL_Dat.doublebit, 0, NULL, buildoptions, NULL, NULL);
 
     if (err[0] != CL_SUCCESS){ // Print the error code
-        fprintf(stderr, "Error building program\n");
+        perror("2\n");
+        fprintf(stderr, "Error building program\n"); // TODO: Encapsulate this into a function
         char buffer[4096];
         size_t length;
         clGetProgramBuildInfo( g_OpenCL_Dat.doublebit, g_OpenCL_Dat.device, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
-
         fprintf(stderr, "%s\n", buffer);
-        clReleaseContext(g_OpenCL_Dat.context); // Freeing resources
-        clReleaseCommandQueue(g_OpenCL_Dat.queue);
-        clReleaseProgram(g_OpenCL_Dat.singleBit);
-        clReleaseProgram(g_OpenCL_Dat.doublebit);
+        free_resources();
         return err[0];
     }
+
+    err[0] = clBuildProgram(g_OpenCL_Dat.modesChecksum, 0, NULL, buildoptions, NULL, NULL);
+
+    if (err[0] != CL_SUCCESS){ // Print the error code
+        perror("3\n");
+        fprintf(stderr, "Error building program\n"); // TODO: Encapsulate this into a function
+        char buffer[4096];
+        size_t length;
+        clGetProgramBuildInfo( g_OpenCL_Dat.modesChecksum, g_OpenCL_Dat.device, CL_PROGRAM_BUILD_LOG, sizeof(buffer), buffer, &length);
+        fprintf(stderr, "%s\n", buffer);
+        free_resources();
+        return err[0];
+    }
+
 
     // Creating the kernels
 
     g_OpenCL_Dat.k_singleBit = clCreateKernel(g_OpenCL_Dat.singleBit, "fixSingleBitErrors", err);
-    if (err[0] != CL_SUCCESS){
-        Error_Kernel(err[0]);
-        return err[0];
+    g_OpenCL_Dat.k_doubleBit = clCreateKernel(g_OpenCL_Dat.doublebit, "fixTwoBitsErrors", err+1);
+    g_OpenCL_Dat.k_modesChecksum = clCreateKernel(g_OpenCL_Dat.modesChecksum, "modesChecksum", err+2);
+    for (int i = 0; i < 3; i++){
+        if (err[i] != CL_SUCCESS){
+            fprintf(stderr, "%d\n", i);
+            Error_Kernel(err[i]);
+            return err[i];
+        }
     }
-
-    g_OpenCL_Dat.k_doubleBit = clCreateKernel(g_OpenCL_Dat.doublebit, "fixTwoBitsErrors", err);
-    if (err[0] != CL_SUCCESS){
-        Error_Kernel(err[0]);
-        clReleaseKernel(g_OpenCL_Dat.k_singleBit);
-        return err[0];
-    }
-
+    
+    
     // Creating arguments
 
-    g_OpenCL_Dat.output = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_WRITE_ONLY, sizeof(cl_int) * MODES_LONG_MSG_BITS, NULL, err);
-    g_OpenCL_Dat.bits = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(int), NULL, err+1); // int, not cl_int because thats what is input into our errorfix functions for now
-    g_OpenCL_Dat.message = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(unsigned char)*MODES_LONG_MSG_BYTES, NULL, err+2);
-    for (int i = 0; i < 3; i++){
+    g_OpenCL_Dat.bitf_output = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_WRITE_ONLY, sizeof(cl_int) * MODES_LONG_MSG_BITS, NULL, err);
+    g_OpenCL_Dat.bits = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_ONLY, sizeof(int), NULL, err + 1); // int, not cl_int because thats what is input into our errorfix functions for now
+    g_OpenCL_Dat.bitf_message = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(unsigned char) * MODES_LONG_MSG_BYTES, NULL, err + 2);
+    g_OpenCL_Dat.modes_msgs_buf = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(char)*MODES_LONG_MSG_BITS*MODES_LONG_MSG_BITS, NULL, err+3);
+    g_OpenCL_Dat.modes_crcs = clCreateBuffer(g_OpenCL_Dat.context, CL_MEM_READ_WRITE, sizeof(cl_int)*MODES_LONG_MSG_BITS*MODES_LONG_MSG_BITS, NULL, err+4);
+    for (int i = 0; i < 5; i++){
         if (err[i] != CL_SUCCESS){
             checkCreateArgBuf(err[i]);
             return -2;
@@ -648,11 +687,11 @@ cl_int Populate_Devices(){
 
 #endif
 
-/* The struct we use to store information about a decoded message. */
+/* The struct we use to store information about a decoded bitf_message. */
 struct modesMessage {
     /* Generic fields */
-    unsigned char msg[MODES_LONG_MSG_BYTES]; /* Binary message. */
-    int msgbits;                /* Number of bits in message */
+    unsigned char msg[MODES_LONG_MSG_BYTES]; /* Binary bitf_message. */
+    int msgbits;                /* Number of bits in bitf_message */
     int msgtype;                /* Downlink format # */
     int crcok;                  /* True if CRC was valid */
     uint32_t crc;               /* Message CRC */
@@ -664,12 +703,12 @@ struct modesMessage {
     int ca;                     /* Responder capabilities. */
 
     /* DF 17 */
-    int metype;                 /* Extended squitter message type. */
-    int mesub;                  /* Extended squitter message subtype. */
+    int metype;                 /* Extended squitter bitf_message type. */
+    int mesub;                  /* Extended squitter bitf_message subtype. */
     int heading_is_valid;
     int heading;
     int aircraft_type;
-    int fflag;                  /* 1 = Odd, 0 = Even CPR message. */
+    int fflag;                  /* 1 = Odd, 0 = Even CPR bitf_message. */
     int tflag;                  /* UTC synchronized? */
     int raw_latitude;           /* Non decoded latitude */
     int raw_longitude;          /* Non decoded longitude */
@@ -689,7 +728,7 @@ struct modesMessage {
     int um;                     /* Request extraction of downlink request. */
     int identity;               /* 13 bits identity (Squawk). */
 
-    /* Fields used by multiple message types. */
+    /* Fields used by multiple bitf_message types. */
     int altitude, unit;
 };
 
@@ -745,9 +784,9 @@ void modesInit(void) {
 
     pthread_mutex_init(&Modes.data_mutex,NULL);
     pthread_cond_init(&Modes.data_cond,NULL);
-    /* We add a full message minus a final bit to the length, so that we
+    /* We add a full bitf_message minus a final bit to the length, so that we
      * can carry the remaining part of the buffer that we can't process
-     * in the message detection loop, back at the start of the next data
+     * in the bitf_message detection loop, back at the start of the next data
      * to process. This way we are able to also detect messages crossing
      * two reads. */
     Modes.data_len = MODES_DATA_LEN + (MODES_FULL_LEN-1)*4;
@@ -978,10 +1017,10 @@ void dumpMagnitudeBar(int index, int magnitude) {
 }
 
 /* Display an ASCII-art alike graphical representation of the undecoded
- * message as a magnitude signal.
+ * bitf_message as a magnitude signal.
  *
- * The message starts at the specified offset in the "m" buffer.
- * The function will display enough data to cover a short 56 bit message.
+ * The bitf_message starts at the specified offset in the "m" buffer.
+ * The function will display enough data to cover a short 56 bit bitf_message.
  *
  * If possible a few samples before the start of the messsage are included
  * for context. */
@@ -997,7 +1036,7 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     }
 }
 
-/* Produce a raw representation of the message as a Javascript file
+/* Produce a raw representation of the bitf_message as a Javascript file
  * loadable by debug.html. */
 void dumpRawMessageJS(char *descr, unsigned char *msg,
                       uint16_t *m, uint32_t offset, int fixable)
@@ -1031,16 +1070,16 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
     fclose(fp);
 }
 
-/* This is a wrapper for dumpMagnitudeVector() that also show the message
+/* This is a wrapper for dumpMagnitudeVector() that also show the bitf_message
  * in hex format with an additional description.
  *
- * descr  is the additional message to show to describe the dump.
- * msg    points to the decoded message
+ * descr  is the additional bitf_message to show to describe the dump.
+ * msg    points to the decoded bitf_message
  * m      is the original magnitude vector
- * offset is the offset where the message starts
+ * offset is the offset where the bitf_message starts
  *
  * The function also produces the Javascript file used by debug.html to
- * display packets in a graphical format if the Javascript output was
+ * display packets in a graphical format if the Javascript bitf_output was
  * enabled.
  */
 void dumpRawMessage(char *descr, unsigned char *msg,
@@ -1078,17 +1117,17 @@ void dumpRawMessage(char *descr, unsigned char *msg,
 
 /* Parity table for MODE S Messages.
  * The table contains 112 elements, every element corresponds to a bit set
- * in the message, starting from the first bit of actual data after the
+ * in the bitf_message, starting from the first bit of actual data after the
  * preamble.
  *
  * For messages of 112 bit, the whole table is used.
  * For messages of 56 bits only the last 56 elements are used.
  *
  * The algorithm is as simple as xoring all the elements in this table
- * for which the corresponding bit on the message is set to 1.
+ * for which the corresponding bit on the bitf_message is set to 1.
  *
  * The latest 24 elements in this table are set to 0 as the checksum at the
- * end of the message should not affect the computation.
+ * end of the bitf_message should not affect the computation.
  *
  * Note: this function can be used with DF11 and DF17, other modes have
  * the CRC xored with the sender address as they are reply to interrogations,
@@ -1128,7 +1167,7 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
     return crc; /* 24 bit checksum. */
 }
 
-/* Given the Downlink Format (DF) of the message, return the message length
+/* Given the Downlink Format (DF) of the bitf_message, return the bitf_message length
  * in bits. */
 int modesMessageLenByType(int type) {
     if (type == 16 || type == 17 ||
@@ -1171,12 +1210,12 @@ void checkSetArg(cl_int err){
 int fixSingleBitErrors(unsigned char *msg, int bits) {
     size_t global = bits;
     cl_int err[3];
-    memset(g_OpenCL_Dat.output_array, -1, sizeof(cl_int) * bits); // So we can identify if we found any solution.
+    memset(g_OpenCL_Dat.bitf_output_array, -1, sizeof(cl_int) * bits); // So we can identify if we found any solution.
 
     // Load buffers
-    err[0] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.message, CL_TRUE, 0, bits/8, msg, 0, NULL, 0);
-    err[1] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bits, CL_TRUE, 0, sizeof(cl_int)*bits, &bits, 0, NULL, 0);
-    err[2] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.output, CL_TRUE, 0, sizeof(cl_int)*bits, g_OpenCL_Dat.output_array, 0, NULL, 0);
+    err[0] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bitf_message, CL_TRUE, 0, bits / 8, msg, 0, NULL, 0);
+    err[1] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bits, CL_TRUE, 0, sizeof(cl_int) * bits, &bits, 0, NULL, 0);
+    err[2] = clEnqueueWriteBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bitf_output, CL_TRUE, 0, sizeof(cl_int) * bits, g_OpenCL_Dat.bitf_output_array, 0, NULL, 0);
     //clFinish(g_OpenCL_Dat.queue); // Wait until they're all loaded into memory
 
     for (int i = 0; i < 3; i++){
@@ -1214,9 +1253,9 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
         }
     }
 
-    err[0] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 0, sizeof(cl_mem), &(g_OpenCL_Dat.message));
+    err[0] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 0, sizeof(cl_mem), &(g_OpenCL_Dat.bitf_message));
     err[1] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 1, sizeof(cl_mem), &(g_OpenCL_Dat.bits));
-    err[2] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 2, sizeof(cl_mem), &(g_OpenCL_Dat.output));
+    err[2] = clSetKernelArg(g_OpenCL_Dat.k_singleBit, 2, sizeof(cl_mem), &(g_OpenCL_Dat.bitf_output));
     for (int i = 0; i < 3; i++){
         if (err[i] != CL_SUCCESS){
             fprintf(stderr, "Error setting argument %d\n", err[i]);
@@ -1228,8 +1267,8 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
     clEnqueueNDRangeKernel(g_OpenCL_Dat.queue, g_OpenCL_Dat.k_singleBit, 1, NULL, &global, NULL, 0, NULL, NULL);
     // TODO: Error checking
     //clFinish(g_OpenCL_Dat.queue);
-    err[0] = clEnqueueReadBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.output, CL_TRUE, 0, sizeof(cl_int) * bits, g_OpenCL_Dat.output_array, 0, NULL, NULL);
-    err[1] = clEnqueueReadBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.message, CL_TRUE, 0, bits/8, msg, 0, NULL, NULL );
+    err[0] = clEnqueueReadBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bitf_output, CL_TRUE, 0, sizeof(cl_int) * bits, g_OpenCL_Dat.bitf_output_array, 0, NULL, NULL);
+    err[1] = clEnqueueReadBuffer(g_OpenCL_Dat.queue, g_OpenCL_Dat.bitf_message, CL_TRUE, 0, bits / 8, msg, 0, NULL, NULL );
     for (int i = 0; i < 2; i++){
         if (err[i] != CL_SUCCESS){
             fprintf(stderr, "Failed reading arg %d\n", i);
@@ -1241,8 +1280,8 @@ int fixSingleBitErrors(unsigned char *msg, int bits) {
 
     int toreturn = -1;
     for (int i = 0; i < bits; i++){
-        if (g_OpenCL_Dat.output_array[i] != -1){
-            toreturn = g_OpenCL_Dat.output_array[i];
+        if (g_OpenCL_Dat.bitf_output_array[i] != -1){
+            toreturn = g_OpenCL_Dat.bitf_output_array[i];
             i = bits;
         }
     }
@@ -1329,7 +1368,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
  * elements, that is assumed to be a power of two. */
 uint32_t ICAOCacheHashAddress(uint32_t a) {
     /* The following three rounds wil make sure that every bit affects
-     * every output bit with ~ 50% of probability. */
+     * every bitf_output bit with ~ 50% of probability. */
     a = ((a >> 16) ^ a) * 0x45d9f3b;
     a = ((a >> 16) ^ a) * 0x45d9f3b;
     a = ((a >> 16) ^ a);
@@ -1356,12 +1395,12 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
     return a && a == addr && time(NULL)-t <= MODES_ICAO_CACHE_TTL;
 }
 
-/* If the message type has the checksum xored with the ICAO address, try to
+/* If the bitf_message type has the checksum xored with the ICAO address, try to
  * brute force it using a list of recently seen ICAO addresses.
  *
  * Do this in a brute-force fashion by xoring the predicted CRC with
- * the address XOR checksum field in the message. This will recover the
- * address: if we found it in our cache, we can assume the message is ok.
+ * the address XOR checksum field in the bitf_message. This will recover the
+ * address: if we found it in our cache, we can assume the bitf_message is ok.
  *
  * This function expects mm->msgtype and mm->msgbits to be correctly
  * populated by the caller.
@@ -1369,7 +1408,7 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
  * On success the correct ICAO address is stored in the modesMessage
  * structure in the aa3, aa2, and aa1 fiedls.
  *
- * If the function successfully recovers a message with a correct checksum
+ * If the function successfully recovers a bitf_message with a correct checksum
  * it returns 1. Otherwise 0 is returned. */
 int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
     // TODO: Consider running this on GPU
@@ -1392,7 +1431,7 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
         /* Work on a copy. */
         memcpy(aux,msg,msgbits/8);
 
-        /* Compute the CRC of the message and XOR it with the AP field
+        /* Compute the CRC of the bitf_message and XOR it with the AP field
          * so that we recover the address, because:
          *
          * (ADDR xor CRC) xor CRC = ADDR. */
@@ -1402,7 +1441,7 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
         aux[lastbyte-2] ^= (crc >> 16) & 0xff;
         
         /* If the obtained address exists in our cache we consider
-         * the message valid. */
+         * the bitf_message valid. */
         addr = aux[lastbyte] | (aux[lastbyte-1] << 8) | (aux[lastbyte-2] << 16);
         if (ICAOAddressWasRecentlySeen(addr)) {
             mm->aa1 = aux[lastbyte-2];
@@ -1485,7 +1524,7 @@ char *fs_str[8] = {
     /* 7 */ "Value 7 is not assigned"
 };
 
-/* ME message type to description table. */
+/* ME bitf_message type to description table. */
 char *me_str[] = {
 };
 
@@ -1517,18 +1556,18 @@ char *getMEDescription(int metype, int mesub) {
     return mename;
 }
 
-/* Decode a raw Mode S message demodulated as a stream of bytes by
+/* Decode a raw Mode S bitf_message demodulated as a stream of bytes by
  * detectModeS(), and split it into fields populating a modesMessage
  * structure. */
 void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
-    uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
+    uint32_t crc2;   /* Computed CRC, used to verify the bitf_message CRC. */
     char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
     /* Work on our local copy */
     memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
     msg = mm->msg;
 
-    /* Get the message type ASAP as other operations depend on this */
+    /* Get the bitf_message type ASAP as other operations depend on this */
     mm->msgtype = msg[0]>>3;    /* Downlink Format */
     mm->msgbits = modesMessageLenByType(mm->msgtype);
 
@@ -1571,8 +1610,8 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->aa3 = msg[3];
 
     /* DF 17 type (assuming this is a DF17, otherwise not used) */
-    mm->metype = msg[4] >> 3;   /* Extended squitter message type. */
-    mm->mesub = msg[4] & 7;     /* Extended squitter message subtype. */
+    mm->metype = msg[4] >> 3;   /* Extended squitter bitf_message type. */
+    mm->mesub = msg[4] & 7;     /* Extended squitter bitf_message subtype. */
 
     /* Fields for DF4,5,20,21 */
     mm->fs = msg[0] & 7;        /* Flight status for DF4,5,20,21 */
@@ -1581,7 +1620,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
               msg[2]>>5;
 
     /* In the squawk (identity) field bits are interleaved like that
-     * (message bit 20 to bit 32):
+     * (bitf_message bit 20 to bit 32):
      *
      * C1-A1-C2-A2-C4-A4-ZERO-B1-D1-B2-D2-B4-D4
      *
@@ -1618,7 +1657,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
          * the checksum is xored with the aircraft ICAO address. We try to
          * brute force it using a list of recently seen aircraft addresses. */
         if (bruteForceAP(msg,mm)) {
-            /* We recovered the message, mark the checksum as valid. */
+            /* We recovered the bitf_message, mark the checksum as valid. */
             mm->crcok = 1;
         } else {
             mm->crcok = 0;
@@ -1641,7 +1680,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
     /* Decode extended squitter specific stuff. */
     if (mm->msgtype == 17) {
-        /* Decode the extended squitter message. */
+        /* Decode the extended squitter bitf_message. */
 
         if (mm->metype >= 1 && mm->metype <= 4) {
             /* Aircraft Identification and Category */
@@ -1717,7 +1756,7 @@ void displayModesMessage(struct modesMessage *mm) {
         return;
     }
 
-    /* Show the raw message. */
+    /* Show the raw bitf_message. */
     printf("*");
     for (j = 0; j < mm->msgbits/8; j++) printf("%02x", mm->msg[j]);
     printf(";\n");
@@ -1769,7 +1808,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  ICAO Address: %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
     } else if (mm->msgtype == 17) {
         /* DF 17 */
-        printf("DF 17: ADS-B message.\n");
+        printf("DF 17: ADS-B bitf_message.\n");
         printf("  Capability     : %d (%s)\n", mm->ca, ca_str[mm->ca]);
         printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
         printf("  Extended Squitter  Type: %d\n", mm->metype);
@@ -1777,7 +1816,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  Extended Squitter  Name: %s\n",
             getMEDescription(mm->metype,mm->mesub));
 
-        /* Decode the extended squitter message. */
+        /* Decode the extended squitter bitf_message. */
         if (mm->metype >= 1 && mm->metype <= 4) {
             /* Aircraft identification. */
             char *ac_type_str[4] = {
@@ -1840,9 +1879,9 @@ void computeMagnitudeVector(void) {
     }
 }
 
-/* Return -1 if the message is out of fase left-side
- * Return  1 if the message is out of fase right-size
- * Return  0 if the message is not particularly out of phase.
+/* Return -1 if the bitf_message is out of fase left-side
+ * Return  1 if the bitf_message is out of fase right-size
+ * Return  0 if the bitf_message is not particularly out of phase.
  *
  * Note: this function will access m[-1], so the caller should make sure to
  * call it only if we are not at the start of the current buffer. */
@@ -1854,24 +1893,24 @@ int detectOutOfPhase(uint16_t *m) {
     return 0;
 }
 
-/* This function does not really correct the phase of the message, it just
+/* This function does not really correct the phase of the bitf_message, it just
  * applies a transformation to the first sample representing a given bit:
  *
  * If the previous bit was one, we amplify it a bit.
  * If the previous bit was zero, we decrease it a bit.
  *
- * This simple transformation makes the message a bit more likely to be
+ * This simple transformation makes the bitf_message a bit more likely to be
  * correctly decoded for out of phase messages:
  *
  * When messages are out of phase there is more uncertainty in
  * sequences of the same bit multiple times, since 11111 will be
  * transmitted as continuously altering magnitude (high, low, high, low...)
  * 
- * However because the message is out of phase some part of the high
+ * However because the bitf_message is out of phase some part of the high
  * is mixed in the low part, so that it is hard to distinguish if it is
  * a zero or a one.
  *
- * However when the message is out of phase passing from 0 to 1 or from
+ * However when the bitf_message is out of phase passing from 0 to 1 or from
  * 1 to 0 happens in a very recognizable way, for instance in the 0 -> 1
  * transition, magnitude goes low, high, high, low, and one of of the
  * two middle samples the high will be *very* high as part of the previous
@@ -1898,7 +1937,7 @@ void applyPhaseCorrection(uint16_t *m) {
 }
 
 /* Detect a Mode S messages inside the magnitude buffer pointed by 'm' and of
- * size 'mlen' bytes. Every detected Mode S message is convert it into a
+ * size 'mlen' bytes. Every detected Mode S bitf_message is convert it into a
  * stream of bits and passed to the function to display it. */
 void detectModeS(uint16_t *m, uint32_t mlen) {
     unsigned char bits[MODES_LONG_MSG_BITS];
@@ -1991,7 +2030,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         Modes.stat_valid_preamble++;
 
 good_preamble:
-        /* If the previous attempt with this message failed, retry using
+        /* If the previous attempt with this bitf_message failed, retry using
          * magnitude correction. */
         if (use_correction) {
             memcpy(aux,m+j+MODES_PREAMBLE_US*2,sizeof(aux));
@@ -2002,8 +2041,8 @@ good_preamble:
             /* TODO ... apply other kind of corrections. */
         }
 
-        /* Decode all the next 112 bits, regardless of the actual message
-         * size. We'll check the actual message type later. */
+        /* Decode all the next 112 bits, regardless of the actual bitf_message
+         * size. We'll check the actual bitf_message type later. */
         errors = 0;
         for (i = 0; i < MODES_LONG_MSG_BITS*2; i += 2) {
             low = m[j+i+MODES_PREAMBLE_US*2];
@@ -2027,7 +2066,7 @@ good_preamble:
             }
         }
 
-        /* Restore the original message if we used magnitude correction. */
+        /* Restore the original bitf_message if we used magnitude correction. */
         if (use_correction)
             memcpy(m+j+MODES_PREAMBLE_US*2,aux,sizeof(aux));
 
@@ -2048,7 +2087,7 @@ good_preamble:
         int msglen = modesMessageLenByType(msgtype)/8;
 
         /* Last check, high and low bits are different enough in magnitude
-         * to mark this as real message and not just noise? */
+         * to mark this as real bitf_message and not just noise? */
         delta = 0;
         for (i = 0; i < msglen*8*2; i += 2) {
             delta += abs(m[j+i+MODES_PREAMBLE_US*2]-
@@ -2057,7 +2096,7 @@ good_preamble:
         delta /= msglen*4;
 
         /* Filter for an average delta of three is small enough to let almost
-         * every kind of message to pass, but high enough to filter some
+         * every kind of bitf_message to pass, but high enough to filter some
          * random noise. */
         if (delta < 10*255) {
             use_correction = 0;
@@ -2065,12 +2104,12 @@ good_preamble:
         }
 
         /* If we reached this point, and error is zero, we are very likely
-         * with a Mode S message in our hands, but it may still be broken
+         * with a Mode S bitf_message in our hands, but it may still be broken
          * and CRC may not be correct. This is handled by the next layer. */
         if (errors == 0 || (Modes.aggressive && errors < 3)) {
             struct modesMessage mm;
 
-            /* Decode the received message and update statistics */
+            /* Decode the received bitf_message and update statistics */
             decodeModesMessage(&mm,msg);
 
             /* Update statistics. */
@@ -2104,7 +2143,7 @@ good_preamble:
                     dumpRawMessage("Decoded with good CRC", msg, m, j);
             }
 
-            /* Skip this message if we are sure it's fine. */
+            /* Skip this bitf_message if we are sure it's fine. */
             if (mm.crcok) {
                 j += (MODES_PREAMBLE_US+(msglen*8))*2;
                 good_message = 1;
@@ -2116,7 +2155,7 @@ good_preamble:
             useModesMessage(&mm);
         } else {
             if (Modes.debug & MODES_DEBUG_DEMODERR && use_correction) {
-                printf("The following message has %d demod errors\n", errors);
+                printf("The following bitf_message has %d demod errors\n", errors);
                 dumpRawMessage("Demodulated with errors", msg, m, j);
             }
         }
@@ -2131,12 +2170,12 @@ good_preamble:
     }
 }
 
-/* When a new message is available, because it was decoded from the
+/* When a new bitf_message is available, because it was decoded from the
  * RTL device, file, or received in the TCP input port, or any other
- * way we can receive a decoded message, we call this function in order
- * to use the message.
+ * way we can receive a decoded bitf_message, we call this function in order
+ * to use the bitf_message.
  *
- * Basically this function passes a raw message to the upper layers for
+ * Basically this function passes a raw bitf_message to the upper layers for
  * further processing and visualization. */
 void useModesMessage(struct modesMessage *mm) {
     if (!Modes.stats && (Modes.check_crc == 0 || mm->crcok)) {
@@ -2144,16 +2183,16 @@ void useModesMessage(struct modesMessage *mm) {
          * interface is enabled. */
         if (Modes.interactive || Modes.stat_http_requests > 0 || Modes.stat_sbs_connections > 0) {
             struct aircraft *a = interactiveReceiveData(mm);
-            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS output clients. */
+            if (a && Modes.stat_sbs_connections > 0) modesSendSBSOutput(mm, a);  /* Feed SBS bitf_output clients. */
         }
-        /* In non-interactive way, display messages on standard output. */
+        /* In non-interactive way, display messages on standard bitf_output. */
         if (!Modes.interactive) {
             displayModesMessage(mm);
             if (!Modes.raw && !Modes.onlyaddr) printf("\n");
         }
         /* Send data to connected clients. */
         if (Modes.net) {
-            modesSendRawOutput(mm);  /* Feed raw output clients. */
+            modesSendRawOutput(mm);  /* Feed raw bitf_output clients. */
         }
     }
 }
@@ -2342,10 +2381,10 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
         Modes.aircrafts = a;
     } else {
         /* If it is an already known aircraft, move it on head
-         * so we keep aircrafts ordered by received message time.
+         * so we keep aircrafts ordered by received bitf_message time.
          *
          * However move it on head only if at least one second elapsed
-         * since the aircraft that is currently on head sent a message,
+         * since the aircraft that is currently on head sent a bitf_message,
          * othewise with multiple aircrafts at the same time we have an
          * useless shuffle of positions on the screen. */
         if (0 && Modes.aircrafts != a && (time(NULL) - a->seen) >= 1) {
@@ -2495,10 +2534,10 @@ struct {
     int *socket;
     int port;
 } modesNetServices[MODES_NET_SERVICES_NUM] = {
-    {"Raw TCP output", &Modes.ros, MODES_NET_OUTPUT_RAW_PORT},
+    {"Raw TCP bitf_output", &Modes.ros, MODES_NET_OUTPUT_RAW_PORT},
     {"Raw TCP input", &Modes.ris, MODES_NET_INPUT_RAW_PORT},
     {"HTTP server", &Modes.https, MODES_NET_HTTP_PORT},
-    {"Basestation TCP output", &Modes.sbsos, MODES_NET_OUTPUT_SBS_PORT}
+    {"Basestation TCP bitf_output", &Modes.sbsos, MODES_NET_OUTPUT_SBS_PORT}
 };
 
 /* Networking "stack" initialization. */
@@ -2591,7 +2630,7 @@ void modesFreeClient(int fd) {
     }
 }
 
-/* Send the specified message to all clients listening for a given service. */
+/* Send the specified bitf_message to all clients listening for a given service. */
 void modesSendAllClients(int service, void *msg, int len) {
     int j;
     struct client *c;
@@ -2607,7 +2646,7 @@ void modesSendAllClients(int service, void *msg, int len) {
     }
 }
 
-/* Write raw output to TCP clients. */
+/* Write raw bitf_output to TCP clients. */
 void modesSendRawOutput(struct modesMessage *mm) {
     char msg[128], *p = msg;
     int j;
@@ -2623,7 +2662,7 @@ void modesSendRawOutput(struct modesMessage *mm) {
 }
 
 
-/* Write SBS output to TCP clients. */
+/* Write SBS bitf_output to TCP clients. */
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     char msg[256], *p = msg;
     int emergency = 0, ground = 0, alert = 0, spi = 0;
@@ -2686,15 +2725,15 @@ int hexDigitVal(int c) {
     else return -1;
 }
 
-/* This function decodes a string representing a Mode S message in
+/* This function decodes a string representing a Mode S bitf_message in
  * raw hex format like: *8D4B969699155600E87406F5B69F;
  * The string is supposed to be at the start of the client buffer
  * and null-terminated.
  * 
- * The message is passed to the higher level layers, so it feeds
- * the selected screen output, the network output and so forth.
+ * The bitf_message is passed to the higher level layers, so it feeds
+ * the selected screen bitf_output, the network bitf_output and so forth.
  * 
- * If the message looks invalid is silently discarded.
+ * If the bitf_message looks invalid is silently discarded.
  *
  * The function always returns 0 (success) to the caller as there is
  * no case where we want broken messages here to close the client
@@ -2715,10 +2754,10 @@ int decodeHexMessage(struct client *c) {
         l--;
     }
 
-    /* Turn the message into binary. */
+    /* Turn the bitf_message into binary. */
     if (l < 2 || hex[0] != '*' || hex[l-1] != ';') return 0;
     hex++; l-=2; /* Skip * and ; */
-    if (l > MODES_LONG_MSG_BYTES*2) return 0; /* Too long message... broken. */
+    if (l > MODES_LONG_MSG_BYTES*2) return 0; /* Too long bitf_message... broken. */
     for (j = 0; j < l; j += 2) {
         int high = hexDigitVal(hex[j]);
         int low = hexDigitVal(hex[j+1]);
@@ -2883,10 +2922,10 @@ int handleHTTPRequest(struct client *c) {
 /* This function polls the clients using read() in order to receive new
  * messages from the net.
  *
- * The message is supposed to be separated by the next message by the
+ * The bitf_message is supposed to be separated by the next bitf_message by the
  * separator 'sep', that is a null-terminated C string.
  *
- * Every full message received is decoded and passed to the higher layers
+ * Every full bitf_message received is decoded and passed to the higher layers
  * calling the function 'handler'.
  *
  * The handelr returns 0 on success, or 1 to signal this function we
@@ -2914,13 +2953,13 @@ void modesReadFromClient(struct client *c, char *sep,
         /* Always null-term so we are free to use strstr() */
         c->buf[c->buflen] = '\0';
 
-        /* If there is a complete message there must be the separator 'sep'
+        /* If there is a complete bitf_message there must be the separator 'sep'
          * in the buffer, note that we full-scan the buffer at every read
          * for simplicity. */
         while ((p = strstr(c->buf, sep)) != NULL) {
             i = p - c->buf; /* Turn it as an index inside the buffer. */
             c->buf[i] = '\0'; /* Te handler expects null terminated strings. */
-            /* Call the function to process the message. It returns 1
+            /* Call the function to process the bitf_message. It returns 1
              * on error to signal we should close the client connection. */
             if (handler(c)) {
                 modesFreeClient(c->fd);
@@ -2942,7 +2981,7 @@ void modesReadFromClient(struct client *c, char *sep,
             /* If there is garbage, read more to discard it ASAP. */
             continue;
         }
-        /* If no message was decoded process the next client, otherwise
+        /* If no bitf_message was decoded process the next client, otherwise
          * read more data from the same client. */
         if (!fullmsg) break;
     }
@@ -3029,15 +3068,15 @@ void showHelp(void) {
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
-"--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
+"--net-ro-port <port>     TCP listening port for raw bitf_output (default: 30002).\n"
 "--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
 "--net-http-port <port>   HTTP server port (default: 8080).\n"
-"--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003).\n"
+"--net-sbs-port <port>    TCP listening port for BaseStation format bitf_output (default: 30003).\n"
 "--html_file              With --net, sets path to HTML file we serve clients with\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
 "--aggressive             More CPU for more messages (two bits fixes, ...).\n"
-"--stats                  With --ifile print stats at exit. No other output.\n"
+"--stats                  With --ifile print stats at exit. No other bitf_output.\n"
 "--onlyaddr               Show only ICAO addresses (testing purposes).\n"
 "--metric                 Use metric units (meters, km/h, ...).\n"
 "--snip <level>           Strip IQ file removing samples < level.\n"
@@ -3248,9 +3287,9 @@ int main(int argc, char **argv) {
     if (Modes.filename != NULL) {free(Modes.filename);}
     free(Modes.html_file);
 #ifdef OPENCL
-    free(g_OpenCL_Dat.output_array);
-    clReleaseMemObject(g_OpenCL_Dat.message);
-    clReleaseMemObject(g_OpenCL_Dat.output);
+    free(g_OpenCL_Dat.bitf_output_array);
+    clReleaseMemObject(g_OpenCL_Dat.bitf_message);
+    clReleaseMemObject(g_OpenCL_Dat.bitf_output);
     clReleaseMemObject(g_OpenCL_Dat.bits);
     clReleaseKernel(g_OpenCL_Dat.k_singleBit);
     clReleaseKernel(g_OpenCL_Dat.k_doubleBit);

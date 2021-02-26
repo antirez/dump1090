@@ -70,7 +70,7 @@ __kernel void fixSingleBitErrors(__global unsigned char* msg, __global int* bits
         /* The error is fixed. Overwrite the original buffer with
              * the corrected sequence, and returns the error bit
              * position.
-             * This should only happen in one work-unit if the number of errors in the message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.
+             * This should only happen in one work-unit if the number of errors in the bitf_message was few enough. I see no problem if multiple units finds a solution and overwrites each other however.
              * */
         for (int i = 0; i < (*bits)/8; i+=2){
             msg[i] = aux[i];
