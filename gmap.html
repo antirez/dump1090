@@ -4,6 +4,8 @@
   <head>
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ==" crossorigin=""/>
+     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
+
     <style type="text/css">
       html { height: 100% }
       body { height: 100%; margin: 0; padding: 0 }
@@ -46,6 +48,11 @@
     Planes={};
     NumPlanes = 0;
     Selected=null
+    var options = {
+        enableHighAccuracy: true,
+        timeout: 5000,
+        maximumAge: 0
+    };
 
     function getIconForPlane(plane) {
         var r = 255, g = 255, b = 0;
@@ -62,16 +69,16 @@
            systems but not all. */
         var he = document.createElement("P");
         he.innerHTML = '>';
-        var rotation = 45+360-plane.track;
+        var rotation = 90+360-plane.track;
         var selhtml = '';
 
         /* Give a border to the selected plane. */
         if (Selected == plane.hex) {
-            selhtml = 'border:1px dotted #0000aa; border-radius:10px;';
+            selhtml = 'border:3px dotted #0000aa; border-radius:5px;';
         } else {
             selhtml = '';
         }
-        he = '<div style="transform: rotate(-'+rotation+'deg); '+selhtml+'">✈️</div>';
+        he = '<div style="width: 200%; transform: rotate(-'+rotation+'deg); '+selhtml+'"><i class="fa fa-plane fa-2x" aria-hidden="true"></i></div>';
         var icon = L.divIcon({html: he, className: 'plane-icon'});
         return icon;
     }
@@ -84,6 +91,10 @@
             /* Remove the highlight in the previously selected plane. */
             Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
         }
+        Map.setView([Planes[planehex].lat, Planes[planehex].lon], 8);
+
+        //update selected plane
+        document.getElementById("planeSelect").value = Selected;
         Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
         refreshSelectedInfo();
     }
@@ -100,7 +111,7 @@
         var i = document.getElementById('geninfo');
 
         i.innerHTML = NumPlanes+' planes on screen.';
-    }
+      }
 
     function refreshSelectedInfo() {
         var i = document.getElementById('selinfo');
@@ -118,6 +129,7 @@
     }
 
     function fetchData() {
+        var select = document.getElementById("planeSelect");
         $.getJSON('/data.json', function(data) {
             var stillhere = {}
             for (var j=0; j < data.length; j++) {
@@ -147,6 +159,13 @@
                     plane.marker = marker;
                     marker.planehex = plane.hex;
                     Planes[plane.hex] = plane;
+
+                    // create option for select
+                    var option = document.createElement("option");
+                    option.value = plane.hex;
+                    option.text = plane.flight;
+                    option.id = plane.hex;
+                    select.appendChild(option);
                 }
 
                 // FIXME: Set the title
@@ -159,7 +178,15 @@
 
             /* Remove idle planes. */
             for (var p in Planes) {
+                var selectPlane = document.getElementById(Planes[p].hex);
+
+                // update select names
+                if (selectPlane.text == "" && Planes[p].flight != ""){
+                    selectPlane.text = Planes[p].flight;
+                }
                 if (!stillhere[p]) {
+                    //remove plane from select
+                    selectPlane.remove();
                     Map.removeLayer(Planes[p].marker);
                     delete Planes[p];
                 }
@@ -167,21 +194,42 @@
         });
     }
 
+    function success(pos) {
+        var crd = pos.coords;
+        // change view to current position
+        Map.setView([crd.latitude, crd.longitude], 8)
+    }
+
+    function error(err) {
+        console.warn(`ERROR(${err.code}): ${err.message}`);
+    }
+
+
+
     function initialize() {
         Map = L.map('map_canvas').setView([37.0, 13.0], 8);
 
-	L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-	    attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, <a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-	    maxZoom: 18,
-	    id: 'mapbox/streets-v11',
-	    accessToken: 'your.mapbox.access.token'
-	}).addTo(Map);
+        //try to get current position
+        navigator.geolocation.getCurrentPosition(success, error, options);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, <a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
+            maxZoom: 18,
+            id: 'mapbox/streets-v11',
+            accessToken: 'your.mapbox.access.token'
+        }).addTo(Map);
 
         /* Setup our timer to poll from the server. */
         window.setInterval(function() {
             fetchData();
             refreshGeneralInfo();
         }, 100);
+    }
+
+    // on select change
+    function changed(){
+        var select = document.getElementById("planeSelect");
+        selectPlane(select.value);
     }
 
     </script>
@@ -193,6 +241,8 @@
         <h1>Dump1090</h1>
         <p id="geninfo"></p>
         <p id="selinfo">Click on a plane for info.</p>
+        <p>Select a Plane: <select id="planeSelect" onchange="changed()"></p>
+        </select>
       </div>
     </div>
   </body>
