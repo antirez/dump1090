@@ -43,8 +43,7 @@
     <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew==" crossorigin=""></script>
     <script type="text/javascript">
     Map=null;
-    CenterLat=45.0;
-    CenterLon=9.0;
+    line = null;
     Planes={};
     NumPlanes = 0;
     Selected=null
@@ -78,7 +77,7 @@
         } else {
             selhtml = '';
         }
-        he = '<div style="width: 200%; transform: rotate(-'+rotation+'deg); '+selhtml+'"><i class="fa fa-plane fa-2x" aria-hidden="true"></i></div>';
+        he = '<div><label hidden id="marker-'+plane.hex+'">'+plane.flight+'</label><div style="width: 200%; transform: rotate(-'+rotation+'deg); '+selhtml+'"><i class="fa fa-plane fa-2x" aria-hidden="true"></i></div></div>';
         var icon = L.divIcon({html: he, className: 'plane-icon'});
         return icon;
     }
@@ -91,7 +90,7 @@
             /* Remove the highlight in the previously selected plane. */
             Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
         }
-        Map.setView([Planes[planehex].lat, Planes[planehex].lon], 8);
+        Map.setView([Planes[planehex].lat, Planes[planehex].lon], Map.getZoom());
 
         //update selected plane
         document.getElementById("planeSelect").value = Selected;
@@ -128,6 +127,22 @@
         i.innerHTML = html;
     }
 
+    function hoverPlaneCallback(hex, hide=true){
+        return function() {
+            return showFlight(hex, hide);
+        }
+    }
+
+    function showFlight(hex, hide){
+        var label = document.getElementById("marker-"+hex);
+
+        if (hide){
+            label.removeAttribute("hidden");
+        } else {
+            label.setAttribute("hidden", "hidden");
+        }
+    }
+
     function fetchData() {
         var select = document.getElementById("planeSelect");
         $.getJSON('/data.json', function(data) {
@@ -142,7 +157,6 @@
                     var myplane = Planes[plane.hex];
                     marker = myplane.marker;
                     marker.setLatLng([plane.lat,plane.lon]);
-                    marker.setIcon(getIconForPlane(plane));
                     myplane.altitude = plane.altitude;
                     myplane.speed = plane.speed;
                     myplane.lat = plane.lat;
@@ -156,8 +170,12 @@
                     var marker = L.marker([plane.lat, plane.lon], {icon: icon}).addTo(Map);
                     var hex = plane.hex;
                     marker.on('click',selectPlaneCallback(plane.hex));
+                    marker.on('mouseover', hoverPlaneCallback(plane.hex));
+                    marker.on('mouseout', hoverPlaneCallback(plane.hex, false));
                     plane.marker = marker;
                     marker.planehex = plane.hex;
+                    plane.pattern = [[plane.lat, plane.lon]];
+                    plane.oldTrack = plane.track;
                     Planes[plane.hex] = plane;
 
                     // create option for select
@@ -179,15 +197,18 @@
             /* Remove idle planes. */
             for (var p in Planes) {
                 var selectPlane = document.getElementById(Planes[p].hex);
+                var label = document.getElementById("marker-"+Planes[p].hex);
 
                 // update select names
                 if (selectPlane.text == "" && Planes[p].flight != ""){
                     selectPlane.text = Planes[p].flight;
+                    label.innerHTML = Planes[p].flight;
                 }
                 if (!stillhere[p]) {
                     //remove plane from select
                     selectPlane.remove();
                     Map.removeLayer(Planes[p].marker);
+                    line.setLatLngs([]);
                     delete Planes[p];
                 }
             }
@@ -204,10 +225,27 @@
         console.warn(`ERROR(${err.code}): ${err.message}`);
     }
 
+    function refreshLines(){
+        for (var p in Planes) {
+            var plane = Planes[p];
+            if (plane.track != plane.oldTrack){
+                plane.pattern.push([plane.lat, plane.lon]);
+                var rotation = 90+360-plane.track;
+                plane.marker._icon.style.transform = 'rotate(-'+rotation+'deg);';
+                plane.oldTrack = plane.track;
+            }
 
+            if (plane == Planes[Selected]){
+                var path = Array.from(plane.pattern);
+                path.push([plane.lat, plane.lon]);
+                line.setLatLngs(path);
+            }
+        }
+    }
 
     function initialize() {
         Map = L.map('map_canvas').setView([37.0, 13.0], 8);
+        line = L.polyline([]).addTo(Map);
 
         //try to get current position
         navigator.geolocation.getCurrentPosition(success, error, options);
@@ -223,6 +261,7 @@
         window.setInterval(function() {
             fetchData();
             refreshGeneralInfo();
+            refreshLines();
         }, 100);
     }
 
