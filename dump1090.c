@@ -158,6 +158,7 @@ struct {
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
+    int loop;                       /* Read input file again and again. */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
     int raw;                        /* Raw output format. */
@@ -277,6 +278,7 @@ void modesInitConfig(void) {
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
+    Modes.loop = 0;
 }
 
 void modesInit(void) {
@@ -436,6 +438,16 @@ void readDataFromFile(void) {
         p = Modes.data+(MODES_FULL_LEN-1)*4;
         while(toread) {
             nread = read(Modes.fd, p, toread);
+            /* In --file mode, seek the file again from the start
+             * and re-play it if --loop was given. */
+            if (nread == 0 &&
+                Modes.filename != NULL &&
+                Modes.fd != STDIN_FILENO &&
+                Modes.loop)
+            {
+                if (lseek(Modes.fd,0,SEEK_SET) != -1) continue;
+            }
+
             if (nread <= 0) {
                 Modes.exit = 1; /* Signal the other thread to exit. */
                 break;
@@ -493,10 +505,18 @@ void dumpMagnitudeBar(int index, int magnitude) {
     buf[div] = set[rem];
     buf[div+1] = '\0';
 
-    if (index >= 0)
-        printf("[%.3d] |%-66s %d\n", index, buf, magnitude);
-    else
+    if (index >= 0) {
+        int markchar = ']';
+
+        /* preamble peaks are marked with ">" */
+        if (index == 0 || index == 2 || index == 7 || index == 9)
+            markchar = '>';
+        /* Data peaks are marked to distinguish pairs of bits. */
+        if (index >= 16) markchar = ((index-16)/2 & 1) ? '|' : ')';
+        printf("[%.3d%c |%-66s %d\n", index, markchar, buf, magnitude);
+    } else {
         printf("[%.2d] |%-66s %d\n", index, buf, magnitude);
+    }
 }
 
 /* Display an ASCII-art alike graphical representation of the undecoded
@@ -2413,6 +2433,7 @@ void showHelp(void) {
 "--enable-agc             Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
+"--loop                   With --ifile, read the same file in a loop.\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
@@ -2484,6 +2505,8 @@ int main(int argc, char **argv) {
             Modes.freq = strtoll(argv[++j],NULL,10);
         } else if (!strcmp(argv[j],"--ifile") && more) {
             Modes.filename = strdup(argv[++j]);
+        } else if (!strcmp(argv[j],"--loop")) {
+            Modes.loop = 1;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.fix_errors = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
