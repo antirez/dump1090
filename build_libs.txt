@@ -1,0 +1,27 @@
+To build RTL-SDR, HackRF and Airspy librares use the relevant git statements below and then the same build sequence of...
+
+cd <lib directory>
+mkdir build
+cd build
+cmake ../
+make
+sudo make install
+sudo ldconfig
+
+RTL-SDR: git clone git//git.osmocom.org/rtl-sdr.git ./rtl-sdr
+HACKRF: git clone https://github.com/mossmann/hackrf/host.git ./hackrf
+AIRSPY: git clone https://github.com/airspy/host.git ./airspy
+
+For Soxr:
+
+git clone https://github.com/uklauer/soxr.git ./soxr
+
+then...
+
+cd soxr
+./go
+cd Release
+sudo make install
+
+wget https://www.sdrplay.com/software/SDRplay_RSP_API-RPi-2.13.1.run
+sh ./SDRplay_RSP_API-RPi-2.13.1.run
