@@ -2,6 +2,9 @@
  *
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
+ * HackRF One support added by Ilker Temir <ilker@ilkertemir.com>
+ * AirSpy support added by Chris Kuethe <chris.kuethe+github@gmail.com>
+ *
  * All rights reserved.
  * 
  * Redistribution and use in source and binary forms, with or without
@@ -33,6 +36,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <err.h>
 #include <errno.h>
 #include <unistd.h>
 #include <math.h>
@@ -44,6 +48,12 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include "rtl-sdr.h"
+#include "libhackrf/hackrf.h"
+#include "libairspy/airspy.h"
+#ifndef NoSDRplay
+#include "mirsdrapi-rsp.h"
+#endif
+#include "soxr.h"
 #include "anet.h"
 
 #define MODES_DEFAULT_RATE         2000000
@@ -54,6 +64,14 @@
 #define MODES_DATA_LEN             (16*16384)   /* 256k */
 #define MODES_AUTO_GAIN            -100         /* Use automatic gain. */
 #define MODES_MAX_GAIN             999999       /* Use max available gain. */
+/* HackRF One Defaults */
+#define HACKRF_RF_GAIN	 	   0
+#define HACKRF_LNA_GAIN		   32
+#define HACKRF_VGA_GAIN		   48
+/* AirSpy defaults */
+#define AIRSPY_RF_GAIN		   11
+#define AIRSPY_LNA_GAIN		   11
+#define AIRSPY_VGA_GAIN		   11
 
 #define MODES_PREAMBLE_US 8       /* microseconds */
 #define MODES_LONG_MSG_BITS 112
@@ -117,6 +135,7 @@ struct aircraft {
     int odd_cprlon;
     int even_cprlat;
     int even_cprlon;
+    int csv_logged;     /* Value is 1 if already logged. */
     double lat, lon;    /* Coordinated obtained from CPR encoded data. */
     long long odd_cprtime, even_cprtime;
     struct aircraft *next; /* Next aircraft in our linked list. */
@@ -137,11 +156,45 @@ struct {
     uint16_t *maglut;               /* I/Q -> Magnitude lookup table. */
     int exit;                       /* Exit from the main loop when true. */
 
+    /* Drivers */
+    int prefer_airspy;
+    int prefer_hackrf;
+    int prefer_rtlsdr;
+#ifndef NoSDRplay
+    int prefer_sdrplay;
+#endif
+
     /* RTLSDR */
+    int rtl_enabled;
     int dev_index;
     int gain;
     int enable_agc;
     rtlsdr_dev_t *dev;
+
+    /* HackRF One and Airspy are very similar... */
+    int hackrf_enabled;
+    int rf_gain;
+    int lna_gain;
+    int vga_gain;
+    int power_antenna;
+    hackrf_device *hackrf;
+
+    /* ... but AirSpy needs to be resampled */
+    int airspy_enabled;
+    struct airspy_device *airspy;
+    soxr_t resampler;
+    char *airspy_bytes, *airspy_scratch;
+    int support_10MSPS;
+
+#ifndef NoSDRplay
+    /* SDRplay */
+    int sdrplay_enabled;
+    int sdrplaySamplesPerPacket;
+    short *sdrplay_i;
+    short *sdrplay_q;
+#endif
+
+    /* SDR Common */
     int freq;
 
     /* Networking */
@@ -155,7 +208,6 @@ struct {
 
     /* Configuration */
     char *filename;                 /* Input form file, --ifile option. */
-    int loop;                       /* Read input file again and again. */
     int fix_errors;                 /* Single bit error correction if true. */
     int check_crc;                  /* Only display messages with good CRC. */
     int raw;                        /* Raw output format. */
@@ -165,6 +217,7 @@ struct {
     int interactive;                /* Interactive mode */
     int interactive_rows;           /* Interactive mode: max number of rows. */
     int interactive_ttl;            /* Interactive mode: TTL before deletion. */
+    int csv_log;                    /* Log aircraft detection to CSV file. */
     int stats;                      /* Print stats at exit in --ifile mode. */
     int onlyaddr;                   /* Print only ICAO addresses. */
     int metric;                     /* Use metric units. */
@@ -261,6 +314,10 @@ void modesInitConfig(void) {
     Modes.gain = MODES_MAX_GAIN;
     Modes.dev_index = 0;
     Modes.enable_agc = 0;
+    Modes.rf_gain = 0;
+    Modes.lna_gain = 0;
+    Modes.vga_gain = 0;
+    Modes.power_antenna = 0;
     Modes.freq = MODES_DEFAULT_FREQ;
     Modes.filename = NULL;
     Modes.fix_errors = 1;
@@ -273,9 +330,10 @@ void modesInitConfig(void) {
     Modes.interactive = 0;
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
+    Modes.csv_log = 0;
     Modes.aggressive = 0;
     Modes.interactive_rows = getTermRows();
-    Modes.loop = 0;
+    Modes.support_10MSPS = 0;
 }
 
 void modesInit(void) {
@@ -333,7 +391,7 @@ void modesInit(void) {
 
 /* =============================== RTLSDR handling ========================== */
 
-void modesInitRTLSDR(void) {
+int modesInitRTLSDR(void) {
     int j;
     int device_count;
     int ppm_error = 0;
@@ -342,7 +400,7 @@ void modesInitRTLSDR(void) {
     device_count = rtlsdr_get_device_count();
     if (!device_count) {
         fprintf(stderr, "No supported RTLSDR devices found.\n");
-        exit(1);
+        return(1);
     }
 
     fprintf(stderr, "Found %d device(s):\n", device_count);
@@ -355,7 +413,7 @@ void modesInitRTLSDR(void) {
     if (rtlsdr_open(&Modes.dev, Modes.dev_index) < 0) {
         fprintf(stderr, "Error opening the RTLSDR device: %s\n",
             strerror(errno));
-        exit(1);
+        return(1);
     }
 
     /* Set gain, frequency, sample rate, and reset the device. */
@@ -383,7 +441,230 @@ void modesInitRTLSDR(void) {
     rtlsdr_reset_buffer(Modes.dev);
     fprintf(stderr, "Gain reported by device: %.2f\n",
         rtlsdr_get_tuner_gain(Modes.dev)/10.0);
+    Modes.rtl_enabled = 1;
+    Modes.hackrf_enabled = 0;
+    Modes.airspy_enabled = 0;
+#ifndef NoSDRplay
+    Modes.sdrplay_enabled = 0;
+#endif
+    return (0);
 }
+
+/* =============================== AirSpy handling ========================== */
+int modesInitAirSpy(void) {
+    #define AIRSPY_STATUS(status, message) \
+        if (status != 0) { \
+            fprintf(stderr, "%s\n", message); \
+            airspy_close(Modes.airspy); \
+            airspy_exit(); \
+            return (1); \
+        } \
+
+    int status;
+    soxr_error_t	sox_err = NULL;
+    soxr_io_spec_t	ios;
+    soxr_quality_spec_t	qts;
+    soxr_runtime_spec_t	rts;
+
+    Modes.airspy_scratch = calloc(2*MODES_DATA_LEN, sizeof(int16_t));
+    Modes.airspy_bytes = malloc(2*MODES_DATA_LEN);
+    if ((Modes.airspy_bytes == NULL) || (Modes.airspy_scratch == NULL))
+	err(1, NULL);
+
+    ios = soxr_io_spec(SOXR_INT16_I, SOXR_INT16_I);
+    qts = soxr_quality_spec(SOXR_MQ, 0);
+    rts = soxr_runtime_spec(2);
+
+    status = airspy_init();
+    AIRSPY_STATUS(status, "airspy_init failed.");
+
+    status = airspy_open(&Modes.airspy);
+    AIRSPY_STATUS(status, "No AirSpy compatible devices found.");
+
+    // The initial airspy mini doesnot support 10MSPS, 
+    // its supported samplerate is 6Msps, 3Msps
+    uint32_t count=0;
+    airspy_get_samplerates(Modes.airspy, &count, 0);
+    uint32_t supported_samplerates[10]={0}; //10 is enough
+    airspy_get_samplerates(Modes.airspy, supported_samplerates, count);
+    for(uint32_t i=0;i<count;i++) {
+      if(supported_samplerates[i] == 10e6)
+      {
+          Modes.support_10MSPS = 1;
+      }
+    }
+    
+    if(Modes.support_10MSPS)
+    {
+        fprintf(stderr,"Airspy: sampling rate is 10MSPS\n");
+        Modes.resampler = soxr_create(10, 2, 2, &sox_err, &ios, &qts, &rts);
+    }
+    else  /*6MSPS is used for airspy mini*/
+    {
+        fprintf(stderr,"Airspy mini: sampling rate is 6MSPS\n");
+        Modes.resampler = soxr_create(6, 2, 2, &sox_err, &ios, &qts, &rts);
+    }
+    if (sox_err) {
+        int e = errno;
+        fprintf(stderr, "soxr_create: %s; %s\n", soxr_strerror(sox_err), strerror(errno));
+        return e;
+    }
+
+    
+    if ((Modes.rf_gain + Modes.lna_gain + Modes.vga_gain) == 0) {
+	Modes.rf_gain = AIRSPY_RF_GAIN;
+	Modes.lna_gain = AIRSPY_LNA_GAIN;
+	Modes.vga_gain = AIRSPY_VGA_GAIN;
+    }
+
+    status = airspy_set_freq(Modes.airspy, Modes.freq);
+    AIRSPY_STATUS(status, "airspy_set_freq failed.");
+
+    status = airspy_set_sample_type(Modes.airspy, AIRSPY_SAMPLE_INT16_IQ);
+    AIRSPY_STATUS(status, "airspy_set_sample_type failed.");
+
+    if(Modes.support_10MSPS)
+    {
+        status = airspy_set_samplerate(Modes.airspy, AIRSPY_SAMPLERATE_10MSPS);
+    }
+    else
+    {
+        status = airspy_set_samplerate(Modes.airspy, 6e6);
+    }
+    AIRSPY_STATUS(status, "airspy_set_samplerate failed.");
+
+    status = airspy_set_mixer_gain(Modes.airspy, Modes.rf_gain != 0);
+    AIRSPY_STATUS(status, "airspy_set_mixer_gain failed.");
+
+    status = airspy_set_lna_gain(Modes.airspy, Modes.lna_gain);
+    AIRSPY_STATUS(status, "airspy_set_lna_gain failed.");
+
+    status = airspy_set_vga_gain(Modes.airspy, Modes.vga_gain);
+    AIRSPY_STATUS(status, "airspy_set_vga_gain failed");
+
+    if (Modes.enable_agc) {
+	airspy_set_mixer_agc(Modes.airspy, 1);
+	AIRSPY_STATUS(status, "airspy_set_mixer_agc failed");
+	airspy_set_lna_agc(Modes.airspy, 1);
+	AIRSPY_STATUS(status, "airspy_set_lna_agc failed");
+    }
+    fprintf (stderr, "AirSpy successfully initialized "
+                     "(RF Gain: %i, LNA Gain: %i, VGA Gain: %i, AGC: %i).\n",
+                     Modes.rf_gain, Modes.lna_gain, Modes.vga_gain, Modes.enable_agc);
+
+    Modes.airspy_enabled = 1;
+    Modes.rtl_enabled = 0;
+    Modes.hackrf_enabled = 0;
+#ifndef NoSDRplay
+    Modes.sdrplay_enabled = 0;
+#endif
+    return (0);
+}
+
+/* =============================== HackRF One handling ========================== */
+int modesInitHackRF(void) {
+    #define HACKRF_STATUS(status, message) \
+        if (status != 0) { \
+            fprintf(stderr, "%s\n", message); \
+            hackrf_close(Modes.hackrf); \
+            hackrf_exit(); \
+            return (1); \
+        } \
+
+    int status;
+
+    status = hackrf_init();
+    HACKRF_STATUS(status, "hackrf_init failed.");
+
+    status = hackrf_open(&Modes.hackrf);
+    HACKRF_STATUS(status, "No HackRF compatible devices found.");
+
+    if ((Modes.lna_gain + Modes.vga_gain) == 0) {
+	Modes.lna_gain = HACKRF_LNA_GAIN;
+	Modes.vga_gain = HACKRF_VGA_GAIN;
+    }
+
+    status = hackrf_set_freq(Modes.hackrf, Modes.freq);
+    HACKRF_STATUS(status, "hackrf_set_freq failed.");
+
+    status = hackrf_set_sample_rate(Modes.hackrf, MODES_DEFAULT_RATE);
+    HACKRF_STATUS(status, "hackrf_set_sample_rate failed.");
+
+    status = hackrf_set_amp_enable(Modes.hackrf, Modes.rf_gain != 0);
+    HACKRF_STATUS(status, "hackrf_set_amp_enable failed.");
+
+    status = hackrf_set_lna_gain(Modes.hackrf, Modes.lna_gain);
+    HACKRF_STATUS(status, "hackrf_set_lna_gain failed.");
+
+    status = hackrf_set_vga_gain(Modes.hackrf, Modes.vga_gain);
+    HACKRF_STATUS(status, "hackrf_set_vga_gain failed");
+
+    status = hackrf_set_antenna_enable(Modes.hackrf, Modes.power_antenna);
+    HACKRF_STATUS(status, "hackrf_set_power_antenna failed");
+
+    fprintf (stderr, "HackRF successfully initialized "
+                     "(AMP Enable: %i, LNA Gain: %i, VGA Gain: %i).\n",
+                     Modes.rf_gain, Modes.lna_gain, Modes.vga_gain);
+
+    Modes.hackrf_enabled = 1;
+    Modes.airspy_enabled = 0;
+    Modes.rtl_enabled = 0;
+#ifndef NoSDRplay
+    Modes.sdrplay_enabled = 0;
+#endif
+    return (0);
+}
+
+#ifndef NoSDRplay
+/* =============================== SDRplay handling ========================== */
+int modesInitSDRplay(void) {
+
+    mir_sdr_ErrT err;
+    float ver;
+
+    /* Check API version */
+    err = mir_sdr_ApiVersion(&ver);
+    if (err ||  (ver != MIR_SDR_API_VERSION)) {
+            fprintf(stderr, "Incorrect API version %f\n", ver);
+            return (1);
+    }       
+
+    mir_sdr_SetParam(201,1);
+    mir_sdr_SetParam(202,0);
+
+    /* Initialize SDRplay device */
+    err = mir_sdr_Init (9, 8.000, 1090.048, mir_sdr_BW_1_536, mir_sdr_IF_2_048, &Modes.sdrplaySamplesPerPacket);
+
+    if (err){
+            fprintf(stderr, "Unable to initialize RSP\n");
+            return (1);
+    }  
+    /* Allocate 16-bit I and Q buffers */
+
+    Modes.sdrplay_i = malloc (Modes.sdrplaySamplesPerPacket * sizeof(short));
+    Modes.sdrplay_q = malloc (Modes.sdrplaySamplesPerPacket * sizeof(short));
+
+    if ((Modes.sdrplay_i == NULL) || (Modes.sdrplay_q == NULL)){
+            fprintf(stderr, "Insufficient memory for buffers\n");
+            return (1);
+    }  
+
+    /* Configure DC tracking in tuner */
+    err = mir_sdr_SetDcMode(4,0);
+    err |= mir_sdr_SetDcTrackTime(63);
+    if (err){
+            fprintf(stderr, "Set DC tracking failed, %d\n", err);
+            return (1);
+    }  
+
+    Modes.sdrplay_enabled = 1;
+    Modes.hackrf_enabled = 0;
+    Modes.airspy_enabled = 0;
+    Modes.rtl_enabled = 0;
+
+    return (0);
+}
+#endif
 
 /* We use a thread reading data in background, while the main thread
  * handles decoding and visualization of data to the user.
@@ -405,6 +686,60 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     /* Signal to the other thread that new data is ready */
     pthread_cond_signal(&Modes.data_cond);
     pthread_mutex_unlock(&Modes.data_mutex);
+}
+
+int hackrfCallback (hackrf_transfer *transfer) {
+    uint32_t i;
+    pthread_mutex_lock(&Modes.data_mutex);
+    uint32_t len = transfer-> buffer_length;
+    /* HackRF One returns signed IQ values, convert them to unsigned */
+    for (i = 0; i < len; i++) {
+        transfer->buffer[i] ^= (uint8_t)0x80;
+    }
+    if (len > MODES_DATA_LEN) len = MODES_DATA_LEN;
+    /* Move the last part of the previous buffer, that was not processed,
+     * on the start of the new buffer. */
+    memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+    /* Read the new data. */
+    memcpy(Modes.data+(MODES_FULL_LEN-1)*4, transfer->buffer, len);
+    Modes.data_ready = 1;
+    /* Signal to the other thread that new data is ready */
+    pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    return (0);
+}
+
+int airspyCallback (airspy_transfer *transfer) {
+    pthread_mutex_lock(&Modes.data_mutex);
+    int16_t *inptr = (int16_t *)transfer->samples;
+    int16_t *outptr = (int16_t *)Modes.airspy_scratch;
+    size_t i, i_done, o_done, i_len, len;
+
+    i_len = transfer->sample_count;
+    if(Modes.support_10MSPS)
+    {
+        len = 4 * i_len / 5; // downsample from 2.5Msps to 2Msps
+    }
+    else
+    {
+        len = 2 * i_len / 3; // downsample from 3Msps to 2Msps
+    }
+    
+    soxr_process(Modes.resampler, inptr, i_len, &i_done, outptr, len, &o_done);
+    for(i = 0; i < o_done; i++)
+        Modes.airspy_bytes[i] = (int8_t)(outptr[i]>>4)+127;
+    len = o_done;
+    if (len > MODES_DATA_LEN) len = MODES_DATA_LEN;
+    /* Move the last part of the previous buffer, that was not processed,
+     * on the start of the new buffer. */
+    memcpy(Modes.data, Modes.data+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+    /* Read the new data. */
+    memcpy(Modes.data+(MODES_FULL_LEN-1)*4, Modes.airspy_bytes, len);
+    Modes.data_ready = 1;
+    /* Signal to the other thread that new data is ready */
+    pthread_cond_signal(&Modes.data_cond);
+    pthread_mutex_unlock(&Modes.data_mutex);
+    return (0);
 }
 
 /* This is used when --ifile is specified in order to read data from file
@@ -435,16 +770,6 @@ void readDataFromFile(void) {
         p = Modes.data+(MODES_FULL_LEN-1)*4;
         while(toread) {
             nread = read(Modes.fd, p, toread);
-            /* In --file mode, seek the file again from the start
-             * and re-play it if --loop was given. */
-            if (nread == 0 &&
-                Modes.filename != NULL &&
-                Modes.fd != STDIN_FILENO &&
-                Modes.loop)
-            {
-                if (lseek(Modes.fd,0,SEEK_SET) != -1) continue;
-            }
-
             if (nread <= 0) {
                 Modes.exit = 1; /* Signal the other thread to exit. */
                 break;
@@ -463,15 +788,111 @@ void readDataFromFile(void) {
     }
 }
 
+#ifndef NoSDRplay
+int sdrplay_start_rx(void) {
+	unsigned int data_index, firstSampleNum;
+    int grChanged, rfChanged, fsChanged;
+    int input_index = Modes.sdrplaySamplesPerPacket;
+    mir_sdr_ErrT err = 0;
+
+    pthread_mutex_lock(&Modes.data_mutex);
+    while(1)
+    {
+
+        if (Modes.data_ready) {
+            pthread_cond_wait(&Modes.data_cond,&Modes.data_mutex);
+            continue;
+        }
+
+        /* Move the last part of the previous buffer, that was not processed,
+         * on the start of the new buffer. */
+
+        memcpy(Modes.magnitude, Modes.magnitude+MODES_DATA_LEN, (MODES_FULL_LEN-1)*4);
+
+		/* now read new data buffer */
+
+        data_index = (MODES_FULL_LEN-1)*2;
+        while (data_index < ((MODES_DATA_LEN/2) + (MODES_FULL_LEN-1)*2))
+        {
+			/* copy available data into buffer */
+
+            while ((data_index < (MODES_DATA_LEN/2 + (MODES_FULL_LEN-1)*2)) && (input_index < Modes.sdrplaySamplesPerPacket))
+            {
+				int sum = abs(Modes.sdrplay_i[input_index++]);
+                sum += abs(Modes.sdrplay_i[input_index++]);
+                sum += abs(Modes.sdrplay_i[input_index++]);
+                sum += abs(Modes.sdrplay_i[input_index++]);
+                sum = sum >> 2;
+                if (sum > 32767) sum = 32767;
+                Modes.magnitude[data_index++] = sum;
+            }
+
+            if (input_index > Modes.sdrplaySamplesPerPacket) {
+                    fprintf(stderr, "ERROR packet size not divisible by 4\n");
+                	Modes.exit = 1; /* Signal the other thread to exit. */
+                	break;
+		    }  
+
+
+            if (input_index == Modes.sdrplaySamplesPerPacket)
+			{
+                input_index = 0;
+                err = mir_sdr_ReadPacket (Modes.sdrplay_i, Modes.sdrplay_q, 
+                         &firstSampleNum, &grChanged, &rfChanged, &fsChanged);
+
+                if (err){
+                    fprintf(stderr, "sdrplay data read failed\n");
+                	Modes.exit = 1; /* Signal the other thread to exit. */
+                	break;
+		    	}
+			}
+		}
+
+        Modes.data_ready = 1;
+        /* Signal to the other thread that new data is ready */
+        pthread_cond_signal(&Modes.data_cond);
+    }
+    return (err)? 1 : 0;
+}
+#endif
+
 /* We read data using a thread, so the main thread only handles decoding
  * without caring about data acquisition. */
 void *readerThreadEntryPoint(void *arg) {
     MODES_NOTUSED(arg);
 
     if (Modes.filename == NULL) {
-        rtlsdr_read_async(Modes.dev, rtlsdrCallback, NULL,
+        if (Modes.rtl_enabled) {
+            rtlsdr_read_async(Modes.dev, rtlsdrCallback, NULL,
                               MODES_ASYNC_BUF_NUMBER,
                               MODES_DATA_LEN);
+        } else if (Modes.hackrf_enabled) {
+            int status = hackrf_start_rx(Modes.hackrf, hackrfCallback, NULL);
+            if (status != 0) { 
+                fprintf(stderr, "hackrf_start_rx failed"); 
+                hackrf_close(Modes.hackrf); 
+                hackrf_exit(); 
+                exit (1); 
+            } 
+        } else if (Modes.airspy_enabled) {
+            int status = airspy_start_rx(Modes.airspy, airspyCallback, NULL);
+            if (status != 0) {
+                fprintf(stderr, "airspy_start_rx failed");
+                airspy_close(Modes.airspy);
+                airspy_exit();
+                exit (1);
+            }
+        }
+#ifndef NoSDRplay
+        else if (Modes.sdrplay_enabled) {
+            int status = sdrplay_start_rx();
+            if (status != 0) {
+                fprintf(stderr, "sdrplay_start_rx failed");
+                mir_sdr_Uninit();
+                exit (1);
+            }
+        }       
+#endif
     } else {
         readDataFromFile();
     }
@@ -502,18 +923,10 @@ void dumpMagnitudeBar(int index, int magnitude) {
     buf[div] = set[rem];
     buf[div+1] = '\0';
 
-    if (index >= 0) {
-        int markchar = ']';
-
-        /* preamble peaks are marked with ">" */
-        if (index == 0 || index == 2 || index == 7 || index == 9)
-            markchar = '>';
-        /* Data peaks are marked to distinguish pairs of bits. */
-        if (index >= 16) markchar = ((index-16)/2 & 1) ? '|' : ')';
-        printf("[%.3d%c |%-66s %d\n", index, markchar, buf, magnitude);
-    } else {
+    if (index >= 0)
+        printf("[%.3d] |%-66s %d\n", index, buf, magnitude);
+    else
         printf("[%.2d] |%-66s %d\n", index, buf, magnitude);
-    }
 }
 
 /* Display an ASCII-art alike graphical representation of the undecoded
@@ -1242,6 +1655,8 @@ void displayModesMessage(struct modesMessage *mm) {
     }
 }
 
+float buf[16384];
+
 /* Turn I/Q samples pointed by Modes.data into the magnitude vector
  * pointed by Modes.magnitude. */
 void computeMagnitudeVector(void) {
@@ -1259,6 +1674,15 @@ void computeMagnitudeVector(void) {
         if (q < 0) q = -q;
         m[j/2] = Modes.maglut[i*129+q];
     }
+
+#ifdef XX
+{
+static FILE *fdump = NULL; int i;
+if (fdump == NULL) fdump = fopen ("fdump", "w");
+for (i = 0; i < 16384; i++) { buf[i] = m[i]; }
+fwrite (buf, sizeof(float), 16384, fdump);
+}
+#endif
 }
 
 /* Return -1 if the message is out of fase left-side
@@ -1782,6 +2206,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     a->seen = time(NULL);
     a->messages++;
+    a->csv_logged = 0;
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         a->altitude = mm->altitude;
@@ -1801,7 +2226,8 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             }
             /* If the two data is less than 10 seconds apart, compute
              * the position. */
-            if (abs(a->even_cprtime - a->odd_cprtime) <= 10000) {
+            int x = a->even_cprtime - a->odd_cprtime;
+            if (-10000 <= x && x <= 10000) {
                 decodeCPR(a);
             }
         } else if (mm->metype == 19) {
@@ -1847,6 +2273,44 @@ void interactiveShowData(void) {
         a = a->next;
         count++;
     }
+}
+
+/* Write aircraft detection logs as CSV file. */
+void writeCSVLog(void) {
+    struct aircraft *a = Modes.aircrafts;
+    FILE *log_file;
+
+    if (NULL == (log_file = fopen("aircraft_log.csv", "a+"))) {
+        printf("Error opening aircraft_log.csv");
+        return;
+    }
+
+    fseek(log_file, 0, SEEK_END);
+
+    if (ftell(log_file) == 0) {
+        fprintf(log_file, "Hex,Flight,Altitude,Speed,Lat,Lon,Track,Messages,Seen\n");
+    }
+
+    while(a) {
+        int altitude = a->altitude, speed = a->speed;
+
+        /* Convert units to metric if --metric was specified. */
+        if (Modes.metric) {
+            altitude /= 3.2828;
+            speed *= 1.852;
+        }
+
+        if (a->csv_logged == 0) {
+            fprintf(log_file, "%s,%s,%d,%d,%f,%f,%d,%ld,%ld\n",
+                a->hexaddr, a->flight, altitude, speed,
+                a->lat, a->lon, a->track, a->messages,
+                a->seen);
+            a->csv_logged = 1;
+        }
+        a = a->next;
+    }
+
+    fclose(log_file);
 }
 
 /* When in interactive mode If we don't receive new nessages within
@@ -2439,11 +2903,28 @@ int getTermRows() {
 void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
-"--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
-"--enable-agc             Enable the Automatic Gain Control (default: off).\n"
+"--dev-rtl                use RTLSDR device.\n"
+"--dev-hackrf             use HackRF device.\n"
+"--dev-airspy             use AirSpy device.\n"
+#ifndef NoSDRplay
+"--dev-sdrplay            use RSP device.\n"
+#endif
+"--gain <db>              Set RTLSDR gain (default: max gain. Use -100 for auto-gain).\n"
+"--enable-agc             Enable RTLSDR Automatic Gain Control (default: off).\n"
+"--enable-amp             Enable HackRF RX/TX RF amplifier (default: off).\n"
+"--enable-antenna         Enable HackRF antenna port power (default: off)\n"
+"--rf-gain                Set RX AMP (RF) gain\n"
+"                         HackRF 0 or 14, default 0\n"
+"                         AirSpy 0-14, step 1, default 11\n"
+"--lna-gain               Set RX LNA (IF) gain\n"
+"                         HackRF 0-40, step 8, default: 40\n"
+"                         AirSpy 0-14, step 1, default: 11\n"
+"--vga-gain               Set RX VGA (baseband) gain\n"
+"                         HackRF 0-62, step 2, default: 62\n"
+"                         AirSpy 0-14, step 1, default: 11\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
 "--ifile <filename>       Read data from file (use '-' for stdin).\n"
-"--loop                   With --ifile, read the same file in a loop.\n"
+"--csv-log                Log data to aircraft_log.csv for later analysis.\n"
 "--interactive            Interactive mode refreshing data on screen.\n"
 "--interactive-rows <num> Max number of rows in interactive mode (default: 15).\n"
 "--interactive-ttl <sec>  Remove from list if idle for <sec> (default: 60).\n"
@@ -2484,6 +2965,11 @@ void backgroundTasks(void) {
         interactiveRemoveStaleAircrafts();
     }
 
+    /* Log to CSV if CSV logging is activated. */
+    if (Modes.csv_log == 1) {
+        writeCSVLog();
+    }
+
     /* Refresh screen when in interactive mode. */
     if (Modes.interactive &&
         (mstime() - Modes.interactive_last_update) >
@@ -2495,8 +2981,19 @@ void backgroundTasks(void) {
     }
 }
 
+void INTHandler(int sig)
+{
+    signal(sig, SIG_IGN);
+#ifndef NoSDRplay
+    mir_sdr_Uninit();
+#endif
+    exit(0);
+}
+
 int main(int argc, char **argv) {
     int j;
+
+    signal(SIGINT, INTHandler);
 
     /* Set sane defaults. */
     modesInitConfig();
@@ -2507,16 +3004,42 @@ int main(int argc, char **argv) {
 
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = atoi(argv[++j]);
+        }
+#ifndef NoSDRplay
+        else if (!strcmp(argv[j],"--dev-sdrplay")) {
+            Modes.prefer_sdrplay = 1;
+        }
+#endif
+        else if (!strcmp(argv[j],"--dev-airspy")) {
+            Modes.rf_gain = AIRSPY_RF_GAIN;
+            Modes.lna_gain = AIRSPY_LNA_GAIN;
+            Modes.vga_gain = AIRSPY_VGA_GAIN;
+            Modes.prefer_airspy = 1;
+        } else if (!strcmp(argv[j],"--dev-hackrf")) {
+            Modes.rf_gain = HACKRF_RF_GAIN;
+            Modes.lna_gain = HACKRF_LNA_GAIN;
+            Modes.vga_gain = HACKRF_VGA_GAIN;
+            Modes.prefer_hackrf = 1;
+        } else if (!strcmp(argv[j],"--dev-rtlsdr")) {
+            Modes.prefer_rtlsdr = 1;
         } else if (!strcmp(argv[j],"--gain") && more) {
             Modes.gain = atof(argv[++j])*10; /* Gain is in tens of DBs */
         } else if (!strcmp(argv[j],"--enable-agc")) {
             Modes.enable_agc++;
+        } else if (!strcmp(argv[j],"--enable-amp")) {
+            Modes.rf_gain = 14;
+        } else if (!strcmp(argv[j],"--enable-antenna")) {
+            Modes.power_antenna = 1;
+        } else if (!strcmp(argv[j],"--rf-gain")) {
+            Modes.rf_gain =  atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--lna-gain")) {
+            Modes.lna_gain =  atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--vga-gain")) {
+            Modes.vga_gain =  atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--freq") && more) {
             Modes.freq = strtoll(argv[++j],NULL,10);
         } else if (!strcmp(argv[j],"--ifile") && more) {
             Modes.filename = strdup(argv[++j]);
-        } else if (!strcmp(argv[j],"--loop")) {
-            Modes.loop = 1;
         } else if (!strcmp(argv[j],"--no-fix")) {
             Modes.fix_errors = 0;
         } else if (!strcmp(argv[j],"--no-crc-check")) {
@@ -2542,6 +3065,8 @@ int main(int argc, char **argv) {
             Modes.metric = 1;
         } else if (!strcmp(argv[j],"--aggressive")) {
             Modes.aggressive++;
+        } else if (!strcmp(argv[j],"--csv-log")) {
+            Modes.csv_log = 1;
         } else if (!strcmp(argv[j],"--interactive")) {
             Modes.interactive = 1;
         } else if (!strcmp(argv[j],"--interactive-rows")) {
@@ -2583,6 +3108,20 @@ int main(int argc, char **argv) {
         }
     }
 
+    if ((Modes.prefer_airspy + Modes.prefer_hackrf + Modes.prefer_rtlsdr
+#ifndef NoSDRplay
+        + Modes.prefer_sdrplay
+#endif
+        ) > 1) {
+        showHelp();
+        fprintf(stderr, "\n\nError: dev-{"
+#ifndef NoSDRplay
+            "sdrplay,"
+#endif
+            "airspy,hackrf,rtlsdr} are mutually exclusive.\n");
+        exit(1);
+    }
+
     /* Setup for SIGWINCH for handling lines */
     if (Modes.interactive == 1) signal(SIGWINCH, sigWinchCallback);
 
@@ -2591,7 +3130,34 @@ int main(int argc, char **argv) {
     if (Modes.net_only) {
         fprintf(stderr,"Net-only mode, no RTL device or file open.\n");
     } else if (Modes.filename == NULL) {
-        modesInitRTLSDR();
+        if ((Modes.prefer_airspy + Modes.prefer_hackrf
+#ifndef NoSDRplay
+            + Modes.prefer_sdrplay
+#endif
+            ) == 0 && modesInitRTLSDR() == 0) {
+            Modes.rtl_enabled = 1;
+        }
+#ifndef NoSDRplay
+        else if ((Modes.prefer_hackrf + Modes.prefer_airspy + Modes.prefer_rtlsdr ) == 0 &&  modesInitSDRplay() == 0 ) {
+            Modes.sdrplay_enabled =  1;
+        }
+#endif
+        else if ((
+#ifndef NoSDRplay
+            Modes.prefer_sdrplay +
+#endif
+            Modes.prefer_airspy + Modes.prefer_rtlsdr ) == 0 &&  modesInitHackRF() == 0 ) {
+            Modes.hackrf_enabled =  1;
+        } else if ((
+#ifndef NoSDRplay
+            Modes.prefer_sdrplay +
+#endif
+            Modes.prefer_rtlsdr + Modes.prefer_hackrf ) == 0 &&  modesInitAirSpy() == 0 ) {
+            Modes.airspy_enabled =  1;
+        } else {
+            fprintf(stderr,"No compatible SDR device found.\n");
+            exit (1);
+        }
     } else {
         if (Modes.filename[0] == '-' && Modes.filename[1] == '\0') {
             Modes.fd = STDIN_FILENO;
@@ -2655,5 +3221,4 @@ int main(int argc, char **argv) {
     rtlsdr_close(Modes.dev);
     return 0;
 }
-
 
