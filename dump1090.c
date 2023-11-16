@@ -139,6 +139,7 @@ struct {
 
     /* RTLSDR */
     int dev_index;
+    char* serial;
     int gain;
     int enable_agc;
     rtlsdr_dev_t *dev;
@@ -260,6 +261,7 @@ static long long mstime(void) {
 void modesInitConfig(void) {
     Modes.gain = MODES_MAX_GAIN;
     Modes.dev_index = 0;
+    Modes.serial = NULL;
     Modes.enable_agc = 0;
     Modes.freq = MODES_DEFAULT_FREQ;
     Modes.filename = NULL;
@@ -343,6 +345,15 @@ void modesInitRTLSDR(void) {
     if (!device_count) {
         fprintf(stderr, "No supported RTLSDR devices found.\n");
         exit(1);
+    }
+    if(Modes.serial != NULL){
+        for (j = 0; j < device_count; j++) {
+            rtlsdr_get_device_usb_strings(j, vendor, product, serial);
+            if(0 == strcmp(Modes.serial,serial)){
+                printf("Found device with serial %s; selecting device index %d\n",Modes.serial,j);
+                Modes.dev_index = j;
+            }
+        }
     }
 
     fprintf(stderr, "Found %d device(s):\n", device_count);
@@ -2439,6 +2450,7 @@ int getTermRows() {
 void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
+"--device-serial <serial> Select RTL device by USB serial number.\n"
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
 "--enable-agc             Enable the Automatic Gain Control (default: off).\n"
 "--freq <hz>              Set frequency (default: 1090 Mhz).\n"
@@ -2507,6 +2519,8 @@ int main(int argc, char **argv) {
 
         if (!strcmp(argv[j],"--device-index") && more) {
             Modes.dev_index = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--device-serial") && more) {
+            Modes.serial = argv[++j];
         } else if (!strcmp(argv[j],"--gain") && more) {
             Modes.gain = atof(argv[++j])*10; /* Gain is in tens of DBs */
         } else if (!strcmp(argv[j],"--enable-agc")) {
