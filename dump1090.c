@@ -347,13 +347,8 @@ void modesInitRTLSDR(void) {
         exit(1);
     }
     if(Modes.serial != NULL){
-        for (j = 0; j < device_count; j++) {
-            rtlsdr_get_device_usb_strings(j, vendor, product, serial);
-            if(0 == strcmp(Modes.serial,serial)){
-                printf("Found device with serial %s; selecting device index %d\n",Modes.serial,j);
-                Modes.dev_index = j;
-            }
-        }
+        Modes.dev_index = rtlsdr_get_index_by_serial(Modes.serial);
+        printf("Found device with serial %s; selecting device index %d\n",Modes.serial,Modes.dev_index);
     }
 
     fprintf(stderr, "Found %d device(s):\n", device_count);
