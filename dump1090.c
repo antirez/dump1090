@@ -304,12 +304,18 @@ void modesInit(void) {
     memset(Modes.data,127,Modes.data_len);
 
     /* Populate the I/Q -> Magnitude lookup table. It is used because
-     * sqrt or round may be expensive and may vary a lot depending on
-     * the libc used.
+     * sqrt or round may be expensive and performance may vary a lot
+     * depending on the libc used.
      *
-     * We scale to 0-255 range multiplying by 1.4 in order to ensure that
-     * every different I/Q pair will result in a different magnitude value,
-     * not losing any resolution. */
+     * Note that we don't need to fill the table for negative values, as
+     * we square both i and q to take the magnitude. So the maximum absolute
+     * value of i and q is 128, thus the maximum magnitude we get is:
+     *
+     * sqrt(128*128+128*128) = ~181.02
+     *
+     * Then, to retain the full resolution and be able to distinguish among
+     * every pair of I/Q values, we scale this range from the float range
+     * 0-181 to the uint16_t range of 0-65536 by multiplying for 360. */
     Modes.maglut = malloc(129*129*2);
     for (i = 0; i <= 128; i++) {
         for (q = 0; q <= 128; q++) {
