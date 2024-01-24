@@ -118,7 +118,7 @@
     }
 
     function fetchData() {
-        $.getJSON('/data.json', function(data) {
+        $.getJSON('data.json', function(data) {
             var stillhere = {}
             for (var j=0; j < data.length; j++) {
                 var plane = data[j];
