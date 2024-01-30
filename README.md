@@ -102,10 +102,10 @@ the --no-fix command line switch in order to disable error fixing.
 Performances and sensibility of detection
 ---
 
-In my limited experience Dump1090 was able to decode a big number of messages
-even in conditions where I encountered problems using other programs, however
-no formal test was performed so I can't really claim that this program is
-better or worse compared to other similar programs.
+In my limited experience Dump1090 was able to decode a large number of 
+messages even in conditions where I encountered problems using other programs,
+ however no formal test was performed so I can't really claim that this 
+program is better or worse compared to other similar programs.
 
 If you can capture traffic that Dump1090 is not able to decode properly, drop
 me an email with a download link. I may try to improve the detection during
@@ -173,14 +173,14 @@ Antenna
 ---
 
 Mode S messages are transmitted in the 1090 Mhz frequency. If you have a decent
-antenna you'll be able to pick up signals from aircrafts pretty far from your
+antenna you'll be able to pick up signals from aircraft pretty far from your
 position, especially if you are outdoor and in a position with a good sky view.
 
 You can easily build a very cheap antenna following the istructions at:
 
     http://antirez.com/news/46
 
-With this trivial antenna I was able to pick up signals of aircrafts 200+ Km
+With this trivial antenna I was able to pick up signals of aircraft 200+ Km
 away from me.
 
 If you are interested in a more serious antenna check the following
@@ -205,8 +205,8 @@ The algorithm in aggressive mode is modified in the following ways:
   checked.
 * It tries to fix DF17 messages trying every two bits combination.
 
-The use of aggressive mdoe is only advised in places where there is low traffic
-in order to have a chance to capture some more messages.
+It is advisable to only use agressive mode in areas of low traffic to increase
+the chances of capturing more messages.
 
 Debug mode
 ---
@@ -244,10 +244,10 @@ How to test the program?
 ---
 
 If you have an RTLSDR device and you happen to be in an area where there
-are aircrafts flying over your head, just run the program and check for signals.
+are aircraft flying over your head, just run the program and check for signals.
 
 However if you don't have an RTLSDR device, or if in your area the presence
-of aircrafts is very limited, you may want to try the sample file distributed
+of aircraft is very limited, you may want to try the sample file distributed
 with the Dump1090 distribution under the "testfiles" directory.
 
 Just run it like this:
@@ -273,7 +273,7 @@ Contributing
 
 Dump1090 was written during some free time during xmas 2012, it is an hobby
 project so I'll be able to address issues and improve it only during
-free time, however you are incouraged to send pull requests in order to
+free time, however you are encouraged to send pull requests in order to
 improve the program. A good starting point can be the TODO list included in
 the source distribution.
 
