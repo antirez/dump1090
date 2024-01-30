@@ -106,20 +106,20 @@ int anetTcpKeepAlive(char *err, int fd)
 
 int anetResolve(char *err, char *host, char *ipbuf)
 {
-    struct sockaddr_in sa;
+    struct sockaddr_in6 sa;
 
-    sa.sin_family = AF_INET;
-    if (inet_aton(host, &sa.sin_addr) == 0) {
+    sa.sin6_family = AF_INET6;
+    if (inet_pton(AF_INET6, host, &sa.sin6_addr) == 0) {
         struct hostent *he;
 
-        he = gethostbyname(host);
+        he = gethostbyname2(host, AF_INET6);
         if (he == NULL) {
             anetSetError(err, "can't resolve: %s", host);
             return ANET_ERR;
         }
-        memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
+        memcpy(&sa.sin6_addr, he->h_addr, sizeof(struct in6_addr));
     }
-    strcpy(ipbuf,inet_ntoa(sa.sin_addr));
+    inet_ntop(AF_INET6, &sa.sin6_addr, ipbuf, INET6_ADDRSTRLEN);
     return ANET_OK;
 }
 
@@ -144,14 +144,14 @@ static int anetCreateSocket(char *err, int domain) {
 static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
 {
     int s;
-    struct sockaddr_in sa;
+    struct sockaddr_in6 sa;
 
-    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_INET6)) == ANET_ERR)
         return ANET_ERR;
 
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(port);
-    if (inet_aton(addr, &sa.sin_addr) == 0) {
+    sa.sin6_family = AF_INET6;
+    sa.sin6_port = htons(port);
+    if (inet_pton(AF_INET6,addr, &sa.sin6_addr) == 0) {
         struct hostent *he;
 
         he = gethostbyname(addr);
@@ -160,7 +160,7 @@ static int anetTcpGenericConnect(char *err, char *addr, int port, int flags)
             close(s);
             return ANET_ERR;
         }
-        memcpy(&sa.sin_addr, he->h_addr, sizeof(struct in_addr));
+        memcpy(&sa.sin6_addr, he->h_addr, sizeof(struct in6_addr));
     }
     if (flags & ANET_CONNECT_NONBLOCK) {
         if (anetNonBlock(err,s) != ANET_OK)
@@ -275,16 +275,16 @@ static int anetListen(char *err, int s, struct sockaddr *sa, socklen_t len) {
 int anetTcpServer(char *err, int port, char *bindaddr)
 {
     int s;
-    struct sockaddr_in sa;
+    struct sockaddr_in6 sa;
 
-    if ((s = anetCreateSocket(err,AF_INET)) == ANET_ERR)
+    if ((s = anetCreateSocket(err,AF_INET6)) == ANET_ERR)
         return ANET_ERR;
 
     memset(&sa,0,sizeof(sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons(port);
-    sa.sin_addr.s_addr = htonl(INADDR_ANY);
-    if (bindaddr && inet_aton(bindaddr, &sa.sin_addr) == 0) {
+    sa.sin6_family = AF_INET6;
+    sa.sin6_port = htons(port);
+    sa.sin6_addr = in6addr_any;
+    if (bindaddr && inet_pton(AF_INET6, bindaddr, &sa.sin6_addr) == 0) {
         anetSetError(err, "invalid bind address");
         close(s);
         return ANET_ERR;
@@ -331,13 +331,13 @@ static int anetGenericAccept(char *err, int s, struct sockaddr *sa, socklen_t *l
 
 int anetTcpAccept(char *err, int s, char *ip, int *port) {
     int fd;
-    struct sockaddr_in sa;
+    struct sockaddr_in6 sa;
     socklen_t salen = sizeof(sa);
     if ((fd = anetGenericAccept(err,s,(struct sockaddr*)&sa,&salen)) == ANET_ERR)
         return ANET_ERR;
 
-    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
-    if (port) *port = ntohs(sa.sin_port);
+    if (ip) inet_ntop(AF_INET6, &sa.sin6_addr, ip, INET6_ADDRSTRLEN);
+    if (port) *port = ntohs(sa.sin6_port);
     return fd;
 }
 
@@ -352,7 +352,7 @@ int anetUnixAccept(char *err, int s) {
 }
 
 int anetPeerToString(int fd, char *ip, int *port) {
-    struct sockaddr_in sa;
+    struct sockaddr_in6 sa;
     socklen_t salen = sizeof(sa);
 
     if (getpeername(fd,(struct sockaddr*)&sa,&salen) == -1) {
@@ -361,13 +361,13 @@ int anetPeerToString(int fd, char *ip, int *port) {
         ip[1] = '\0';
         return -1;
     }
-    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
-    if (port) *port = ntohs(sa.sin_port);
+    if (ip) inet_ntop(AF_INET6, &sa.sin6_addr, ip, INET6_ADDRSTRLEN);
+    if (port) *port = ntohs(sa.sin6_port);
     return 0;
 }
 
 int anetSockName(int fd, char *ip, int *port) {
-    struct sockaddr_in sa;
+    struct sockaddr_in6 sa;
     socklen_t salen = sizeof(sa);
 
     if (getsockname(fd,(struct sockaddr*)&sa,&salen) == -1) {
@@ -376,7 +376,7 @@ int anetSockName(int fd, char *ip, int *port) {
         ip[1] = '\0';
         return -1;
     }
-    if (ip) strcpy(ip,inet_ntoa(sa.sin_addr));
-    if (port) *port = ntohs(sa.sin_port);
+    if (ip) inet_ntop(AF_INET6, &sa.sin6_addr, ip, INET6_ADDRSTRLEN);
+    if (port) *port = ntohs(sa.sin6_port);
     return 0;
 }
