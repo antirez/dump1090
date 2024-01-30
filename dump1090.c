@@ -3,18 +3,18 @@
  * Copyright (C) 2012 by Salvatore Sanfilippo <antirez@gmail.com>
  *
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions are
  * met:
- * 
+ *
  *  *  Redistributions of source code must retain the above copyright
  *     notice, this list of conditions and the following disclaimer.
  *
  *  *  Redistributions in binary form must reproduce the above copyright
  *     notice, this list of conditions and the following disclaimer in the
  *     documentation and/or other materials provided with the distribution.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
  * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
  * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
@@ -44,6 +44,9 @@
 #include <sys/ioctl.h>
 #include <sys/select.h>
 #include "rtl-sdr.h"
+/* roughly from commit 4365e5b2d32798c168a8376fad891c0e5cccb4ec
+ * + some statics and unused attribute
+ */
 #include "anet.h"
 
 #define MODES_DEFAULT_RATE         2000000
@@ -240,8 +243,8 @@ void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
 int modesMessageLenByType(int type);
-void sigWinchCallback();
-int getTermRows();
+void sigWinchCallback(int);
+int getTermRows(void);
 
 /* ============================= Utility functions ========================== */
 
@@ -257,7 +260,7 @@ static long long mstime(void) {
 
 /* =============================== Initialization =========================== */
 
-void modesInitConfig(void) {
+static void modesInitConfig(void) {
     Modes.gain = MODES_MAX_GAIN;
     Modes.dev_index = 0;
     Modes.enable_agc = 0;
@@ -278,7 +281,7 @@ void modesInitConfig(void) {
     Modes.loop = 0;
 }
 
-void modesInit(void) {
+static void modesInit(void) {
     int i, q;
 
     pthread_mutex_init(&Modes.data_mutex,NULL);
@@ -339,7 +342,7 @@ void modesInit(void) {
 
 /* =============================== RTLSDR handling ========================== */
 
-void modesInitRTLSDR(void) {
+static void modesInitRTLSDR(void) {
     int j;
     int device_count;
     int ppm_error = 0;
@@ -397,7 +400,7 @@ void modesInitRTLSDR(void) {
  * The reading thread calls the RTLSDR API to read data asynchronously, and
  * uses a callback to populate the data buffer.
  * A Mutex is used to avoid races with the decoding thread. */
-void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
+static void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
     MODES_NOTUSED(ctx);
 
     pthread_mutex_lock(&Modes.data_mutex);
@@ -415,7 +418,7 @@ void rtlsdrCallback(unsigned char *buf, uint32_t len, void *ctx) {
 
 /* This is used when --ifile is specified in order to read data from file
  * instead of using an RTLSDR device. */
-void readDataFromFile(void) {
+static void readDataFromFile(void) {
     pthread_mutex_lock(&Modes.data_mutex);
     while(1) {
         ssize_t nread, toread;
@@ -471,7 +474,7 @@ void readDataFromFile(void) {
 
 /* We read data using a thread, so the main thread only handles decoding
  * without caring about data acquisition. */
-void *readerThreadEntryPoint(void *arg) {
+static void *readerThreadEntryPoint(void *arg) {
     MODES_NOTUSED(arg);
 
     if (Modes.filename == NULL) {
@@ -498,8 +501,8 @@ void *readerThreadEntryPoint(void *arg) {
  * "-" is 2
  * "." is 1
  */
-void dumpMagnitudeBar(int index, int magnitude) {
-    char *set = " .-o";
+static void dumpMagnitudeBar(int index, int magnitude) {
+    const char *set = " .-o";
     char buf[256];
     int div = magnitude / 256 / 4;
     int rem = magnitude / 256 % 4;
@@ -531,7 +534,7 @@ void dumpMagnitudeBar(int index, int magnitude) {
  * If possible a few samples before the start of the messsage are included
  * for context. */
 
-void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
+static void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
     uint32_t padding = 5; /* Show a few samples before the actual start. */
     uint32_t start = (offset < padding) ? 0 : offset-padding;
     uint32_t end = offset + (MODES_PREAMBLE_US*2)+(MODES_SHORT_MSG_BITS*2) - 1;
@@ -544,7 +547,7 @@ void dumpMagnitudeVector(uint16_t *m, uint32_t offset) {
 
 /* Produce a raw representation of the message as a Javascript file
  * loadable by debug.html. */
-void dumpRawMessageJS(char *descr, unsigned char *msg,
+static void dumpRawMessageJS(const char *descr, unsigned char *msg,
                       uint16_t *m, uint32_t offset, int fixable)
 {
     int padding = 5; /* Show a few samples before the actual start. */
@@ -588,7 +591,7 @@ void dumpRawMessageJS(char *descr, unsigned char *msg,
  * display packets in a graphical format if the Javascript output was
  * enabled.
  */
-void dumpRawMessage(char *descr, unsigned char *msg,
+static void dumpRawMessage(const char *descr, unsigned char *msg,
                     uint16_t *m, uint32_t offset)
 {
     int j;
@@ -655,7 +658,7 @@ uint32_t modes_checksum_table[112] = {
 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
 };
 
-uint32_t modesChecksum(unsigned char *msg, int bits) {
+static uint32_t modesChecksum(unsigned char *msg, int bits) {
     uint32_t crc = 0;
     int offset = (bits == 112) ? 0 : (112-56);
     int j;
@@ -758,7 +761,7 @@ int fixTwoBitsErrors(unsigned char *msg, int bits) {
 
 /* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
  * elements, that is assumed to be a power of two. */
-uint32_t ICAOCacheHashAddress(uint32_t a) {
+static uint32_t ICAOCacheHashAddress(uint32_t a) {
     /* The following three rounds wil make sure that every bit affects
      * every output bit with ~ 50% of probability. */
     a = ((a >> 16) ^ a) * 0x45d9f3b;
@@ -770,7 +773,7 @@ uint32_t ICAOCacheHashAddress(uint32_t a) {
 /* Add the specified entry to the cache of recently seen ICAO addresses.
  * Note that we also add a timestamp so that we can make sure that the
  * entry is only valid for MODES_ICAO_CACHE_TTL seconds. */
-void addRecentlySeenICAOAddr(uint32_t addr) {
+static void addRecentlySeenICAOAddr(uint32_t addr) {
     uint32_t h = ICAOCacheHashAddress(addr);
     Modes.icao_cache[h*2] = addr;
     Modes.icao_cache[h*2+1] = (uint32_t) time(NULL);
@@ -779,7 +782,7 @@ void addRecentlySeenICAOAddr(uint32_t addr) {
 /* Returns 1 if the specified ICAO address was seen in a DF format with
  * proper checksum (not xored with address) no more than * MODES_ICAO_CACHE_TTL
  * seconds ago. Otherwise returns 0. */
-int ICAOAddressWasRecentlySeen(uint32_t addr) {
+static int ICAOAddressWasRecentlySeen(uint32_t addr) {
     uint32_t h = ICAOCacheHashAddress(addr);
     uint32_t a = Modes.icao_cache[h*2];
     uint32_t t = Modes.icao_cache[h*2+1];
@@ -802,7 +805,7 @@ int ICAOAddressWasRecentlySeen(uint32_t addr) {
  *
  * If the function successfully recovers a message with a correct checksum
  * it returns 1. Otherwise 0 is returned. */
-int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
+static int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
     unsigned char aux[MODES_LONG_MSG_BYTES];
     int msgtype = mm->msgtype;
     int msgbits = mm->msgbits;
@@ -830,7 +833,7 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
         aux[lastbyte] ^= crc & 0xff;
         aux[lastbyte-1] ^= (crc >> 8) & 0xff;
         aux[lastbyte-2] ^= (crc >> 16) & 0xff;
-        
+
         /* If the obtained address exists in our cache we consider
          * the message valid. */
         addr = aux[lastbyte] | (aux[lastbyte-1] << 8) | (aux[lastbyte-2] << 16);
@@ -847,7 +850,7 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
 /* Decode the 13 bit AC altitude field (in DF 20 and others).
  * Returns the altitude, and set 'unit' to either MODES_UNIT_METERS
  * or MDOES_UNIT_FEETS. */
-int decodeAC13Field(unsigned char *msg, int *unit) {
+static int decodeAC13Field(unsigned char *msg, int *unit) {
     int m_bit = msg[3] & (1<<6);
     int q_bit = msg[3] & (1<<4);
 
@@ -875,7 +878,7 @@ int decodeAC13Field(unsigned char *msg, int *unit) {
 
 /* Decode the 12 bit AC altitude field (in DF 17 and others).
  * Returns the altitude or 0 if it can't be decoded. */
-int decodeAC12Field(unsigned char *msg, int *unit) {
+static int decodeAC12Field(unsigned char *msg, int *unit) {
     int q_bit = msg[5] & 1;
 
     if (q_bit) {
@@ -892,7 +895,7 @@ int decodeAC12Field(unsigned char *msg, int *unit) {
 }
 
 /* Capability table. */
-char *ca_str[8] = {
+const char *ca_str[8] = {
     /* 0 */ "Level 1 (Survillance Only)",
     /* 1 */ "Level 2 (DF0,4,5,11)",
     /* 2 */ "Level 3 (DF0,4,5,11,20,21)",
@@ -904,7 +907,7 @@ char *ca_str[8] = {
 };
 
 /* Flight status table. */
-char *fs_str[8] = {
+const char *fs_str[8] = {
     /* 0 */ "Normal, Airborne",
     /* 1 */ "Normal, On the ground",
     /* 2 */ "ALERT,  Airborne",
@@ -915,12 +918,14 @@ char *fs_str[8] = {
     /* 7 */ "Value 7 is not assigned"
 };
 
+#if 0
 /* ME message type to description table. */
 char *me_str[] = {
 };
+#endif
 
-char *getMEDescription(int metype, int mesub) {
-    char *mename = "Unknown";
+static const char *getMEDescription(int metype, int mesub) {
+    const char *mename = "Unknown";
 
     if (metype >= 1 && metype <= 4)
         mename = "Aircraft Identification and Category";
@@ -950,9 +955,9 @@ char *getMEDescription(int metype, int mesub) {
 /* Decode a raw Mode S message demodulated as a stream of bytes by
  * detectModeS(), and split it into fields populating a modesMessage
  * structure. */
-void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
+static void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
-    char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
+    const char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
     /* Work on our local copy */
     memcpy(mm->msg,msg,MODES_LONG_MSG_BYTES);
@@ -1135,7 +1140,7 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
 
 /* This function gets a decoded Mode S Message and prints it on the screen
  * in a human readable format. */
-void displayModesMessage(struct modesMessage *mm) {
+static void displayModesMessage(struct modesMessage *mm) {
     int j;
 
     /* Handle only addresses mode first. */
@@ -1207,7 +1212,7 @@ void displayModesMessage(struct modesMessage *mm) {
         /* Decode the extended squitter message. */
         if (mm->metype >= 1 && mm->metype <= 4) {
             /* Aircraft identification. */
-            char *ac_type_str[4] = {
+            const char *ac_type_str[4] = {
                 "Aircraft Type D",
                 "Aircraft Type C",
                 "Aircraft Type B",
@@ -1237,7 +1242,7 @@ void displayModesMessage(struct modesMessage *mm) {
                 printf("    Heading: %d", mm->heading);
             }
         } else {
-            printf("    Unrecognized ME type: %d subtype: %d\n", 
+            printf("    Unrecognized ME type: %d subtype: %d\n",
                 mm->metype, mm->mesub);
         }
     } else {
@@ -1250,7 +1255,7 @@ void displayModesMessage(struct modesMessage *mm) {
 
 /* Turn I/Q samples pointed by Modes.data into the magnitude vector
  * pointed by Modes.magnitude. */
-void computeMagnitudeVector(void) {
+static void computeMagnitudeVector(void) {
     uint16_t *m = Modes.magnitude;
     unsigned char *p = Modes.data;
     uint32_t j;
@@ -1273,7 +1278,7 @@ void computeMagnitudeVector(void) {
  *
  * Note: this function will access m[-1], so the caller should make sure to
  * call it only if we are not at the start of the current buffer. */
-int detectOutOfPhase(uint16_t *m) {
+static int detectOutOfPhase(uint16_t *m) {
     if (m[3] > m[2]/3) return 1;
     if (m[10] > m[9]/3) return 1;
     if (m[6] > m[7]/3) return -1;
@@ -1293,7 +1298,7 @@ int detectOutOfPhase(uint16_t *m) {
  * When messages are out of phase there is more uncertainty in
  * sequences of the same bit multiple times, since 11111 will be
  * transmitted as continuously altering magnitude (high, low, high, low...)
- * 
+ *
  * However because the message is out of phase some part of the high
  * is mixed in the low part, so that it is hard to distinguish if it is
  * a zero or a one.
@@ -1309,7 +1314,7 @@ int detectOutOfPhase(uint16_t *m) {
  * it will be more likely to detect a one because of the transformation.
  * In this way similar levels will be interpreted more likely in the
  * correct way. */
-void applyPhaseCorrection(uint16_t *m) {
+static void applyPhaseCorrection(uint16_t *m) {
     int j;
 
     m += 16; /* Skip preamble. */
@@ -1327,7 +1332,7 @@ void applyPhaseCorrection(uint16_t *m) {
 /* Detect a Mode S messages inside the magnitude buffer pointed by 'm' and of
  * size 'mlen' bytes. Every detected Mode S message is convert it into a
  * stream of bits and passed to the function to display it. */
-void detectModeS(uint16_t *m, uint32_t mlen) {
+static void detectModeS(uint16_t *m, uint32_t mlen) {
     unsigned char bits[MODES_LONG_MSG_BITS];
     unsigned char msg[MODES_LONG_MSG_BITS/2];
     uint16_t aux[MODES_LONG_MSG_BITS*2];
@@ -1341,7 +1346,7 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
      * 1.0 - 1.5 usec: second impulse.
      * 3.5 - 4   usec: third impulse.
      * 4.5 - 5   usec: last impulse.
-     * 
+     *
      * Since we are sampling at 2 Mhz every sample in our magnitude vector
      * is 0.5 usec, so the preamble will look like this, assuming there is
      * an impulse at offset 0 in the array:
@@ -1461,13 +1466,13 @@ good_preamble:
         /* Pack bits into bytes */
         for (i = 0; i < MODES_LONG_MSG_BITS; i += 8) {
             msg[i/8] =
-                bits[i]<<7 | 
-                bits[i+1]<<6 | 
-                bits[i+2]<<5 | 
-                bits[i+3]<<4 | 
-                bits[i+4]<<3 | 
-                bits[i+5]<<2 | 
-                bits[i+6]<<1 | 
+                bits[i]<<7 |
+                bits[i+1]<<6 |
+                bits[i+2]<<5 |
+                bits[i+3]<<4 |
+                bits[i+4]<<3 |
+                bits[i+5]<<2 |
+                bits[i+6]<<1 |
                 bits[i+7];
         }
 
@@ -1589,7 +1594,7 @@ void useModesMessage(struct modesMessage *mm) {
 
 /* Return a new aircraft structure for the interactive mode linked list
  * of aircrafts. */
-struct aircraft *interactiveCreateAircraft(uint32_t addr) {
+static struct aircraft *interactiveCreateAircraft(uint32_t addr) {
     struct aircraft *a = malloc(sizeof(*a));
 
     a->addr = addr;
@@ -1614,7 +1619,7 @@ struct aircraft *interactiveCreateAircraft(uint32_t addr) {
 
 /* Return the aircraft with the specified address, or NULL if no aircraft
  * exists with this address. */
-struct aircraft *interactiveFindAircraft(uint32_t addr) {
+static struct aircraft *interactiveFindAircraft(uint32_t addr) {
     struct aircraft *a = Modes.aircrafts;
 
     while(a) {
@@ -1625,14 +1630,14 @@ struct aircraft *interactiveFindAircraft(uint32_t addr) {
 }
 
 /* Always positive MOD operation, used for CPR decoding. */
-int cprModFunction(int a, int b) {
+static int cprModFunction(int a, int b) {
     int res = a % b;
     if (res < 0) res += b;
     return res;
 }
 
 /* The NL function uses the precomputed table from 1090-WP-9-14 */
-int cprNLFunction(double lat) {
+static int cprNLFunction(double lat) {
     if (lat < 0) lat = -lat; /* Table is simmetric about the equator. */
     if (lat < 10.47047130) return 59;
     if (lat < 14.82817437) return 58;
@@ -1695,13 +1700,13 @@ int cprNLFunction(double lat) {
     else return 1;
 }
 
-int cprNFunction(double lat, int isodd) {
+static int cprNFunction(double lat, int isodd) {
     int nl = cprNLFunction(lat) - isodd;
     if (nl < 1) nl = 1;
     return nl;
 }
 
-double cprDlonFunction(double lat, int isodd) {
+static double cprDlonFunction(double lat, int isodd) {
     return 360.0 / cprNFunction(lat, isodd);
 }
 
@@ -1715,7 +1720,7 @@ double cprDlonFunction(double lat, int isodd) {
  *    simplicity. This may provide a position that is less fresh of a few
  *    seconds.
  */
-void decodeCPR(struct aircraft *a) {
+static void decodeCPR(struct aircraft *a) {
     const double AirDlat0 = 360.0 / 60;
     const double AirDlat1 = 360.0 / 59;
     double lat0 = a->even_cprlat;
@@ -1857,7 +1862,7 @@ void interactiveShowData(void) {
 
 /* When in interactive mode If we don't receive new nessages within
  * MODES_INTERACTIVE_TTL seconds we remove the aircraft from the list. */
-void interactiveRemoveStaleAircrafts(void) {
+static void interactiveRemoveStaleAircrafts(void) {
     struct aircraft *a = Modes.aircrafts;
     struct aircraft *prev = NULL;
     time_t now = time(NULL);
@@ -1884,7 +1889,7 @@ void interactiveRemoveStaleAircrafts(void) {
 
 /* Get raw IQ samples and filter everything is < than the specified level
  * for more than 256 samples in order to reduce example file size. */
-void snipMode(int level) {
+static void snipMode(int level) {
     int i, q;
     long long c = 0;
 
@@ -1918,7 +1923,7 @@ void snipMode(int level) {
 #define MODES_NET_SERVICE_SBS 3
 #define MODES_NET_SERVICES_NUM 4
 struct {
-    char *descr;
+    const char *descr;
     int *socket;
     int port;
 } modesNetServices[MODES_NET_SERVICES_NUM] = {
@@ -1929,7 +1934,7 @@ struct {
 };
 
 /* Networking "stack" initialization. */
-void modesInitNet(void) {
+static void modesInitNet(void) {
     int j;
 
     memset(Modes.clients,0,sizeof(Modes.clients));
@@ -1954,7 +1959,7 @@ void modesInitNet(void) {
 /* This function gets called from time to time when the decoding thread is
  * awakened by new data arriving. This usually happens a few times every
  * second. */
-void modesAcceptClients(void) {
+static void modesAcceptClients(void) {
     int fd, port;
     unsigned int j;
     struct client *c;
@@ -1994,7 +1999,7 @@ void modesAcceptClients(void) {
 }
 
 /* On error free the client, collect the structure, adjust maxfd if needed. */
-void modesFreeClient(int fd) {
+static void modesFreeClient(int fd) {
     close(fd);
     free(Modes.clients[fd]);
     Modes.clients[fd] = NULL;
@@ -2019,7 +2024,7 @@ void modesFreeClient(int fd) {
 }
 
 /* Send the specified message to all clients listening for a given service. */
-void modesSendAllClients(int service, void *msg, int len) {
+static void modesSendAllClients(int service, void *msg, int len) {
     int j;
     struct client *c;
 
@@ -2106,7 +2111,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
 
 /* Turn an hex digit into its 4 bit decimal value.
  * Returns -1 if the digit is not in the 0-F range. */
-int hexDigitVal(int c) {
+static int hexDigitVal(int c) {
     c = tolower(c);
     if (c >= '0' && c <= '9') return c-'0';
     else if (c >= 'a' && c <= 'f') return c-'a'+10;
@@ -2117,16 +2122,16 @@ int hexDigitVal(int c) {
  * raw hex format like: *8D4B969699155600E87406F5B69F;
  * The string is supposed to be at the start of the client buffer
  * and null-terminated.
- * 
+ *
  * The message is passed to the higher level layers, so it feeds
  * the selected screen output, the network output and so forth.
- * 
+ *
  * If the message looks invalid is silently discarded.
  *
  * The function always returns 0 (success) to the caller as there is
  * no case where we want broken messages here to close the client
  * connection. */
-int decodeHexMessage(struct client *c) {
+static int decodeHexMessage(struct client *c) {
     char *hex = c->buf;
     int l = strlen(hex), j;
     unsigned char msg[MODES_LONG_MSG_BYTES];
@@ -2159,7 +2164,7 @@ int decodeHexMessage(struct client *c) {
 }
 
 /* Return a description of planes in json. */
-char *aircraftsToJson(int *len) {
+static char *aircraftsToJson(int *len) {
     struct aircraft *a = Modes.aircrafts;
     int buflen = 1024; /* The initial buffer is incremented as needed. */
     char *buf = malloc(buflen), *p = buf;
@@ -2216,12 +2221,12 @@ char *aircraftsToJson(int *len) {
  *
  * Returns 1 on error to signal the caller the client connection should
  * be closed. */
-int handleHTTPRequest(struct client *c) {
+static int handleHTTPRequest(struct client *c) {
     char hdr[512];
     int clen, hdrlen;
     int httpver, keepalive;
     char *p, *url, *content;
-    char *ctype;
+    const char *ctype;
 
     if (Modes.debug & MODES_DEBUG_NET)
         printf("\nHTTP request: %s\n", c->buf);
@@ -2319,7 +2324,7 @@ int handleHTTPRequest(struct client *c) {
  * The handelr returns 0 on success, or 1 to signal this function we
  * should close the connection with the client in case of non-recoverable
  * errors. */
-void modesReadFromClient(struct client *c, char *sep,
+static void modesReadFromClient(struct client *c, const char *sep,
                          int(*handler)(struct client *))
 {
     while(1) {
@@ -2377,7 +2382,7 @@ void modesReadFromClient(struct client *c, char *sep,
 
 /* Read data from clients. This function actually delegates a lower-level
  * function that depends on the kind of service (raw, http, ...). */
-void modesReadFromClients(void) {
+static void modesReadFromClients(void) {
     int j;
     struct client *c;
 
@@ -2397,7 +2402,7 @@ void modesReadFromClients(void) {
  * function here returns as long as there is a single client ready, or
  * when the specified timeout in milliesconds elapsed, without specifying to
  * the caller what client requires to be served. */
-void modesWaitReadableClients(int timeout_ms) {
+static void modesWaitReadableClients(int timeout_ms) {
     struct timeval tv;
     fd_set fds;
     int j, maxfd = Modes.maxfd;
@@ -2426,7 +2431,7 @@ void modesWaitReadableClients(int timeout_ms) {
 /* ============================ Terminal handling  ========================== */
 
 /* Handle resizing terminal. */
-void sigWinchCallback() {
+void sigWinchCallback(int __attribute__ ((unused))a) {
     signal(SIGWINCH, SIG_IGN);
     Modes.interactive_rows = getTermRows();
     interactiveShowData();
@@ -2442,7 +2447,7 @@ int getTermRows() {
 
 /* ================================ Main ==================================== */
 
-void showHelp(void) {
+static void showHelp(void) {
     printf(
 "--device-index <index>   Select RTL device (default: 0).\n"
 "--gain <db>              Set gain (default: max gain. Use -100 for auto-gain).\n"
@@ -2483,7 +2488,7 @@ void showHelp(void) {
 /* This function is called a few times every second by main in order to
  * perform tasks we need to do continuously, like accepting new clients
  * from the net, refreshing the screen in interactive mode, and so forth. */
-void backgroundTasks(void) {
+static void backgroundTasks(void) {
     if (Modes.net) {
         modesAcceptClients();
         modesReadFromClients();

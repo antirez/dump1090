@@ -188,7 +188,7 @@ int anetTcpNonBlockConnect(char *err, char *addr, int port)
     return anetTcpGenericConnect(err,addr,port,ANET_CONNECT_NONBLOCK);
 }
 
-int anetUnixGenericConnect(char *err, char *path, int flags)
+static int anetUnixGenericConnect(char *err, char *path, int flags)
 {
     int s;
     struct sockaddr_un sa;
@@ -366,7 +366,7 @@ int anetPeerToString(int fd, char *ip, int *port) {
     return 0;
 }
 
-int anetSockName(int fd, char *ip, int *port) {
+static int __attribute__((__unused__)) anetSockName(int fd, char *ip, int *port) {
     struct sockaddr_in sa;
     socklen_t salen = sizeof(sa);
 
