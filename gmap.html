@@ -167,6 +167,21 @@
         });
     }
 
+    function center_by_geolocation() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(function(pos){
+                Map.setCenter(new google.maps.LatLng(
+                    pos.coords.latitude, pos.coords.longitude
+                ));
+            }, function() {
+                console.log('Geolocation error');
+            });
+        }
+        else {
+            console.log('Geolocation not supported')
+        }
+    }
+
     function initialize() {
         Map = L.map('map_canvas').setView([37.0, 13.0], 8);
 
@@ -176,6 +191,9 @@
 	    id: 'mapbox/streets-v11',
 	    accessToken: 'your.mapbox.access.token'
 	}).addTo(Map);
+
+        /* Set center by geolocation if browser supports it */
+        center_by_geolocation();
 
         /* Setup our timer to poll from the server. */
         window.setInterval(function() {
