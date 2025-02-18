@@ -66,7 +66,7 @@ To decode data from file, use:
     ./dump1090 --ifile /path/to/binfile
 
 The binary file should be created using `rtl_sdr` like this (or with any other
-program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
+program that is able to output 8-bit unsigned IQ samples at 2 MHz sample rate).
 
     rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin
 
@@ -172,7 +172,7 @@ This can be used to feed data to various sharing sites without the need to use a
 Antenna
 ---
 
-Mode S messages are transmitted in the 1090 Mhz frequency. If you have a decent
+Mode S messages are transmitted in the 1090 MHz frequency. If you have a decent
 antenna you'll be able to pick up signals from aircrafts pretty far from your
 position, especially if you are outdoor and in a position with a good sky view.
 
@@ -180,42 +180,40 @@ You can easily build a very cheap antenna following the istructions at:
 
     http://antirez.com/news/46
 
-With this trivial antenna I was able to pick up signals of aircrafts 200+ Km
+With this trivial antenna I was able to pick up signals of aircrafts 200+ km
 away from me.
 
 If you are interested in a more serious antenna check the following
-resources:
+resource:
 
-* http://gnuradio.org/data/grcon11/06-foster-adsb.pdf
 * http://www.lll.lu/~edward/edward/adsb/antenna/ADSBantenna.html
-* http://modesbeast.com/pix/adsb-ant-drawing.gif
 
 Aggressive mode
 ---
 
 With --aggressive it is possible to activate the *aggressive mode* that is a
 modified version of the Mode S packet detection and decoding.
-THe aggresive mode uses more CPU usually (especially if there are many planes
+The aggresive mode uses more CPU usually (especially if there are many planes
 sending DF17 packets), but can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
 
-* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
+* Up to two demodulation errors are tolerated (adjacent entries in the magnitude
   vector with the same eight). Normally only messages without errors are
   checked.
 * It tries to fix DF17 messages trying every two bits combination.
 
-The use of aggressive mdoe is only advised in places where there is low traffic
+The use of aggressive mode is only advised in places where there is low traffic
 in order to have a chance to capture some more messages.
 
 Debug mode
 ---
 
-The Debug mode is a visual help to improve the detection algorithm or to
+The debug mode is a visual help to improve the detection algorithm or to
 understand why the program is not working for a given input.
 
 In this mode messages are displayed in an ASCII-art style graphical
-representation, where the individial magnitude bars sampled at 2Mhz are
+representation, where the individial magnitude bars sampled at 2 MHz are
 displayed.
 
 An index shows the sample number, where 0 is the sample where the first
@@ -233,7 +231,7 @@ How this program works?
 ---
 
 The code is very documented and written in order to be easy to understand.
-For the diligent programmer with a Mode S specification on his hands it
+For the diligent programmer with a Mode S specification on their hands it
 should be trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
@@ -271,7 +269,7 @@ program source code distribution.
 Contributing
 ---
 
-Dump1090 was written during some free time during xmas 2012, it is an hobby
+Dump1090 was written during some free time during xmas 2012, it is a hobby
 project so I'll be able to address issues and improve it only during
 free time, however you are incouraged to send pull requests in order to
 improve the program. A good starting point can be the TODO list included in
