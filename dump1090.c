@@ -67,6 +67,13 @@
 #define MODES_UNIT_FEET 0
 #define MODES_UNIT_METERS 1
 
+#define MODES_MAX_BITERRORS 2     /* Maximum correctable bit errors. */
+/* Number of entries in error syndrome table:
+ * Single bit errors: 107 (bits 5-111)
+ * Two-bit errors: 107*106/2 = 5671
+ * Total: 5778 */
+#define NERRORINFO 5778
+
 #define MODES_DEBUG_DEMOD (1<<0)
 #define MODES_DEBUG_DEMODERR (1<<1)
 #define MODES_DEBUG_BADCRC (1<<2)
@@ -232,6 +239,16 @@ struct modesMessage {
     int altitude, unit;
 };
 
+/* Structure for error syndrome lookup table entries. */
+struct errorinfo {
+    uint32_t syndrome;          /* CRC syndrome for this error pattern. */
+    int bits;                   /* Number of bit errors (1 or 2). */
+    int pos[MODES_MAX_BITERRORS]; /* Bit positions to correct. */
+};
+
+/* Error syndrome lookup table, sorted by syndrome for binary search. */
+struct errorinfo bitErrorTable[NERRORINFO];
+
 void interactiveShowData(void);
 struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void modesSendRawOutput(struct modesMessage *mm);
@@ -239,6 +256,8 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
 int fixSingleBitErrors(unsigned char *msg, int bits);
 int fixTwoBitsErrors(unsigned char *msg, int bits);
+int fixBitErrors(unsigned char *msg, int bits, int maxfix, int *fixedbits);
+void modesInitErrorInfo(void);
 int modesMessageLenByType(int type);
 void sigWinchCallback();
 int getTermRows();
@@ -335,6 +354,9 @@ void modesInit(void) {
     Modes.stat_sbs_connections = 0;
     Modes.stat_out_of_phase = 0;
     Modes.exit = 0;
+
+    /* Initialize error correction syndrome table. */
+    modesInitErrorInfo();
 }
 
 /* =============================== RTLSDR handling ========================== */
@@ -655,12 +677,16 @@ uint32_t modes_checksum_table[112] = {
 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000, 0x000000
 };
 
-uint32_t modesChecksum(unsigned char *msg, int bits) {
+/* Compute the CRC of a Mode S message (data portion only).
+ * This returns just the CRC computed from the data bits, without XORing
+ * with the transmitted CRC/AP field. Used by bruteForceAP. */
+uint32_t modesComputeCRC(unsigned char *msg, int bits) {
     uint32_t crc = 0;
     int offset = (bits == 112) ? 0 : (112-56);
     int j;
 
-    for(j = 0; j < bits; j++) {
+    /* Compute CRC of data portion (exclude last 24 CRC bits). */
+    for(j = 0; j < bits - 24; j++) {
         int byte = j/8;
         int bit = j%8;
         int bitmask = 1 << (7-bit);
@@ -669,7 +695,30 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
         if (msg[byte] & bitmask)
             crc ^= modes_checksum_table[j+offset];
     }
-    return crc; /* 24 bit checksum. */
+    return crc & 0x00FFFFFF;
+}
+
+/* Compute the CRC syndrome of a Mode S message.
+ *
+ * This function computes the CRC of the data portion (excluding the last
+ * 24 bits which are the transmitted CRC), then XORs with the transmitted
+ * CRC. The result is the "syndrome":
+ *
+ *   - For a valid message: syndrome = 0
+ *   - For a corrupted message: syndrome = XOR of table entries for flipped bits
+ *
+ * This property makes syndrome-based error correction possible: we can
+ * precompute syndromes for all possible single/double bit errors and look
+ * them up in a table. */
+uint32_t modesChecksum(unsigned char *msg, int bits) {
+    uint32_t crc = modesComputeCRC(msg, bits);
+    uint32_t rem;
+
+    /* XOR with the transmitted CRC (last 3 bytes) to get the syndrome. */
+    rem = ((uint32_t)msg[(bits/8)-3] << 16) |
+          ((uint32_t)msg[(bits/8)-2] << 8) |
+           (uint32_t)msg[(bits/8)-1];
+    return (crc ^ rem) & 0x00FFFFFF; /* 24 bit syndrome. */
 }
 
 /* Given the Downlink Format (DF) of the message, return the message length
@@ -681,6 +730,147 @@ int modesMessageLenByType(int type) {
         return MODES_LONG_MSG_BITS;
     else
         return MODES_SHORT_MSG_BITS;
+}
+
+/* Comparison function for qsort/bsearch on errorinfo by syndrome. */
+int cmpErrorInfo(const void *a, const void *b) {
+    const struct errorinfo *ea = (const struct errorinfo *)a;
+    const struct errorinfo *eb = (const struct errorinfo *)b;
+    if (ea->syndrome < eb->syndrome) return -1;
+    if (ea->syndrome > eb->syndrome) return 1;
+    return 0;
+}
+
+/* ===================== Error correction via syndrome table ================
+ *
+ * What is a syndrome?
+ * -------------------
+ * In CRC-based error detection, a "syndrome" is the CRC computed on a
+ * received message. For a valid message, the syndrome is zero (or matches
+ * the expected CRC). When bits get corrupted during transmission, the
+ * syndrome becomes non-zero.
+ *
+ * The key insight is that the syndrome depends ONLY on which bits were
+ * flipped, not on the message content itself. If we flip bit X in any
+ * Mode S message, we always get the same syndrome value S_x. This property
+ * comes from the linearity of CRC (it's based on polynomial arithmetic
+ * over GF(2) - basically XOR operations).
+ *
+ * For two-bit errors, flipping bits X and Y produces syndrome S_x XOR S_y.
+ *
+ * So we can precompute a lookup table:
+ *   - For each single bit position X, compute S_x
+ *   - For each pair of bit positions X,Y, compute S_x XOR S_y
+ *
+ * When we receive a message with a non-zero syndrome S, we search the table
+ * for S. If found, we know exactly which bit(s) to flip to fix the message.
+ *
+ * This turns O(n) or O(n^2) brute force error correction into O(log n)
+ * binary search, making it much faster for real-time decoding.
+ * ========================================================================= */
+
+/* Compute the table of all syndromes for 1-bit and 2-bit error vectors.
+ * We don't include the first 5 bits (the DF type field) since corrupting
+ * those would change the message type and length, making correction risky. */
+void modesInitErrorInfo(void) {
+    unsigned char msg[MODES_LONG_MSG_BYTES];
+    int i, j, n;
+    uint32_t crc;
+
+    n = 0;
+    memset(bitErrorTable, 0, sizeof(bitErrorTable));
+    memset(msg, 0, MODES_LONG_MSG_BYTES);
+
+    /* Add all possible single and double bit errors.
+     * Don't include errors in first 5 bits (DF type). */
+    for (i = 5; i < MODES_LONG_MSG_BITS; i++) {
+        int bytepos0 = (i >> 3);
+        int mask0 = 1 << (7 - (i & 7));
+        msg[bytepos0] ^= mask0;  /* Create error at bit i. */
+        crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+
+        /* Single bit error case. */
+        bitErrorTable[n].syndrome = crc;
+        bitErrorTable[n].bits = 1;
+        bitErrorTable[n].pos[0] = i;
+        bitErrorTable[n].pos[1] = -1;
+        n++;
+
+        /* Two-bit error cases. */
+        for (j = i + 1; j < MODES_LONG_MSG_BITS; j++) {
+            int bytepos1 = (j >> 3);
+            int mask1 = 1 << (7 - (j & 7));
+            msg[bytepos1] ^= mask1;  /* Create error at bit j. */
+            crc = modesChecksum(msg, MODES_LONG_MSG_BITS);
+
+            if (n >= NERRORINFO) break;
+
+            bitErrorTable[n].syndrome = crc;
+            bitErrorTable[n].bits = 2;
+            bitErrorTable[n].pos[0] = i;
+            bitErrorTable[n].pos[1] = j;
+            n++;
+
+            msg[bytepos1] ^= mask1;  /* Revert error at bit j. */
+        }
+        msg[bytepos0] ^= mask0;  /* Revert error at bit i. */
+    }
+
+    /* Sort by syndrome for binary search. */
+    qsort(bitErrorTable, NERRORINFO, sizeof(struct errorinfo), cmpErrorInfo);
+}
+
+/* Given a received message, compute its syndrome and look it up in the
+ * precomputed table. If we find a match, we know the exact bit positions
+ * that were corrupted during transmission, and we can flip them back.
+ *
+ * The 'maxfix' parameter limits how many bits we're willing to correct:
+ * fixing 1 bit is quite safe, but 2-bit correction has a higher chance
+ * of "fixing" a random message into a valid but wrong one (birthday paradox).
+ *
+ * Returns the number of bits corrected (0 if syndrome not found or would
+ * require too many bit fixes). If 'fixedbits' is not NULL, stores the
+ * corrected bit positions there. */
+int fixBitErrors(unsigned char *msg, int bits, int maxfix, int *fixedbits) {
+    struct errorinfo *pei;
+    struct errorinfo ei;
+    int bitpos, offset, i, res;
+
+    memset(&ei, 0, sizeof(struct errorinfo));
+    ei.syndrome = modesChecksum(msg, bits);
+
+    pei = bsearch(&ei, bitErrorTable, NERRORINFO,
+                  sizeof(struct errorinfo), cmpErrorInfo);
+    if (pei == NULL) {
+        return 0;  /* No matching syndrome found. */
+    }
+
+    /* Check if syndrome fixes more bits than allowed. */
+    if (pei->bits > maxfix) {
+        return 0;
+    }
+
+    /* Check that all bit positions lie inside the message length. */
+    offset = MODES_LONG_MSG_BITS - bits;
+    for (i = 0; i < pei->bits; i++) {
+        bitpos = pei->pos[i] - offset;
+        if ((bitpos < 0) || (bitpos >= bits)) {
+            return 0;
+        }
+    }
+
+    /* Fix the bits. */
+    res = 0;
+    for (i = 0; i < pei->bits; i++) {
+        bitpos = pei->pos[i] - offset;
+        msg[bitpos >> 3] ^= (1 << (7 - (bitpos & 7)));
+        if (fixedbits) {
+            fixedbits[res++] = bitpos;
+        } else {
+            res++;
+        }
+    }
+    return res;
 }
 
 /* Try to fix single bit errors using the checksum. On success modifies
@@ -825,8 +1015,9 @@ int bruteForceAP(unsigned char *msg, struct modesMessage *mm) {
         /* Compute the CRC of the message and XOR it with the AP field
          * so that we recover the address, because:
          *
-         * (ADDR xor CRC) xor CRC = ADDR. */
-        crc = modesChecksum(aux,msgbits);
+         * (ADDR xor CRC) xor CRC = ADDR.
+         * We use modesComputeCRC (not modesChecksum) to get just the CRC. */
+        crc = modesComputeCRC(aux,msgbits);
         aux[lastbyte] ^= crc & 0xff;
         aux[lastbyte-1] ^= (crc >> 8) & 0xff;
         aux[lastbyte-2] ^= (crc >> 16) & 0xff;
@@ -951,7 +1142,6 @@ char *getMEDescription(int metype, int mesub) {
  * detectModeS(), and split it into fields populating a modesMessage
  * structure. */
 void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
-    uint32_t crc2;   /* Computed CRC, used to verify the message CRC. */
     char *ais_charset = "?ABCDEFGHIJKLMNOPQRSTUVWXYZ????? ???????????????0123456789??????";
 
     /* Work on our local copy */
@@ -962,28 +1152,30 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->msgtype = msg[0]>>3;    /* Downlink Format */
     mm->msgbits = modesMessageLenByType(mm->msgtype);
 
-    /* CRC is always the last three bytes. */
-    mm->crc = ((uint32_t)msg[(mm->msgbits/8)-3] << 16) |
-              ((uint32_t)msg[(mm->msgbits/8)-2] << 8) |
-               (uint32_t)msg[(mm->msgbits/8)-1];
-    crc2 = modesChecksum(msg,mm->msgbits);
+    /* Compute the syndrome (CRC XOR transmitted CRC).
+     * For a valid message, syndrome = 0. */
+    mm->crc = modesChecksum(msg, mm->msgbits);
 
-    /* Check CRC and fix single bit errors using the CRC when
-     * possible (DF 11 and 17). */
+    /* Check CRC (syndrome == 0 means valid) and fix bit errors using
+     * the CRC when possible (DF 11 and 17). Use fast table-based lookup. */
     mm->errorbit = -1;  /* No error */
-    mm->crcok = (mm->crc == crc2);
+    mm->crcok = (mm->crc == 0);
 
     if (!mm->crcok && Modes.fix_errors &&
         (mm->msgtype == 11 || mm->msgtype == 17))
     {
-        if ((mm->errorbit = fixSingleBitErrors(msg,mm->msgbits)) != -1) {
-            mm->crc = modesChecksum(msg,mm->msgbits);
-            mm->crcok = 1;
-        } else if (Modes.aggressive && mm->msgtype == 17 &&
-                   (mm->errorbit = fixTwoBitsErrors(msg,mm->msgbits)) != -1)
-        {
-            mm->crc = modesChecksum(msg,mm->msgbits);
-            mm->crcok = 1;
+        int maxfix = Modes.aggressive ? MODES_MAX_BITERRORS : 1;
+        int fixedbits[MODES_MAX_BITERRORS];
+        int nfixed = fixBitErrors(msg, mm->msgbits, maxfix, fixedbits);
+        if (nfixed > 0) {
+            mm->crc = modesChecksum(msg, mm->msgbits);
+            mm->crcok = (mm->crc == 0);
+            mm->errorbit = fixedbits[0];
+            if (nfixed == 1) {
+                Modes.stat_single_bit_fix++;
+            } else {
+                Modes.stat_two_bits_fix++;
+            }
         }
     }
 
@@ -1293,7 +1485,7 @@ int detectOutOfPhase(uint16_t *m) {
  * When messages are out of phase there is more uncertainty in
  * sequences of the same bit multiple times, since 11111 will be
  * transmitted as continuously altering magnitude (high, low, high, low...)
- * 
+ *
  * However because the message is out of phase some part of the high
  * is mixed in the low part, so that it is hard to distinguish if it is
  * a zero or a one.
