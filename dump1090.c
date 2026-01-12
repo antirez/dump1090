@@ -208,8 +208,9 @@ struct modesMessage {
 
     /* DF 11 */
     int ca;                     /* Responder capabilities. */
+    int iid;                    /* Interrogator Identifier (IID). */
 
-    /* DF 17 */
+    /* DF 17, 18 */
     int metype;                 /* Extended squitter message type. */
     int mesub;                  /* Extended squitter message subtype. */
     int heading_is_valid;
@@ -725,8 +726,8 @@ uint32_t modesChecksum(unsigned char *msg, int bits) {
  * in bits. */
 int modesMessageLenByType(int type) {
     if (type == 16 || type == 17 ||
-        type == 19 || type == 20 ||
-        type == 21)
+        type == 18 || type == 19 ||
+        type == 20 || type == 21)
         return MODES_LONG_MSG_BITS;
     else
         return MODES_SHORT_MSG_BITS;
@@ -1157,12 +1158,13 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
     mm->crc = modesChecksum(msg, mm->msgbits);
 
     /* Check CRC (syndrome == 0 means valid) and fix bit errors using
-     * the CRC when possible (DF 11 and 17). Use fast table-based lookup. */
+     * the CRC when possible (DF 11, 17, 18). Use fast table-based lookup. */
     mm->errorbit = -1;  /* No error */
+    mm->iid = 0;        /* Interrogator Identifier (used by DF 11) */
     mm->crcok = (mm->crc == 0);
 
     if (!mm->crcok && Modes.fix_errors &&
-        (mm->msgtype == 11 || mm->msgtype == 17))
+        (mm->msgtype == 11 || mm->msgtype == 17 || mm->msgtype == 18))
     {
         int maxfix = Modes.aggressive ? MODES_MAX_BITERRORS : 1;
         int fixedbits[MODES_MAX_BITERRORS];
@@ -1230,9 +1232,9 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->identity = a*1000 + b*100 + c*10 + d;
     }
 
-    /* DF 11 & 17: try to populate our ICAO addresses whitelist.
+    /* DF 11, 17 & 18: try to populate our ICAO addresses whitelist.
      * DFs with an AP field (xored addr and crc), try to decode it. */
-    if (mm->msgtype != 11 && mm->msgtype != 17) {
+    if (mm->msgtype != 11 && mm->msgtype != 17 && mm->msgtype != 18) {
         /* Check if we can check the checksum for the Downlink Formats where
          * the checksum is xored with the aircraft ICAO address. We try to
          * brute force it using a list of recently seen aircraft addresses. */
@@ -1243,12 +1245,21 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->crcok = 0;
         }
     } else {
-        /* If this is DF 11 or DF 17 and the checksum was ok,
+        /* If this is DF 11, 17 or 18 and the checksum was ok,
          * we can add this address to the list of recently seen
          * addresses. */
+        uint32_t addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
         if (mm->crcok && mm->errorbit == -1) {
-            uint32_t addr = (mm->aa1 << 16) | (mm->aa2 << 8) | mm->aa3;
             addRecentlySeenICAOAddr(addr);
+        }
+
+        /* DF 11: For messages with small CRC residual (<80), treat as
+         * valid IID (Interrogator Identifier) if ICAO is known. */
+        if (mm->msgtype == 11 && !mm->crcok && mm->crc < 80) {
+            if (ICAOAddressWasRecentlySeen(addr)) {
+                mm->iid = mm->crc;
+                mm->crcok = 1;
+            }
         }
     }
 
@@ -1258,8 +1269,10 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
         mm->altitude = decodeAC13Field(msg, &mm->unit);
     }
 
-    /* Decode extended squitter specific stuff. */
-    if (mm->msgtype == 17) {
+    /* Decode extended squitter specific stuff.
+     * DF 17 = ADS-B from transponder, DF 18 = ADS-B from non-transponder.
+     * Both use the same extended squitter format. */
+    if (mm->msgtype == 17 || mm->msgtype == 18) {
         /* Decode the extended squitter message. */
 
         if (mm->metype >= 1 && mm->metype <= 4) {
@@ -1429,9 +1442,19 @@ void displayModesMessage(struct modesMessage *mm) {
                 printf("    Heading: %d", mm->heading);
             }
         } else {
-            printf("    Unrecognized ME type: %d subtype: %d\n", 
+            printf("    Unrecognized ME type: %d subtype: %d\n",
                 mm->metype, mm->mesub);
         }
+    } else if (mm->msgtype == 18) {
+        /* DF 18: Extended Squitter from non-transponder (TIS-B, ADS-R, etc.)
+         * Uses same extended squitter format as DF 17 but with CF instead of CA. */
+        printf("DF 18: Extended Squitter.\n");
+        printf("  Control Field  : %d\n", mm->ca);
+        printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
+        printf("  Extended Squitter  Type: %d\n", mm->metype);
+        printf("  Extended Squitter  Sub : %d\n", mm->mesub);
+        printf("  Extended Squitter  Name: %s\n",
+            getMEDescription(mm->metype,mm->mesub));
     } else {
         if (Modes.check_crc)
             printf("DF %d with good CRC received "
@@ -1983,7 +2006,7 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
 
     if (mm->msgtype == 0 || mm->msgtype == 4 || mm->msgtype == 20) {
         a->altitude = mm->altitude;
-    } else if (mm->msgtype == 17) {
+    } else if (mm->msgtype == 17 || mm->msgtype == 18) {
         if (mm->metype >= 1 && mm->metype <= 4) {
             memcpy(a->flight, mm->flight, sizeof(a->flight));
         } else if (mm->metype >= 9 && mm->metype <= 18) {
@@ -2269,10 +2292,10 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
     } else if (mm->msgtype == 11) {
         p += sprintf(p, "MSG,8,,,%02X%02X%02X,,,,,,,,,,,,,,,,,",
         mm->aa1, mm->aa2, mm->aa3);
-    } else if (mm->msgtype == 17 && mm->metype == 4) {
+    } else if ((mm->msgtype == 17 || mm->msgtype == 18) && mm->metype == 4) {
         p += sprintf(p, "MSG,1,,,%02X%02X%02X,,,,,,%s,,,,,,,,0,0,0,0",
         mm->aa1, mm->aa2, mm->aa3, mm->flight);
-    } else if (mm->msgtype == 17 && mm->metype >= 9 && mm->metype <= 18) {
+    } else if ((mm->msgtype == 17 || mm->msgtype == 18) && mm->metype >= 9 && mm->metype <= 18) {
         if (a->lat == 0 && a->lon == 0)
             p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
             mm->aa1, mm->aa2, mm->aa3, mm->altitude);
@@ -2280,7 +2303,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
             p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,%1.5f,%1.5f,,,"
                             "0,0,0,0",
             mm->aa1, mm->aa2, mm->aa3, mm->altitude, a->lat, a->lon);
-    } else if (mm->msgtype == 17 && mm->metype == 19 && mm->mesub == 1) {
+    } else if ((mm->msgtype == 17 || mm->msgtype == 18) && mm->metype == 19 && mm->mesub == 1) {
         int vr = (mm->vert_rate_sign==0?1:-1) * (mm->vert_rate-1) * 64;
 
         p += sprintf(p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
