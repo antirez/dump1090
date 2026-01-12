@@ -1496,45 +1496,91 @@ int detectOutOfPhase(uint16_t *m) {
     return 0;
 }
 
-/* This function does not really correct the phase of the message, it just
- * applies a transformation to the first sample representing a given bit:
+/* Scale a sample value by a fixed-point factor, clamping to avoid overflow.
+ * The scale is in 16384ths (so 16384 = 1.0, 32768 = 2.0, etc). */
+uint16_t scaleSample(uint16_t v, uint16_t scale) {
+    uint32_t result = (uint32_t)v * scale / 16384;
+    return (result > 65535) ? 65535 : (uint16_t)result;
+}
+
+/* Phase enhancement algorithm.
  *
- * If the previous bit was one, we amplify it a bit.
- * If the previous bit was zero, we decrease it a bit.
+ * This function estimates whether we are sampling early or late relative to
+ * the signal phase, and by how much, by examining the energy distribution
+ * in the preamble. It then corrects each sample based on the decoded bit
+ * value and the estimated phase offset.
  *
- * This simple transformation makes the message a bit more likely to be
- * correctly decoded for out of phase messages:
+ * The preamble has known 1-bits at positions 0, 2, 7, 9 and known 0-bits
+ * elsewhere. By looking at the energy that "leaks" into adjacent 0-bit
+ * positions, we can estimate the phase offset:
+ * - Energy at positions -1 and 6 indicates early sampling (we're catching
+ *   some of the previous bit's energy)
+ * - Energy at positions 3 and 10 indicates late sampling (we're catching
+ *   some of the next bit's energy)
  *
- * When messages are out of phase there is more uncertainty in
- * sequences of the same bit multiple times, since 11111 will be
- * transmitted as continuously altering magnitude (high, low, high, low...)
+ * Once we know the phase direction and magnitude, we walk through the
+ * message and adjust each sample based on the bit value we decoded for
+ * the adjacent bit.
  *
- * However because the message is out of phase some part of the high
- * is mixed in the low part, so that it is hard to distinguish if it is
- * a zero or a one.
- *
- * However when the message is out of phase passing from 0 to 1 or from
- * 1 to 0 happens in a very recognizable way, for instance in the 0 -> 1
- * transition, magnitude goes low, high, high, low, and one of of the
- * two middle samples the high will be *very* high as part of the previous
- * or next high signal will be mixed there.
- *
- * Applying our simple transformation we make more likely if the current
- * bit is a zero, to detect another zero. Symmetrically if it is a one
- * it will be more likely to detect a one because of the transformation.
- * In this way similar levels will be interpreted more likely in the
- * correct way. */
+ * Original algorithm by Oliver Jowett. */
 void applyPhaseCorrection(uint16_t *m) {
     int j;
 
-    m += 16; /* Skip preamble. */
-    for (j = 0; j < (MODES_LONG_MSG_BITS-1)*2; j += 2) {
-        if (m[j] > m[j+1]) {
-            /* One */
-            m[j+2] = (m[j+2] * 5) / 4;
-        } else {
-            /* Zero */
-            m[j+2] = (m[j+2] * 4) / 5;
+    /* Measure energy in known 1-bit positions (should be high). */
+    uint32_t onTime = m[0] + m[2] + m[7] + m[9];
+
+    /* Measure energy leaking into positions before expected 1-bits.
+     * This indicates we're sampling early (catching previous bit). */
+    uint32_t early = (m[-1] + m[6]) * 2;
+
+    /* Measure energy leaking into positions after expected 1-bits.
+     * This indicates we're sampling late (catching next bit). */
+    uint32_t late = (m[3] + m[10]) * 2;
+
+    if (early > late) {
+        /* Sampling late: each sample contains energy from the following bit.
+         * Scale factor is proportional to how much we're off. */
+        uint16_t scaleUp = 16384 + 16384 * early / (early + onTime);
+        uint16_t scaleDown = 16384 - 16384 * early / (early + onTime);
+
+        /* Last data sample: trailing bits are 0, so it will be low. Scale up. */
+        m[MODES_PREAMBLE_US*2 + MODES_LONG_MSG_BITS*2 - 1] =
+            scaleSample(m[MODES_PREAMBLE_US*2 + MODES_LONG_MSG_BITS*2 - 1], scaleUp);
+
+        /* Walk backwards through message samples. */
+        for (j = MODES_PREAMBLE_US*2 + MODES_LONG_MSG_BITS*2 - 2;
+             j > MODES_PREAMBLE_US*2; j -= 2) {
+            if (m[j] > m[j+1]) {
+                /* This bit is 1: previous sample overlapped with high energy,
+                 * so it's slightly high. Scale it down. */
+                m[j-1] = scaleSample(m[j-1], scaleDown);
+            } else {
+                /* This bit is 0: previous sample overlapped with low energy,
+                 * so it's slightly low. Scale it up. */
+                m[j-1] = scaleSample(m[j-1], scaleUp);
+            }
+        }
+    } else {
+        /* Sampling early: each sample contains energy from the previous bit.
+         * Scale factor is proportional to how much we're off. */
+        uint16_t scaleUp = 16384 + 16384 * late / (late + onTime);
+        uint16_t scaleDown = 16384 - 16384 * late / (late + onTime);
+
+        /* First data sample: leading bits are 0, so it will be low. Scale up. */
+        m[MODES_PREAMBLE_US*2] = scaleSample(m[MODES_PREAMBLE_US*2], scaleUp);
+
+        /* Walk forwards through message samples. */
+        for (j = MODES_PREAMBLE_US*2;
+             j < MODES_PREAMBLE_US*2 + MODES_LONG_MSG_BITS*2 - 2; j += 2) {
+            if (m[j] > m[j+1]) {
+                /* This bit is 1: next sample overlapped with low energy
+                 * (the 0 half of this bit), so it's slightly low. Scale up. */
+                m[j+2] = scaleSample(m[j+2], scaleUp);
+            } else {
+                /* This bit is 0: next sample overlapped with high energy
+                 * (the 1 half of this bit), so it's slightly high. Scale down. */
+                m[j+2] = scaleSample(m[j+2], scaleDown);
+            }
         }
     }
 }
@@ -1637,11 +1683,12 @@ good_preamble:
          * magnitude correction. */
         if (use_correction) {
             memcpy(aux,m+j+MODES_PREAMBLE_US*2,sizeof(aux));
-            if (j && detectOutOfPhase(m+j)) {
+            /* Apply phase correction unconditionally on retry (j > 0 ensures
+             * we can access m[-1] for preamble energy measurement). */
+            if (j) {
                 applyPhaseCorrection(m+j);
                 Modes.stat_out_of_phase++;
             }
-            /* TODO ... apply other kind of corrections. */
         }
 
         /* Decode all the next 112 bits, regardless of the actual message
