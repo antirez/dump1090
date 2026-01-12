@@ -255,8 +255,6 @@ struct aircraft* interactiveReceiveData(struct modesMessage *mm);
 void modesSendRawOutput(struct modesMessage *mm);
 void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a);
 void useModesMessage(struct modesMessage *mm);
-int fixSingleBitErrors(unsigned char *msg, int bits);
-int fixTwoBitsErrors(unsigned char *msg, int bits);
 int fixBitErrors(unsigned char *msg, int bits, int maxfix, int *fixedbits);
 void modesInitErrorInfo(void);
 int modesMessageLenByType(int type);
@@ -618,12 +616,12 @@ void dumpRawMessage(char *descr, unsigned char *msg,
     int msgtype = msg[0]>>3;
     int fixable = -1;
 
-    if (msgtype == 11 || msgtype == 17) {
+    if (msgtype == 11 || msgtype == 17 || msgtype == 18) {
         int msgbits = (msgtype == 11) ? MODES_SHORT_MSG_BITS :
                                         MODES_LONG_MSG_BITS;
-        fixable = fixSingleBitErrors(msg,msgbits);
-        if (fixable == -1)
-            fixable = fixTwoBitsErrors(msg,msgbits);
+        unsigned char aux[MODES_LONG_MSG_BYTES];
+        memcpy(aux, msg, msgbits/8);
+        fixable = fixBitErrors(aux, msgbits, MODES_MAX_BITERRORS, NULL);
     }
 
     if (Modes.debug & MODES_DEBUG_JS) {
@@ -872,79 +870,6 @@ int fixBitErrors(unsigned char *msg, int bits, int maxfix, int *fixedbits) {
         }
     }
     return res;
-}
-
-/* Try to fix single bit errors using the checksum. On success modifies
- * the original buffer with the fixed version, and returns the position
- * of the error bit. Otherwise if fixing failed -1 is returned. */
-int fixSingleBitErrors(unsigned char *msg, int bits) {
-    int j;
-    unsigned char aux[MODES_LONG_MSG_BITS/8];
-
-    for (j = 0; j < bits; j++) {
-        int byte = j/8;
-        int bitmask = 1 << (7-(j%8));
-        uint32_t crc1, crc2;
-
-        memcpy(aux,msg,bits/8);
-        aux[byte] ^= bitmask; /* Flip j-th bit. */
-
-        crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
-               ((uint32_t)aux[(bits/8)-2] << 8) |
-                (uint32_t)aux[(bits/8)-1];
-        crc2 = modesChecksum(aux,bits);
-
-        if (crc1 == crc2) {
-            /* The error is fixed. Overwrite the original buffer with
-             * the corrected sequence, and returns the error bit
-             * position. */
-            memcpy(msg,aux,bits/8);
-            return j;
-        }
-    }
-    return -1;
-}
-
-/* Similar to fixSingleBitErrors() but try every possible two bit combination.
- * This is very slow and should be tried only against DF17 messages that
- * don't pass the checksum, and only in Aggressive Mode. */
-int fixTwoBitsErrors(unsigned char *msg, int bits) {
-    int j, i;
-    unsigned char aux[MODES_LONG_MSG_BITS/8];
-
-    for (j = 0; j < bits; j++) {
-        int byte1 = j/8;
-        int bitmask1 = 1 << (7-(j%8));
-
-        /* Don't check the same pairs multiple times, so i starts from j+1 */
-        for (i = j+1; i < bits; i++) {
-            int byte2 = i/8;
-            int bitmask2 = 1 << (7-(i%8));
-            uint32_t crc1, crc2;
-
-            memcpy(aux,msg,bits/8);
-
-            aux[byte1] ^= bitmask1; /* Flip j-th bit. */
-            aux[byte2] ^= bitmask2; /* Flip i-th bit. */
-
-            crc1 = ((uint32_t)aux[(bits/8)-3] << 16) |
-                   ((uint32_t)aux[(bits/8)-2] << 8) |
-                    (uint32_t)aux[(bits/8)-1];
-            crc2 = modesChecksum(aux,bits);
-
-            if (crc1 == crc2) {
-                /* The error is fixed. Overwrite the original buffer with
-                 * the corrected sequence, and returns the error bit
-                 * position. */
-                memcpy(msg,aux,bits/8);
-                /* We return the two bits as a 16 bit integer by shifting
-                 * 'i' on the left. This is possible since 'i' will always
-                 * be non-zero because i starts from j+1. */
-                return j | (i<<8);
-            }
-        }
-    }
-    return -1;
 }
 
 /* Hash the ICAO address to index our cache of MODES_ICAO_CACHE_LEN
@@ -1480,20 +1405,6 @@ void computeMagnitudeVector(void) {
         if (q < 0) q = -q;
         m[j/2] = Modes.maglut[i*129+q];
     }
-}
-
-/* Return -1 if the message is out of fase left-side
- * Return  1 if the message is out of fase right-size
- * Return  0 if the message is not particularly out of phase.
- *
- * Note: this function will access m[-1], so the caller should make sure to
- * call it only if we are not at the start of the current buffer. */
-int detectOutOfPhase(uint16_t *m) {
-    if (m[3] > m[2]/3) return 1;
-    if (m[10] > m[9]/3) return 1;
-    if (m[6] > m[7]/3) return -1;
-    if (m[-1] > m[1]/3) return -1;
-    return 0;
 }
 
 /* Scale a sample value by a fixed-point factor, clamping to avoid overflow.
