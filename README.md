@@ -5,7 +5,7 @@ Dump 1090 is a Mode S decoder specifically designed for RTLSDR devices.
 
 The main features are:
 
-* Robust decoding of weak messages, with mode1090 many users observed
+* Robust decoding of weak messages, with Dump1090 many users observed
   improved range compared to other popular decoders.
 * Network support: TCP30003 stream (MSG5...), Raw packets, HTTP.
 * Embedded HTTP server that displays the currently detected aircrafts on
@@ -16,7 +16,7 @@ The main features are:
   where the checksum is xored with the ICAO address by brute forcing the
   checksum field using recently seen ICAO addresses.
 * Decode raw IQ samples from file (using --ifile command line switch).
-* Interactive command-line-interfae mode where aircrafts currently detected
+* Interactive command-line-interface mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
 * Surface position decoding for aircraft on the ground (taxiing, etc.).
@@ -72,7 +72,7 @@ program that is able to output 8-bit unsigned IQ samples at 2Mhz sample rate).
     rtl_sdr -f 1090000000 -s 2000000 -g 50 output.bin
 
 In the example `rtl_sdr` a gain of 50 is used, simply you should use the highest
-gain availabe for your tuner. This is not needed when calling Dump1090 itself
+gain available for your tuner. This is not needed when calling Dump1090 itself
 as it is able to select the highest gain supported automatically.
 
 It is possible to feed the program with data via standard input using
@@ -92,9 +92,9 @@ it without arguments at all is the best thing to do.
 Reliability
 ---
 
-By default Dump1090 tries to fix single bit errors using the checksum.
-Basically the program will try to flip every bit of the message and check if
-the checksum of the resulting message matches.
+By default Dump1090 tries to fix bit errors using the CRC checksum.
+The program uses a precomputed syndrome table to quickly identify and correct
+up to two bit errors in received messages.
 
 This is indeed able to fix errors and works reliably in my experience,
 however if you are interested in very reliable data I suggest to use
@@ -200,7 +200,7 @@ Mode S messages are transmitted in the 1090 Mhz frequency. If you have a decent
 antenna you'll be able to pick up signals from aircrafts pretty far from your
 position, especially if you are outdoor and in a position with a good sky view.
 
-You can easily build a very cheap antenna following the istructions at:
+You can easily build a very cheap antenna following the instructions at:
 
     http://antirez.com/news/46
 
@@ -219,17 +219,17 @@ Aggressive mode
 
 With --aggressive it is possible to activate the *aggressive mode* that is a
 modified version of the Mode S packet detection and decoding.
-THe aggresive mode uses more CPU usually (especially if there are many planes
+The aggressive mode uses more CPU usually (especially if there are many planes
 sending DF17 packets), but can detect a few more messages.
 
 The algorithm in aggressive mode is modified in the following ways:
 
-* Up to two demodulation errors are tolerated (adjacent entires in the magnitude
-  vector with the same eight). Normally only messages without errors are
+* Up to two demodulation errors are tolerated (adjacent entries in the magnitude
+  vector with the same height). Normally only messages without errors are
   checked.
 * It tries to fix DF17 messages trying every two bits combination.
 
-The use of aggressive mdoe is only advised in places where there is low traffic
+The use of aggressive mode is only advised in places where there is low traffic
 in order to have a chance to capture some more messages.
 
 Debug mode
@@ -239,7 +239,7 @@ The Debug mode is a visual help to improve the detection algorithm or to
 understand why the program is not working for a given input.
 
 In this mode messages are displayed in an ASCII-art style graphical
-representation, where the individial magnitude bars sampled at 2Mhz are
+representation, where the individual magnitude bars sampled at 2Mhz are
 displayed.
 
 An index shows the sample number, where 0 is the sample where the first
@@ -247,7 +247,7 @@ Mode S peak was found. Some additional background noise is also added
 before the first peak to provide some context.
 
 To enable debug mode and check what combinations of packets you can
-log, use `mode1090 --help` to obtain a list of available debug flags.
+log, use `dump1090 --help` to obtain a list of available debug flags.
 
 Debug mode includes an optional javascript output that is used to visualize
 packets using a web browser, you can use the file debug.html under the
@@ -261,7 +261,7 @@ For the diligent programmer with a Mode S specification on his hands it
 should be trivial to understand how it works.
 
 The algorithms I used were obtained basically looking at many messages
-as displayed using a trow-away SDL program, and trying to model the algorithm
+as displayed using a throw-away SDL program, and trying to model the algorithm
 based on how the messages look graphically.
 
 How to test the program?
@@ -278,7 +278,7 @@ Just run it like this:
 
     ./dump1090 --ifile testfiles/modes1.bin
 
-What is --strip mode?
+What is --snip mode?
 ---
 
 It is just a simple filter that will get raw IQ 8 bit samples in input
@@ -297,7 +297,7 @@ Contributing
 
 Dump1090 was written during some free time during xmas 2012, it is an hobby
 project so I'll be able to address issues and improve it only during
-free time, however you are incouraged to send pull requests in order to
+free time, however you are encouraged to send pull requests in order to
 improve the program. A good starting point can be the TODO list included in
 the source distribution.
 
