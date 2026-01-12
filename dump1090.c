@@ -258,7 +258,7 @@ void useModesMessage(struct modesMessage *mm);
 int fixBitErrors(unsigned char *msg, int bits, int maxfix, int *fixedbits);
 void modesInitErrorInfo(void);
 int modesMessageLenByType(int type);
-void sigWinchCallback();
+void sigWinchCallback(int sig);
 int getTermRows();
 
 /* ============================= Utility functions ========================== */
@@ -2599,7 +2599,8 @@ void modesWaitReadableClients(int timeout_ms) {
 /* ============================ Terminal handling  ========================== */
 
 /* Handle resizing terminal. */
-void sigWinchCallback() {
+void sigWinchCallback(int sig) {
+    (void)sig;
     signal(SIGWINCH, SIG_IGN);
     Modes.interactive_rows = getTermRows();
     interactiveShowData();
