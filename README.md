@@ -304,5 +304,6 @@ the source distribution.
 Credits
 ---
 
-Dump1090 was written by Salvatore Sanfilippo <antirez@gmail.com> and is
-released under the BSD three clause license.
+Dump1090 was written by Salvatore Sanfilippo <antirez@gmail.com> and the
+other contributors that sent patches over the time (check the commits history
+for more information) and it is released under the BSD three clause license.
