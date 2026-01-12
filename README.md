@@ -19,6 +19,7 @@ The main features are:
 * Interactive command-line-interfae mode where aircrafts currently detected
   are shown as a list refreshing as more data arrives.
 * CPR coordinates decoding and track calculation from velocity.
+* Surface position decoding for aircraft on the ground (taxiing, etc.).
 * TCP server streaming and receiving raw data to/from connected clients
   (using --net).
 
@@ -110,6 +111,29 @@ better or worse compared to other similar programs.
 If you can capture traffic that Dump1090 is not able to decode properly, drop
 me an email with a download link. I may try to improve the detection during
 my free time (this is just an hobby project).
+
+Surface position decoding
+---
+
+Dump1090 can decode surface position messages (Type Code 5-8), which are
+transmitted by aircraft while on the ground (taxiing, waiting at gates, etc.).
+These messages include the aircraft's position, ground speed, and ground track.
+
+Surface positions use a different encoding than airborne positions: the CPR
+(Compact Position Reporting) format covers only 90 degrees instead of 360,
+and requires a reference position within 45 nautical miles for unambiguous
+decoding.
+
+Instead of requiring you to configure your receiver's location, Dump1090
+automatically computes a reference position by averaging all successfully
+decoded airborne positions. This works because if you can receive surface
+traffic from an airport, you almost certainly receive airborne traffic too.
+The averaged position of overflying aircraft provides a reference that is
+close enough (well within the 45 NM requirement) to decode surface positions.
+
+Note: Surface positions will only be displayed once at least one airborne
+position has been successfully decoded to establish the reference. Aircraft
+on the ground will show with altitude 0 in the interactive display.
 
 Network server features
 ---

@@ -192,6 +192,18 @@ struct {
     long long stat_http_requests;
     long long stat_sbs_connections;
     long long stat_out_of_phase;
+
+    /* Reference location for surface position decoding.
+     *
+     * CPR (Compact Position Reporting) for surface positions works differently
+     * than airborne positions: it uses a smaller coordinate range and requires
+     * a reference position to resolve ambiguity. Instead of asking users to
+     * configure their location, we automatically compute it by averaging all
+     * successfully decoded airborne positions. Since surface decoding only
+     * requires the reference to be within 45 nautical miles, even a rough
+     * average of overflying aircraft positions works well. */
+    double ref_lat, ref_lon;    /* Reference latitude and longitude. */
+    int ref_count;              /* Number of positions used in the average. */
 } Modes;
 
 /* The struct we use to store information about a decoded message. */
@@ -230,6 +242,12 @@ struct modesMessage {
     int vert_rate;              /* Vertical rate. */
     int velocity;               /* Computed from EW and NS velocity. */
 
+    /* DF 17, 18: Surface position (metype 5-8). */
+    int movement;               /* Ground speed encoded value (0-124). */
+    int movement_valid;         /* Movement field contains valid data. */
+    int ground_track;           /* Ground track angle (0-360 degrees). */
+    int ground_track_valid;     /* Ground track field contains valid data. */
+
     /* DF4, DF5, DF20, DF21 */
     int fs;                     /* Flight status for DF4,5,20,21 */
     int dr;                     /* Request extraction of downlink request. */
@@ -260,6 +278,8 @@ void modesInitErrorInfo(void);
 int modesMessageLenByType(int type);
 void sigWinchCallback(int sig);
 int getTermRows();
+void decodeCPRSurface(struct aircraft *a, int fflag, int raw_lat, int raw_lon);
+int decodeMovementField(int movement);
 
 /* ============================= Utility functions ========================== */
 
@@ -1212,6 +1232,31 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->flight[6] = ais_charset[((msg[9]&15)<<2)|(msg[10]>>6)];
             mm->flight[7] = ais_charset[msg[10]&63];
             mm->flight[8] = '\0';
+        } else if (mm->metype >= 5 && mm->metype <= 8) {
+            /* Surface position Message.
+             *
+             * The message format is:
+             * - Type code (TC): 5 bits (value 5-8)
+             * - Movement: 7 bits (encoded ground speed)
+             * - Ground track status: 1 bit (1 = valid)
+             * - Ground track: 7 bits (0-127 -> 0-360 degrees)
+             * - Time flag: 1 bit
+             * - CPR format: 1 bit (0 = even, 1 = odd)
+             * - CPR latitude: 17 bits
+             * - CPR longitude: 17 bits */
+            mm->movement = ((msg[4] & 0x07) << 4) | (msg[5] >> 4);
+            mm->movement_valid = (mm->movement != 0);
+            mm->ground_track_valid = (msg[5] >> 3) & 1;
+            mm->ground_track = ((msg[5] & 0x07) << 4) | (msg[6] >> 4);
+            mm->ground_track = mm->ground_track * 360 / 128;
+            mm->fflag = (msg[6] >> 2) & 1;
+            mm->tflag = (msg[6] >> 3) & 1;
+            mm->raw_latitude = ((msg[6] & 3) << 15) |
+                                (msg[7] << 7) |
+                                (msg[8] >> 1);
+            mm->raw_longitude = ((msg[8] & 1) << 16) |
+                                 (msg[9] << 8) |
+                                 msg[10];
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             /* Airborne position Message */
             mm->fflag = msg[6] & (1<<2);
@@ -1346,6 +1391,21 @@ void displayModesMessage(struct modesMessage *mm) {
 
             printf("    Aircraft Type  : %s\n", ac_type_str[mm->aircraft_type]);
             printf("    Identification : %s\n", mm->flight);
+        } else if (mm->metype >= 5 && mm->metype <= 8) {
+            printf("    F flag   : %s\n", mm->fflag ? "odd" : "even");
+            printf("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
+            printf("    Movement : %d", mm->movement);
+            if (mm->movement_valid) {
+                int speed = decodeMovementField(mm->movement);
+                printf(" (%d kt)\n", speed);
+            } else {
+                printf(" (not available)\n");
+            }
+            printf("    Track    : %d degrees", mm->ground_track);
+            if (!mm->ground_track_valid) printf(" (not valid)");
+            printf("\n");
+            printf("    Latitude : %d (not decoded)\n", mm->raw_latitude);
+            printf("    Longitude: %d (not decoded)\n", mm->raw_longitude);
         } else if (mm->metype >= 9 && mm->metype <= 18) {
             printf("    F flag   : %s\n", mm->fflag ? "odd" : "even");
             printf("    T flag   : %s\n", mm->tflag ? "UTC" : "non-UTC");
@@ -1926,6 +1986,84 @@ void decodeCPR(struct aircraft *a) {
     if (a->lon > 180) a->lon -= 360;
 }
 
+/* Decode surface CPR position using local decoding with reference position.
+ *
+ * Surface position messages use a different CPR encoding than airborne:
+ * - Latitude zones cover 90 degrees instead of 360 degrees
+ * - Only 17 bits are transmitted, but the encoding conceptually uses 19 bits,
+ *   so there is inherent ambiguity requiring a reference position
+ *
+ * The reference position must be within 45 nautical miles of the true position
+ * for unambiguous decoding. We use the average of all airborne positions we've
+ * decoded as our reference, which works because if we can receive surface
+ * traffic at an airport, we almost certainly receive airborne traffic too.
+ *
+ * This function uses local (relative) decoding with a single message, which
+ * requires a reference position but doesn't need even/odd pairs. */
+void decodeCPRSurface(struct aircraft *a, int fflag, int raw_lat, int raw_lon) {
+    const double SurfDlat0 = 90.0 / 60;
+    const double SurfDlat1 = 90.0 / 59;
+    double dlat = fflag ? SurfDlat1 : SurfDlat0;
+    double ref_lat = Modes.ref_lat;
+    double ref_lon = Modes.ref_lon;
+    double lat, lon;
+    int j, ni, m;
+
+    /* No reference position yet, can't decode surface position. */
+    if (Modes.ref_count == 0) return;
+
+    /* Compute latitude index j from reference latitude. */
+    j = (int)floor(ref_lat / dlat) +
+        (int)floor(0.5 + cprModFunction((int)ref_lat, (int)dlat) / dlat -
+                   (double)raw_lat / 131072);
+
+    lat = dlat * (j + (double)raw_lat / 131072);
+
+    /* Pick the latitude solution closest to the reference. We may need to
+     * try ±90 degrees since surface encoding covers only 90 degrees. */
+    if (fabs(lat - ref_lat) > 45) {
+        if (lat > ref_lat) lat -= 90;
+        else lat += 90;
+    }
+
+    /* Sanity check: latitude must be in valid range. */
+    if (lat < -90 || lat > 90) return;
+
+    /* Compute longitude. */
+    ni = cprNFunction(lat, fflag);
+    if (ni == 0) ni = 1;  /* Avoid division by zero near poles. */
+    m = (int)floor(ref_lon / (90.0 / ni)) +
+        (int)floor(0.5 + cprModFunction((int)ref_lon, (int)(90.0 / ni)) /
+                   (90.0 / ni) - (double)raw_lon / 131072);
+    lon = (90.0 / ni) * (m + (double)raw_lon / 131072);
+
+    /* Pick the longitude solution closest to reference. Surface encoding
+     * covers only 90 degrees, so we may need to adjust by ±90 or ±180. */
+    while (lon > ref_lon + 45) lon -= 90;
+    while (lon < ref_lon - 45) lon += 90;
+
+    /* Normalize longitude to -180..180 range. */
+    if (lon > 180) lon -= 360;
+    if (lon < -180) lon += 360;
+
+    a->lat = lat;
+    a->lon = lon;
+}
+
+/* Decode ground speed from surface movement field.
+ * Returns speed in knots, or -1 if speed is not available. */
+int decodeMovementField(int movement) {
+    if (movement == 0) return -1;           /* Not available */
+    if (movement == 1) return 0;            /* Stopped (< 0.125 kt) */
+    if (movement <= 8) return (movement - 2) * 0.125 + 0.125;  /* 0.125-1 kt */
+    if (movement <= 12) return (movement - 9) * 0.25 + 1;      /* 1-2 kt */
+    if (movement <= 38) return (movement - 13) * 0.5 + 2;      /* 2-15 kt */
+    if (movement <= 93) return (movement - 39) + 15;           /* 15-70 kt */
+    if (movement <= 108) return (movement - 94) * 2 + 70;      /* 70-100 kt */
+    if (movement <= 123) return (movement - 109) * 5 + 100;    /* 100-175 kt */
+    return 175;  /* >= 175 kt */
+}
+
 /* Receive new messages and populate the interactive mode with more info. */
 struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
     uint32_t addr;
@@ -1981,7 +2119,38 @@ struct aircraft *interactiveReceiveData(struct modesMessage *mm) {
             /* If the two data is less than 10 seconds apart, compute
              * the position. */
             if (llabs(a->even_cprtime - a->odd_cprtime) <= 10000) {
+                double prev_lat = a->lat;
+                double prev_lon = a->lon;
                 decodeCPR(a);
+                /* If we successfully decoded a new position, update the
+                 * receiver reference position. This is used to decode
+                 * surface positions which require a nearby reference. */
+                if (a->lat != prev_lat || a->lon != prev_lon) {
+                    if (Modes.ref_count == 0) {
+                        Modes.ref_lat = a->lat;
+                        Modes.ref_lon = a->lon;
+                    } else {
+                        /* Incremental average update. */
+                        Modes.ref_lat += (a->lat - Modes.ref_lat) /
+                                         (Modes.ref_count + 1);
+                        Modes.ref_lon += (a->lon - Modes.ref_lon) /
+                                         (Modes.ref_count + 1);
+                    }
+                    /* Cap at 10000 so the average can adapt if antenna moves. */
+                    if (Modes.ref_count < 10000) Modes.ref_count++;
+                }
+            }
+        } else if (mm->metype >= 5 && mm->metype <= 8) {
+            /* Surface position message. Only decode if we have a reference
+             * position from earlier airborne position decodes. Without a
+             * reference, surface CPR decoding is ambiguous. */
+            if (Modes.ref_count) {
+                if (mm->ground_track_valid) a->track = mm->ground_track;
+                if (mm->movement_valid)
+                    a->speed = decodeMovementField(mm->movement);
+                a->altitude = 0;  /* On ground. */
+                decodeCPRSurface(a, mm->fflag, mm->raw_latitude,
+                                 mm->raw_longitude);
             }
         } else if (mm->metype == 19) {
             if (mm->mesub == 1 || mm->mesub == 2) {
