@@ -10,6 +10,15 @@
       .plane-icon {
         padding:0px;
         margin:0px;
+        cursor: pointer;
+      }
+      .plane-icon div {
+        font-size: 24px;
+        line-height: 32px;
+        width: 32px;
+        height: 32px;
+        text-align: center;
+        cursor: pointer;
       }
       #map_canvas { height: 100% }
       #info {
@@ -72,7 +81,12 @@
             selhtml = '';
         }
         he = '<div style="transform: rotate(-'+rotation+'deg); '+selhtml+'">✈️</div>';
-        var icon = L.divIcon({html: he, className: 'plane-icon'});
+        var icon = L.divIcon({
+            html: he,
+            className: 'plane-icon',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
         return icon;
     }
 
@@ -130,7 +144,12 @@
                     var myplane = Planes[plane.hex];
                     marker = myplane.marker;
                     marker.setLatLng([plane.lat,plane.lon]);
-                    marker.setIcon(getIconForPlane(plane));
+                    /* Only update icon if track changed significantly. */
+                    var trackDiff = Math.abs(myplane.track - plane.track);
+                    if (trackDiff > 180) trackDiff = 360 - trackDiff;
+                    if (trackDiff > 5) {
+                        marker.setIcon(getIconForPlane(plane));
+                    }
                     myplane.altitude = plane.altitude;
                     myplane.speed = plane.speed;
                     myplane.lat = plane.lat;
