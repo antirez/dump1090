@@ -31,7 +31,15 @@ available, developed by MalcolmRobb.
 Installation
 ---
 
-Type "make".
+On Ubuntu you may need the following library: `sudo apt-get install librtlsdr-dev`
+
+Clone the repo: `git clone https://github.com/antirez/dump1090.git`
+
+Change directory: `cd dump1090`
+
+Build the source: `make`
+
+Run the binary: `./dump1090`
 
 Normal usage
 ---
