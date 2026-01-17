@@ -264,9 +264,9 @@
                         // Create a new marker for new planes
                         const icon = getIconForPlane(plane);
                         marker = L.marker([plane.lat, plane.lon], { icon: icon }).addTo(map);
-                        marker.on('click', () => selectPlane(plane));
                         plane.marker = marker;
                         planes[plane.hex] = plane;
+                        marker.on('click', () => selectPlane(planes[plane.hex]));
                     }
                 }
 
