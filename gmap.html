@@ -22,7 +22,7 @@
         }
 
         /* Plane icon block */
-        /* Transition timing should be adjusted to match data update frequency */
+        /* Transition set to 2x polling frequency to ensure smooth continuous movement */
         .plane-icon {
             padding: 0;
             margin: 0;
@@ -308,7 +308,7 @@
         setInterval(() => {
             fetchData();
             updateGeneralInfo();
-        }, 100);
+        }, 500);
     </script>
 </body>
 
