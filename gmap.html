@@ -196,7 +196,7 @@
                 html: `
                     <div
                         class="plane-icon__symbol${selectedPlane?.hex === plane.hex ? ' plane-icon__symbol--selected' : ''}"
-                        style="transform: rotate(${plane.track}deg);"
+                        style="transform: rotate(${plane.track ?? 0}deg);"
                     >
                         <i class="fa-solid fa-plane-up"></i>
                     </div>
