@@ -22,12 +22,11 @@
         }
 
         /* Plane icon block */
-        /* Transition set to 2x polling frequency to ensure smooth continuous movement */
         .plane-icon {
             padding: 0;
             margin: 0;
             cursor: pointer;
-            transition: transform 1s linear;
+            transition: transform 100s linear;
         }
         .plane-icon__symbol {
             font-size: 24px;
@@ -317,7 +316,7 @@
         setInterval(() => {
             fetchData();
             updateGeneralInfo();
-        }, 500);
+        }, 100);
     </script>
 </body>
 
