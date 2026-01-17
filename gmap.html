@@ -244,9 +244,11 @@
                         marker.setLatLng([plane.lat, plane.lon]);
 
                         // Update existing plane marker icon if track changed significantly
-                        let trackDiff = Math.abs(existingPlane.track - plane.track);
-                        if (trackDiff > 180) trackDiff = 360 - trackDiff;
-                        if (trackDiff > 5) marker.setIcon(getIconForPlane(plane));
+                        if (existingPlane.track != null && plane.track != null) {
+                            let trackDelta = Math.abs(existingPlane.track - plane.track);
+                            if (trackDelta > 180) trackDelta = 360 - trackDelta;
+                            if (trackDelta > 5) marker.setIcon(getIconForPlane(plane));
+                        }
 
                         // Update existing plane properties
                         existingPlane.altitude = plane.altitude;
