@@ -275,6 +275,10 @@
                     if (!activePlanes[plane.hex]) {
                         map.removeLayer(plane.marker);
                         delete planes[plane.hex];
+                        if (selectedPlane?.hex === plane.hex) {
+                            selectedPlane = null;
+                            document.getElementById('planeInfo').innerHTML = 'Click on a plane for info';
+                        }
                     }
                 }
             } catch (error) {
