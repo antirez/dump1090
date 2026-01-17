@@ -233,10 +233,13 @@
                 const data = await response.json();
                 const activePlanes = {};
                 for (const plane of data) {
+                    // Skip planes without valid coordinates
+                    if (plane.lat == null || plane.lon == null) continue;
+
+                    // Build the plane list from the fetched data
                     let marker = null;
                     activePlanes[plane.hex] = true;
                     plane.flight = plane.flight?.trim() || '';
-
                     const existingPlane = planes[plane.hex];
                     if (existingPlane) {
                         // Update existing plane marker position
