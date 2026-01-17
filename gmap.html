@@ -175,18 +175,18 @@
                 <div class="info-panel__grid">
                     <div class="info-panel__item">
                     <span class="info-panel__label">Altitude</span>
-                    <span class="info-panel__value">${newPlane.altitude} ft</span>
+                    <span class="info-panel__value">${newPlane.altitude ?? '—'} ft</span>
                     </div>
                     <div class="info-panel__item">
                     <span class="info-panel__label">Speed</span>
-                    <span class="info-panel__value">${newPlane.speed} kts</span>
+                    <span class="info-panel__value">${newPlane.speed ?? '—'} kts</span>
                     </div>
                     <div class="info-panel__item">
                     <span class="info-panel__label">Heading</span>
-                    <span class="info-panel__value">${newPlane.track}°</span>
+                    <span class="info-panel__value">${newPlane.track ?? '—'}°</span>
                     </div>
                 </div>
-                <div class="info-panel__coords">${newPlane.lat.toFixed(4)}, ${newPlane.lon.toFixed(4)}</div>
+                <div class="info-panel__coords">${newPlane.lat?.toFixed(4) ?? '—'}, ${newPlane.lon?.toFixed(4) ?? '—'}</div>
                 `;
         };
 
@@ -234,7 +234,7 @@
                 for (const plane of data) {
                     let marker = null;
                     activePlanes[plane.hex] = true;
-                    plane.flight = plane.flight.trim();
+                    plane.flight = plane.flight?.trim() || '';
 
                     const existingPlane = planes[plane.hex];
                     if (existingPlane) {
