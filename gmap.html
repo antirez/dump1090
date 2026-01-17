@@ -229,6 +229,7 @@
         const fetchData = async () => {
             try {
                 const response = await fetch('/data.json');
+                if (!response.ok) return;
                 const data = await response.json();
                 const activePlanes = {};
                 for (const plane of data) {
