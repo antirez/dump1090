@@ -1,218 +1,323 @@
 <!DOCTYPE html>
+<html lang="en">
 
-<html>
-  <head>
-    <meta name="viewport" content="initial-scale=1.0, user-scalable=no" />
-     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.6.0/dist/leaflet.css" integrity="sha512-xwE/Az9zrjBIphAcBb3F6JVqxf46+CDLwfLMHloNu6KEQCAWi6HcDUbeOfBIptF7tcCzusKFjFw2yuvEpDL9wQ==" crossorigin=""/>
-    <style type="text/css">
-      html { height: 100% }
-      body { height: 100%; margin: 0; padding: 0 }
-      .plane-icon {
-        padding:0px;
-        margin:0px;
-        cursor: pointer;
-      }
-      .plane-icon div {
-        font-size: 24px;
-        line-height: 32px;
-        width: 32px;
-        height: 32px;
-        text-align: center;
-        cursor: pointer;
-      }
-      #map_canvas { height: 100% }
-      #info {
-        position: absolute;
-        width:20%;
-        height:100%;
-        bottom:0px;
-        right:0px;
-        top:0px;
-        background-color: white;
-        border-left:1px #666 solid;
-        font-family:Helvetica;
-      }
-      #info div {
-        padding:0px;
-        padding-left:10px;
-        margin:0px;
-      }
-      #info div h1 {
-        margin-top:10px;
-        font-size:16px;
-      }
-      #info div p {
-        font-size:14px;
-        color:#333;
-      }
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
+    <title>Dump1090</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <style>
+        /* Base styles */
+        body {
+            margin: 0;
+            padding: 0;
+            height: 100dvh;
+        }
+
+        /* Map block */
+        .map {
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Plane icon block */
+        .plane-icon {
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            transition: transform 500ms linear;
+        }
+        .plane-icon__symbol {
+            font-size: 24px;
+            line-height: 32px;
+            width: 32px;
+            height: 32px;
+            text-align: center;
+            cursor: pointer;
+            color: #ffd700;
+            -webkit-text-stroke: 1px #000000;
+        }
+        .plane-icon__symbol--selected {
+            color: #ff6b6b;
+        }
+
+        /* Info panel block */
+        .info-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 260px;
+            background-color: rgba(20, 20, 30, 0.6);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+            font-family: system-ui, sans-serif;
+            z-index: 1000;
+            touch-action: none;
+            user-select: none;
+            color: #ffffff;
+        }
+        .info-panel__header {
+            padding: 12px 16px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            cursor: move;
+        }
+        .info-panel__title {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: #ffffff;
+        }
+        .info-panel__content {
+            padding: 12px 16px;
+            margin: 0;
+        }
+        .info-panel__text {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.85);
+            margin: 0 0 8px 0;
+            line-height: 1.5;
+        }
+        .info-panel__text:last-child {
+            margin-bottom: 0;
+        }
+        .info-panel__flight {
+            font-size: 20px;
+            font-weight: 700;
+            color: #ffffff;
+            margin: 0 0 4px 0;
+        }
+        .info-panel__icao {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.5);
+            margin: 0 0 12px 0;
+            font-family: monospace;
+        }
+        .info-panel__grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+        .info-panel__item {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .info-panel__label {
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+        .info-panel__value {
+            font-size: 15px;
+            font-weight: 500;
+            color: #ffffff;
+        }
+        .info-panel__coords {
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            font-size: 12px;
+            font-family: monospace;
+            color: rgba(255, 255, 255, 0.7);
+        }
     </style>
-    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
-    <script src="https://unpkg.com/leaflet@1.6.0/dist/leaflet.js" integrity="sha512-gZwIG9x3wUXg2hdXF6+rVkLF/0Vi9U8D2Ntg4Ga5I5BZpVkVxlJWbSQtXPSiUTtC0TjtGOmxa1AJPuV0CPthew==" crossorigin=""></script>
-    <script type="text/javascript">
-    Map=null;
-    CenterLat=45.0;
-    CenterLon=9.0;
-    Planes={};
-    NumPlanes = 0;
-    Selected=null
+</head>
 
-    function getIconForPlane(plane) {
-        var r = 255, g = 255, b = 0;
-        var maxalt = 40000; /* Max altitude in the average case */
-        var invalt = maxalt-plane.altitude;
-        var selected = (Selected == plane.hex);
+<body>
+    <!-- Canvas for Leaflet map -->
+    <div id="canvas" class="map"></div>
 
-        if (invalt < 0) invalt = 0;
-        b = parseInt(255/maxalt*invalt);
-
-        /* As Icon we use the plane emoji, this is a simple solution but
-           is definitely a compromise: we expect the icon to be rotated
-           45 degrees facing north-east by default, this is true in most
-           systems but not all. */
-        var he = document.createElement("P");
-        he.innerHTML = '>';
-        var rotation = 45+360-plane.track;
-        var selhtml = '';
-
-        /* Give a border to the selected plane. */
-        if (Selected == plane.hex) {
-            selhtml = 'border:1px dotted #0000aa; border-radius:10px;';
-        } else {
-            selhtml = '';
-        }
-        he = '<div style="transform: rotate(-'+rotation+'deg); '+selhtml+'">✈️</div>';
-        var icon = L.divIcon({
-            html: he,
-            className: 'plane-icon',
-            iconSize: [32, 32],
-            iconAnchor: [16, 16]
-        });
-        return icon;
-    }
-
-    function selectPlane(planehex) {
-        if (!Planes[planehex]) return;
-        var old = Selected;
-        Selected = planehex;
-        if (Planes[old]) {
-            /* Remove the highlight in the previously selected plane. */
-            Planes[old].marker.setIcon(getIconForPlane(Planes[old]));
-        }
-        Planes[Selected].marker.setIcon(getIconForPlane(Planes[Selected]));
-        refreshSelectedInfo();
-    }
-
-    /* Return a closure to caputure the 'hex' argument. This way we don't
-       have to care about how Leaflet passes the object to the callback. */
-    function selectPlaneCallback(hex) {
-        return function() {
-            return selectPlane(hex);
-        }
-    }
-    
-    function refreshGeneralInfo() {
-        var i = document.getElementById('geninfo');
-
-        i.innerHTML = NumPlanes+' planes on screen.';
-    }
-
-    function refreshSelectedInfo() {
-        var i = document.getElementById('selinfo');
-        var p = Planes[Selected];
-
-        if (!p) return;
-        var html = 'ICAO: '+p.hex+'<br>';
-        if (p.flight.length) {
-            html += '<b>'+p.flight+'</b><br>';
-        }
-        html += 'Altitude: '+p.altitude+' feet<br>';
-        html += 'Speed: '+p.speed+' knots<br>';
-        html += 'Coordinates: '+p.lat+', '+p.lon+'<br>';
-        i.innerHTML = html;
-    }
-
-    function fetchData() {
-        $.getJSON('/data.json', function(data) {
-            var stillhere = {}
-            for (var j=0; j < data.length; j++) {
-                var plane = data[j];
-                var marker = null;
-                stillhere[plane.hex] = true;
-                plane.flight = $.trim(plane.flight);
-
-                if (Planes[plane.hex]) {
-                    var myplane = Planes[plane.hex];
-                    marker = myplane.marker;
-                    marker.setLatLng([plane.lat,plane.lon]);
-                    /* Only update icon if track changed significantly. */
-                    var trackDiff = Math.abs(myplane.track - plane.track);
-                    if (trackDiff > 180) trackDiff = 360 - trackDiff;
-                    if (trackDiff > 5) {
-                        marker.setIcon(getIconForPlane(plane));
-                    }
-                    myplane.altitude = plane.altitude;
-                    myplane.speed = plane.speed;
-                    myplane.lat = plane.lat;
-                    myplane.lon = plane.lon;
-                    myplane.track = plane.track;
-                    myplane.flight = plane.flight;
-                    if (myplane.hex == Selected)
-                        refreshSelectedInfo();
-                } else {
-                    var icon = getIconForPlane(plane);
-                    var marker = L.marker([plane.lat, plane.lon], {icon: icon}).addTo(Map);
-                    var hex = plane.hex;
-                    marker.on('click',selectPlaneCallback(plane.hex));
-                    plane.marker = marker;
-                    marker.planehex = plane.hex;
-                    Planes[plane.hex] = plane;
-                }
-
-                // FIXME: Set the title
-                // if (plane.flight.length == 0)
-                //     marker.setTitle(plane.hex)
-                // else
-                //    marker.setTitle(plane.flight+' ('+plane.hex+')')
-            }
-            NumPlanes = data.length;
-
-            /* Remove idle planes. */
-            for (var p in Planes) {
-                if (!stillhere[p]) {
-                    Map.removeLayer(Planes[p].marker);
-                    delete Planes[p];
-                }
-            }
-        });
-    }
-
-    function initialize() {
-        Map = L.map('map_canvas').setView([37.0, 13.0], 8);
-
-	L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-	    attribution: 'Map data &copy; <a href="https://www.openstreetmap.org/">OpenStreetMap</a> contributors, <a href="https://creativecommons.org/licenses/by-sa/2.0/">CC-BY-SA</a>, Imagery © <a href="https://www.mapbox.com/">Mapbox</a>',
-	    maxZoom: 18,
-	    id: 'mapbox/streets-v11',
-	    accessToken: 'your.mapbox.access.token'
-	}).addTo(Map);
-
-        /* Setup our timer to poll from the server. */
-        window.setInterval(function() {
-            fetchData();
-            refreshGeneralInfo();
-        }, 100);
-    }
-
-    </script>
-  </head>
-  <body onload="initialize()">
-    <div id="map_canvas" style="width:80%; height:100%"></div>
-    <div id="info">
-      <div>
-        <h1>Dump1090</h1>
-        <p id="geninfo"></p>
-        <p id="selinfo">Click on a plane for info.</p>
-      </div>
+    <!-- Floating info panel -->
+    <div class="info-panel" id="info-panel">
+        <div class="info-panel__header">
+            <h1 class="info-panel__title">Dump1090</h1>
+        </div>
+        <div class="info-panel__content">
+            <p id="generalInfo" class="info-panel__text"></p>
+            <p id="planeInfo" class="info-panel__text">Click on a plane for info</p>
+        </div>
     </div>
-  </body>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdn.jsdelivr.net/npm/interactjs@1.10.27/dist/interact.min.js"></script>
+    <script type="module">
+        // Leaflet map instance and planes state
+        let map = null;
+        const planes = {};
+        let selectedPlane = null;
+
+        // Update panel general info
+        const updateGeneralInfo = () => {
+            const el = document.getElementById('generalInfo');
+            const planesCount = Object.keys(planes).length;
+            el.innerHTML = `
+                <span class="info-panel__value">${planesCount}</span>
+                <span class="info-panel__label">aircraft tracked</span>
+                `;
+        };
+
+        // Update panel with new plane info
+        const updatePlaneInfo = (newPlane) => {
+            // Exit if new plane is not found
+            if (!newPlane) return;
+
+            // Update selected plane info
+            const el = document.getElementById('planeInfo');
+            el.innerHTML = `
+                <div class="info-panel__flight">${newPlane.flight || '—'}</div>
+                <div class="info-panel__icao">${newPlane.hex}</div>
+                <div class="info-panel__grid">
+                    <div class="info-panel__item">
+                    <span class="info-panel__label">Altitude</span>
+                    <span class="info-panel__value">${newPlane.altitude ?? '—'} ft</span>
+                    </div>
+                    <div class="info-panel__item">
+                    <span class="info-panel__label">Speed</span>
+                    <span class="info-panel__value">${newPlane.speed ?? '—'} kts</span>
+                    </div>
+                    <div class="info-panel__item">
+                    <span class="info-panel__label">Heading</span>
+                    <span class="info-panel__value">${newPlane.track ?? '—'}°</span>
+                    </div>
+                </div>
+                <div class="info-panel__coords">${newPlane.lat.toFixed(4)}, ${newPlane.lon.toFixed(4)}</div>
+                `;
+        };
+
+        // Create a custom marker with Font Awesome plane icon
+        const getIconForPlane = (plane) => {
+            const icon = L.divIcon({
+                html: `
+                    <div
+                        class="plane-icon__symbol${selectedPlane?.hex === plane.hex ? ' plane-icon__symbol--selected' : ''}"
+                        style="transform: rotate(${plane.track ?? 0}deg);"
+                    >
+                        <i class="fa-solid fa-plane-up"></i>
+                    </div>
+                    `,
+                className: 'plane-icon',
+                iconSize: [32, 32],
+                iconAnchor: [16, 16]
+            });
+            return icon;
+        };
+
+        // Select a new plane
+        const selectPlane = (newPlane) => {
+            // Exit if new plane is not found
+            if (!newPlane) return;
+
+            // Update plane selection
+            const oldPlane = planes[selectedPlane?.hex];
+            selectedPlane = newPlane;
+
+            // Remove highlighting from the previously selected plane
+            oldPlane?.marker.setIcon(getIconForPlane(oldPlane));
+
+            // Update currently selected plane
+            newPlane.marker.setIcon(getIconForPlane(newPlane));
+            updatePlaneInfo(newPlane);
+        };
+
+        // Fetch planes data from the server
+        const fetchData = async () => {
+            try {
+                const response = await fetch('/data.json');
+                if (!response.ok) return;
+                const data = await response.json();
+                const activePlanes = {};
+                for (const plane of data) {
+                    // Skip planes without valid coordinates
+                    if (plane.lat == null || plane.lon == null) continue;
+
+                    // Build the plane list from the fetched data
+                    let marker = null;
+                    activePlanes[plane.hex] = true;
+                    plane.flight = plane.flight?.trim() || '';
+                    const existingPlane = planes[plane.hex];
+                    if (existingPlane) {
+                        // Update existing plane marker position
+                        marker = existingPlane.marker;
+                        marker.setLatLng([plane.lat, plane.lon]);
+
+                        // Update existing plane marker icon if track changed significantly
+                        if (existingPlane.track != null && plane.track != null) {
+                            let trackDelta = Math.abs(existingPlane.track - plane.track);
+                            if (trackDelta > 180) trackDelta = 360 - trackDelta;
+                            if (trackDelta > 5) marker.setIcon(getIconForPlane(plane));
+                        }
+
+                        // Update existing plane properties
+                        existingPlane.altitude = plane.altitude;
+                        existingPlane.speed = plane.speed;
+                        existingPlane.lat = plane.lat;
+                        existingPlane.lon = plane.lon;
+                        existingPlane.track = plane.track;
+                        existingPlane.flight = plane.flight;
+
+                        // Update existing plane info in the panel if it is selected
+                        if (existingPlane.hex === selectedPlane?.hex) {
+                            updatePlaneInfo(existingPlane);
+                        }
+                    } else {
+                        // Create a new marker for new planes
+                        const icon = getIconForPlane(plane);
+                        marker = L.marker([plane.lat, plane.lon], { icon: icon }).addTo(map);
+                        plane.marker = marker;
+                        planes[plane.hex] = plane;
+                        marker.on('click', () => selectPlane(planes[plane.hex]));
+                    }
+                }
+
+                // Remove idle planes
+                for (const plane of Object.values(planes)) {
+                    if (!activePlanes[plane.hex]) {
+                        map.removeLayer(plane.marker);
+                        delete planes[plane.hex];
+                        if (selectedPlane?.hex === plane.hex) {
+                            selectedPlane = null;
+                            document.getElementById('planeInfo').innerHTML = 'Click on a plane for info';
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error fetching data:', error);
+            }
+        };
+
+        // Make info panel draggable
+        interact('#info-panel').draggable({
+            allowFrom: '.info-panel__header',
+            listeners: {
+                move: (event) => {
+                    const target = event.target;
+                    const x = (parseFloat(target.dataset.x) || 0) + event.dx;
+                    const y = (parseFloat(target.dataset.y) || 0) + event.dy;
+                    target.style.transform = `translate(${x}px, ${y}px)`;
+                    target.dataset.x = x;
+                    target.dataset.y = y;
+                }
+            }
+        });
+
+        // Initialize Leaflet instance
+        map = L.map('canvas').setView([37.0, 13.0], 8);
+        L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        // Setup a timer to poll from the server
+        setInterval(() => {
+            fetchData();
+            updateGeneralInfo();
+        }, 100);
+    </script>
+</body>
+
 </html>
