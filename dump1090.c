@@ -2262,12 +2262,13 @@ void snipMode(int level) {
 struct {
     char *descr;
     int *socket;
+    char *address;
     int port;
 } modesNetServices[MODES_NET_SERVICES_NUM] = {
-    {"Raw TCP output", &Modes.ros, MODES_NET_OUTPUT_RAW_PORT},
-    {"Raw TCP input", &Modes.ris, MODES_NET_INPUT_RAW_PORT},
-    {"HTTP server", &Modes.https, MODES_NET_HTTP_PORT},
-    {"Basestation TCP output", &Modes.sbsos, MODES_NET_OUTPUT_SBS_PORT}
+    {"Raw TCP output", &Modes.ros, NULL, MODES_NET_OUTPUT_RAW_PORT},
+    {"Raw TCP input", &Modes.ris, NULL, MODES_NET_INPUT_RAW_PORT},
+    {"HTTP server", &Modes.https, NULL, MODES_NET_HTTP_PORT},
+    {"Basestation TCP output", &Modes.sbsos, NULL, MODES_NET_OUTPUT_SBS_PORT}
 };
 
 /* Networking "stack" initialization. */
@@ -2278,12 +2279,20 @@ void modesInitNet(void) {
     Modes.maxfd = -1;
 
     for (j = 0; j < MODES_NET_SERVICES_NUM; j++) {
-        int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port, NULL);
+        int s = anetTcpServer(Modes.aneterr, modesNetServices[j].port,
+            modesNetServices[j].address);
         if (s == -1) {
-            fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
-                modesNetServices[j].port,
-                modesNetServices[j].descr,
-                strerror(errno));
+            if (modesNetServices[j].address == NULL)
+                fprintf(stderr, "Error opening the listening port %d (%s): %s\n",
+                    modesNetServices[j].port,
+                    modesNetServices[j].descr,
+                    strerror(errno));
+            else
+                fprintf(stderr, "Error opening the listening port %d on %s (%s): %s\n",
+                    modesNetServices[j].port,
+                    modesNetServices[j].address,
+                    modesNetServices[j].descr,
+                    strerror(errno));
             exit(1);
         }
         anetNonBlock(Modes.aneterr, s);
@@ -2799,9 +2808,13 @@ void showHelp(void) {
 "--raw                    Show only messages hex values.\n"
 "--net                    Enable networking.\n"
 "--net-only               Enable just networking, no RTL device or file used.\n"
+"--net-ro-addr <addr>     TCP listening address for raw output (default: 0.0.0.0).\n"
 "--net-ro-port <port>     TCP listening port for raw output (default: 30002).\n"
+"--net-ri-addr <addr>     TCP listenint address for raw input (default: 0.0.0.0).\n"
 "--net-ri-port <port>     TCP listening port for raw input (default: 30001).\n"
+"--net-http-addr <addr>   HTTP server address (default: 0.0.0.0).\n"
 "--net-http-port <port>   HTTP server port (default: 8080).\n"
+"--net-sbs-addr <addr>    TCP listening address for BaseStation format output (default: 0.0.0.0).\n"
 "--net-sbs-port <port>    TCP listening port for BaseStation format output (default: 30003).\n"
 "--no-fix                 Disable single-bits error correction using CRC.\n"
 "--no-crc-check           Disable messages with broken CRC (discouraged).\n"
@@ -2877,12 +2890,20 @@ int main(int argc, char **argv) {
         } else if (!strcmp(argv[j],"--net-only")) {
             Modes.net = 1;
             Modes.net_only = 1;
+        } else if (!strcmp(argv[j],"--net-ro-addr") && more) {
+            modesNetServices[MODES_NET_SERVICE_RAWO].address = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ro-port") && more) {
             modesNetServices[MODES_NET_SERVICE_RAWO].port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-ri-addr") && more) {
+            modesNetServices[MODES_NET_SERVICE_RAWI].address = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--net-ri-port") && more) {
             modesNetServices[MODES_NET_SERVICE_RAWI].port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-http-addr") && more) {
+            modesNetServices[MODES_NET_SERVICE_HTTP].address = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--net-http-port") && more) {
             modesNetServices[MODES_NET_SERVICE_HTTP].port = atoi(argv[++j]);
+        } else if (!strcmp(argv[j],"--net-sbs-addr") && more) {
+            modesNetServices[MODES_NET_SERVICE_SBS].address = strdup(argv[++j]);
         } else if (!strcmp(argv[j],"--net-sbs-port") && more) {
             modesNetServices[MODES_NET_SERVICE_SBS].port = atoi(argv[++j]);
         } else if (!strcmp(argv[j],"--onlyaddr")) {

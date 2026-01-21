@@ -140,7 +140,7 @@ Network server features
 
 By enabling the networking support with --net Dump1090 starts listening
 for clients connections on port 30002 and 30001 (you can change both the
-ports if you want, see --help output).
+ports if you want, as well as their listening addresses, see --help output).
 
 Port 30002
 ---
