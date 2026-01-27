@@ -3,13 +3,18 @@ LDLIBS+=$(shell pkg-config --libs librtlsdr) -lpthread -lm
 CC?=gcc
 PROGNAME=dump1090
 
-all: dump1090
+OBJDIR ?= .
+VPATH := .
 
-%.o: %.c
-	$(CC) $(CFLAGS) -c $<
+OBJS = $(OBJDIR)/dump1090.o $(OBJDIR)/anet.o
 
-dump1090: dump1090.o anet.o
-	$(CC) -g -o dump1090 dump1090.o anet.o $(LDFLAGS) $(LDLIBS)
+all: $(PROGNAME)
+
+$(OBJDIR)/%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(PROGNAME): $(OBJS)
+	$(CC) -g -o $(OBJDIR)/$(PROGNAME) $(OBJS) $(LDFLAGS) $(LDLIBS)
 
 clean:
-	rm -f *.o dump1090
+	rm -f $(OBJDIR)/*.o $(OBJDIR)/$(PROGNAME)
