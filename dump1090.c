@@ -312,7 +312,9 @@ void modesInitConfig(void) {
     Modes.interactive_rows = MODES_INTERACTIVE_ROWS;
     Modes.interactive_ttl = MODES_INTERACTIVE_TTL;
     Modes.aggressive = 0;
+    # if(!QNX)
     Modes.interactive_rows = getTermRows();
+    #endif
     Modes.loop = 0;
 }
 
@@ -2172,7 +2174,6 @@ void interactiveShowData(void) {
     memset(progress,' ',3);
     progress[time(NULL)%3] = '.';
     progress[3] = '\0';
-
     printf("\x1b[H\x1b[2J");    /* Clear the screen */
     printf(
 "Hex    Flight   Altitude  Speed   Lat       Lon       Track  Messages Seen %s\n"
