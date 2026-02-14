@@ -248,6 +248,20 @@ struct modesMessage {
     int ground_track;           /* Ground track angle (0-360 degrees). */
     int ground_track_valid;     /* Ground track field contains valid data. */
 
+    /* DF 17, 18: Target State and Status (metype 29) */
+    int tss_subtype;
+    int tss_sil;
+    int tss_nacp;
+    int tss_target_alt;
+    int tss_target_heading;
+    int tss_mcp_fcu;
+
+    /* DF 17, 18: Aircraft Operational Status (metype 31) */
+    int aos_subtype;
+    int aos_cc;
+    int aos_om;
+    int aos_version;
+
     /* DF4, DF5, DF20, DF21 */
     int fs;                     /* Flight status for DF4,5,20,21 */
     int dr;                     /* Request extraction of downlink request. */
@@ -1268,6 +1282,24 @@ void decodeModesMessage(struct modesMessage *mm, unsigned char *msg) {
             mm->raw_longitude = ((msg[8]&1) << 16) |
                                  (msg[9] << 8) |
                                  msg[10];
+        } else if (mm->metype == 29 && (mm->mesub == 0 || mm->mesub == 1)) {
+            /* Target State and Status Message */
+            mm->tss_subtype = mm->mesub >> 1;
+            if (mm->tss_subtype == 0) {
+                 mm->tss_sil = ((mm->mesub & 1) << 1) | (msg[5] >> 7);
+                 mm->tss_nacp = (msg[5] >> 6) & 1;
+                 /* Target Altitude is bits 14-24 (11 bits).
+                  * msg[5] bits 14-16 correspond to 0x07 (bits 0-2 of the byte).
+                  */
+                 mm->tss_target_alt = ((msg[5] & 7) << 8) | msg[6];
+                 mm->tss_target_heading = (msg[7] << 1) | (msg[8] >> 7);
+            }
+        } else if (mm->metype == 31) {
+            /* Aircraft Operational Status Message */
+            mm->aos_subtype = mm->mesub;
+            mm->aos_version = (msg[9] >> 5) & 7;
+            mm->aos_cc = (msg[5] << 8) | msg[6];
+            mm->aos_om = (msg[7] << 8) | msg[8];
         } else if (mm->metype == 19 && mm->mesub >= 1 && mm->mesub <= 4) {
             /* Airborne Velocity Message */
             if (mm->mesub == 1 || mm->mesub == 2) {
@@ -1426,6 +1458,19 @@ void displayModesMessage(struct modesMessage *mm) {
                 printf("    Heading status: %d", mm->heading_is_valid);
                 printf("    Heading: %d", mm->heading);
             }
+        } else if (mm->metype == 29) {
+            printf("    Target State and Status:\n");
+            printf("    Subtype: %d\n", mm->tss_subtype);
+            printf("    SIL: %d\n", mm->tss_sil);
+            printf("    NACp: %d\n", mm->tss_nacp);
+            printf("    Target Altitude: %d\n", mm->tss_target_alt);
+            printf("    Target Heading: %d\n", mm->tss_target_heading);
+        } else if (mm->metype == 31) {
+            printf("    Aircraft Operational Status:\n");
+            printf("    Subtype: %d\n", mm->aos_subtype);
+            printf("    Version: %d\n", mm->aos_version);
+            printf("    CC: %04x\n", mm->aos_cc);
+            printf("    OM: %04x\n", mm->aos_om);
         } else {
             printf("    Unrecognized ME type: %d subtype: %d\n",
                 mm->metype, mm->mesub);
@@ -1598,15 +1643,15 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
         /* First check of relations between the first 10 samples
          * representing a valid preamble. We don't even investigate further
          * if this simple test is not passed. */
-        if (!(m[j] > m[j+1] &&
-            m[j+1] < m[j+2] &&
-            m[j+2] > m[j+3] &&
+        if (!(m[j] >= m[j+1] &&
+            m[j+1] <= m[j+2] &&
+            m[j+2] >= m[j+3] &&
             m[j+3] < m[j] &&
             m[j+4] < m[j] &&
             m[j+5] < m[j] &&
             m[j+6] < m[j] &&
-            m[j+7] > m[j+8] &&
-            m[j+8] < m[j+9] &&
+            m[j+7] >= m[j+8] &&
+            m[j+8] <= m[j+9] &&
             m[j+9] > m[j+6]))
         {
             if (Modes.debug & MODES_DEBUG_NOPREAMBLE &&
