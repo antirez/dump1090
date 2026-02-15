@@ -5,8 +5,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="initial-scale=1.0, user-scalable=no">
     <title>Dump1090</title>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css" integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css"
+        integrity="sha512-2SwdPD6INVrV/lHTZbO2nodKhrnDdJK9/kg2XD1r9uGqPo1cUbujc+IYdlYdEErWNu69gVcYgdxlmVmzTWnetw=="
+        crossorigin="anonymous" referrerpolicy="no-referrer" />
     <style>
         /* Base styles */
         body {
@@ -28,6 +31,7 @@
             cursor: pointer;
             transition: transform 500ms linear;
         }
+
         .plane-icon__symbol {
             font-size: 24px;
             line-height: 32px;
@@ -38,6 +42,7 @@
             color: #ffd700;
             -webkit-text-stroke: 1px #000000;
         }
+
         .plane-icon__symbol--selected {
             color: #ff6b6b;
         }
@@ -60,63 +65,75 @@
             user-select: none;
             color: #ffffff;
         }
+
         .info-panel__header {
             padding: 12px 16px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             cursor: move;
         }
+
         .info-panel__title {
             margin: 0;
             font-size: 16px;
             font-weight: 600;
             color: #ffffff;
         }
+
         .info-panel__content {
             padding: 12px 16px;
             margin: 0;
         }
+
         .info-panel__text {
             font-size: 14px;
             color: rgba(255, 255, 255, 0.85);
             margin: 0 0 8px 0;
             line-height: 1.5;
         }
+
         .info-panel__text:last-child {
             margin-bottom: 0;
         }
+
         .info-panel__flight {
             font-size: 20px;
             font-weight: 700;
             color: #ffffff;
             margin: 0 0 4px 0;
         }
+
         .info-panel__icao {
             font-size: 12px;
             color: rgba(255, 255, 255, 0.5);
             margin: 0 0 12px 0;
             font-family: monospace;
         }
+
         .info-panel__grid {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 12px;
         }
+
         .info-panel__item {
             display: flex;
             flex-direction: column;
             gap: 2px;
         }
+
         .info-panel__label {
             font-size: 11px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: rgba(255, 255, 255, 0.5);
         }
+
         .info-panel__value {
             font-size: 15px;
             font-weight: 500;
             color: #ffffff;
         }
+
         .info-panel__coords {
             margin-top: 12px;
             padding-top: 12px;
@@ -143,13 +160,15 @@
         </div>
     </div>
 
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+        integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/interactjs@1.10.27/dist/interact.min.js"></script>
     <script type="module">
         // Leaflet map instance and planes state
         let map = null;
         const planes = {};
         let selectedPlane = null;
+        let copyingHex = null; // tracks which plane's info is being shown as "copied"
 
         // Update panel general info
         const updateGeneralInfo = () => {
@@ -163,30 +182,63 @@
 
         // Update panel with new plane info
         const updatePlaneInfo = (newPlane) => {
-            // Exit if new plane is not found
-            if (!newPlane) return;
+            // Exit if new plane is not found, or if we're currently showing "Copied!" feedback
+            if (!newPlane || copyingHex === newPlane.hex) return;
 
             // Update selected plane info
             const el = document.getElementById('planeInfo');
             el.innerHTML = `
-                <div class="info-panel__flight">${newPlane.flight || '—'}</div>
-                <div class="info-panel__icao">${newPlane.hex}</div>
+                <div class="info-panel__flight" data-copy="${newPlane.flight || '—'}" onclick="copyField(this)" title="Click to copy">${newPlane.flight || '—'}</div>
+                <div class="info-panel__icao" data-copy="${newPlane.hex}" onclick="copyField(this)" title="Click to copy">${newPlane.hex}</div>
                 <div class="info-panel__grid">
                     <div class="info-panel__item">
-                    <span class="info-panel__label">Altitude</span>
-                    <span class="info-panel__value">${newPlane.altitude ?? '—'} ft</span>
+                        <span class="info-panel__label">Altitude</span>
+                        <span class="info-panel__value" data-copy="${newPlane.altitude ?? '—'}" onclick="copyField(this)" title="Click to copy">${newPlane.altitude ?? '—'} ft</span>
                     </div>
                     <div class="info-panel__item">
-                    <span class="info-panel__label">Speed</span>
-                    <span class="info-panel__value">${newPlane.speed ?? '—'} kts</span>
+                        <span class="info-panel__label">Speed</span>
+                        <span class="info-panel__value" data-copy="${newPlane.speed ?? '—'}" onclick="copyField(this)" title="Click to copy">${newPlane.speed ?? '—'} kts</span>
                     </div>
                     <div class="info-panel__item">
-                    <span class="info-panel__label">Heading</span>
-                    <span class="info-panel__value">${newPlane.track ?? '—'}°</span>
+                        <span class="info-panel__label">Heading</span>
+                        <span class="info-panel__value" data-copy="${newPlane.track ?? '—'}" onclick="copyField(this)" title="Click to copy">${newPlane.track ?? '—'}°</span>
                     </div>
                 </div>
-                <div class="info-panel__coords">${newPlane.lat.toFixed(4)}, ${newPlane.lon.toFixed(4)}</div>
-                `;
+                <div class="info-panel__coords" data-copy="${newPlane.lat.toFixed(4)}, ${newPlane.lon.toFixed(4)}" onclick="copyField(this)" title="Click to copy">${newPlane.lat.toFixed(4)}, ${newPlane.lon.toFixed(4)}</div>
+            `;
+        };
+
+        // Copy text to clipboard when clicking on value elements
+        // Defines copyField function on the global window object to be accessible from inline onclick handlers
+        window.copyField = (el) => {
+            const text = el.dataset.copy;
+            if (!text || text === '—') return;
+
+            copyingHex = selectedPlane?.hex;
+
+            const finish = () => {
+                const original = el.innerHTML;
+                el.innerHTML = 'Copied!';
+                setTimeout(() => {
+                    el.innerHTML = original;
+                    copyingHex = null;
+                }, 1500);
+            };
+
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(text).then(finish);
+            } else {
+                // non-secure contexts (not on https or localhost)
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                finish();
+            }
         };
 
         // Create a custom marker with Font Awesome plane icon
@@ -306,11 +358,25 @@
         });
 
         // Initialize Leaflet instance
-        map = L.map('canvas').setView([37.0, 13.0], 8);
+        const savedView = JSON.parse(localStorage.getItem('mapView'));
+        map = L.map('canvas').setView(
+            savedView ? [savedView.lat, savedView.lng] : [37.0, 13.0],
+            savedView ? savedView.zoom : 8
+        );
+
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
+
+        map.on('moveend', () => {
+            const center = map.getCenter();
+            localStorage.setItem('mapView', JSON.stringify({
+                lat: center.lat,
+                lng: center.lng,
+                zoom: map.getZoom()
+            }));
+        });
 
         // Setup a timer to poll from the server
         setInterval(() => {
