@@ -358,11 +358,25 @@
         });
 
         // Initialize Leaflet instance
-        map = L.map('canvas').setView([37.0, 13.0], 8);
+        const savedView = JSON.parse(localStorage.getItem('mapView'));
+        map = L.map('canvas').setView(
+            savedView ? [savedView.lat, savedView.lng] : [37.0, 13.0],
+            savedView ? savedView.zoom : 8
+        );
+
         L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
             maxZoom: 19,
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
         }).addTo(map);
+
+        map.on('moveend', () => {
+            const center = map.getCenter();
+            localStorage.setItem('mapView', JSON.stringify({
+                lat: center.lat,
+                lng: center.lng,
+                zoom: map.getZoom()
+            }));
+        });
 
         // Setup a timer to poll from the server
         setInterval(() => {
