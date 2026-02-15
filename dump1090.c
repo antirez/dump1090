@@ -1617,8 +1617,8 @@ void detectModeS(uint16_t *m, uint32_t mlen) {
             continue;
         }
 
-        /* The samples between the two spikes must be < than the average
-         * of the high spikes level. We don't test bits too near to
+        /* The samples between the two spikes must be < than the 2/3 of
+         * the average of the high spikes level. We don't test bits too near to
          * the high levels as signals can be out of phase so part of the
          * energy can be in the near samples. */
         high = (m[j]+m[j+2]+m[j+7]+m[j+9])/6;
