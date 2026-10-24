@@ -2488,7 +2488,8 @@ int decodeHexMessage(struct client *c) {
     /* Turn the message into binary. */
     if (l < 2 || hex[0] != '*' || hex[l-1] != ';') return 0;
     hex++; l-=2; /* Skip * and ; */
-    if (l > MODES_LONG_MSG_BYTES*2) return 0; /* Too long message... broken. */
+    if (l == 0 || l > MODES_LONG_MSG_BYTES*2 || (l & 1)) return 0;
+    memset(msg,0,sizeof(msg));
     for (j = 0; j < l; j += 2) {
         int high = hexDigitVal(hex[j]);
         int low = hexDigitVal(hex[j+1]);
@@ -2496,6 +2497,7 @@ int decodeHexMessage(struct client *c) {
         if (high == -1 || low == -1) return 0;
         msg[j/2] = (high<<4) | low;
     }
+    if (l != modesMessageLenByType(msg[0] >> 3) / 4) return 0;
     decodeModesMessage(&mm,msg);
     useModesMessage(&mm);
     return 0;
