@@ -1359,7 +1359,7 @@ void displayModesMessage(struct modesMessage *mm) {
         printf("  Flight Status  : %s\n", fs_str[mm->fs]);
         printf("  DR             : %d\n", mm->dr);
         printf("  UM             : %d\n", mm->um);
-        printf("  Squawk         : %d\n", mm->identity);
+        printf("  Squawk         : %04d\n", mm->identity);
         printf("  ICAO Address   : %02x%02x%02x\n", mm->aa1, mm->aa2, mm->aa3);
 
         if (mm->msgtype == 21) {
@@ -2415,14 +2415,18 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         p += sprintf(p, "MSG,5,,,%02X%02X%02X,,,,,,,%d,,,,,,,%d,%d,%d,%d",
         mm->aa1, mm->aa2, mm->aa3, mm->altitude, alert, emergency, spi, ground);
     } else if (mm->msgtype == 5) {
-        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
+        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%04d,%d,%d,%d,%d",
         mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
     } else if (mm->msgtype == 11) {
         p += sprintf(p, "MSG,8,,,%02X%02X%02X,,,,,,,,,,,,,,,,,",
         mm->aa1, mm->aa2, mm->aa3);
     } else if ((mm->msgtype == 17 || mm->msgtype == 18) && mm->metype == 4) {
-        p += sprintf(p, "MSG,1,,,%02X%02X%02X,,,,,,%s,,,,,,,,0,0,0,0",
-        mm->aa1, mm->aa2, mm->aa3, mm->flight);
+        /* The flight number is padded with spaces to 8 characters: don't
+         * send the padding. */
+        int flen = strlen(mm->flight);
+        while (flen > 0 && mm->flight[flen-1] == ' ') flen--;
+        p += sprintf(p, "MSG,1,,,%02X%02X%02X,,,,,,%.*s,,,,,,,,0,0,0,0",
+        mm->aa1, mm->aa2, mm->aa3, flen, mm->flight);
     } else if ((mm->msgtype == 17 || mm->msgtype == 18) && mm->metype >= 9 && mm->metype <= 18) {
         if (a->lat == 0 && a->lon == 0)
             p += sprintf(p, "MSG,3,,,%02X%02X%02X,,,,,,,%d,,,,,,,0,0,0,0",
@@ -2437,7 +2441,7 @@ void modesSendSBSOutput(struct modesMessage *mm, struct aircraft *a) {
         p += sprintf(p, "MSG,4,,,%02X%02X%02X,,,,,,,,%d,%d,,,%i,,0,0,0,0",
         mm->aa1, mm->aa2, mm->aa3, a->speed, a->track, vr);
     } else if (mm->msgtype == 21) {
-        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%d,%d,%d,%d,%d",
+        p += sprintf(p, "MSG,6,,,%02X%02X%02X,,,,,,,,,,,,,%04d,%d,%d,%d,%d",
         mm->aa1, mm->aa2, mm->aa3, mm->identity, alert, emergency, spi, ground);
     } else {
         return;
